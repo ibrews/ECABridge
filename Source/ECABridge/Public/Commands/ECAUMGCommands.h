@@ -171,6 +171,27 @@ public:
 /**
  * Get information about a Widget Blueprint
  */
+/**
+ * Dump full widget tree hierarchy with properties, slot settings, and bindings.
+ */
+class FECACommand_DumpWidgetTree : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("dump_widget_tree"); }
+	virtual FString GetDescription() const override { return TEXT("Serialize a Widget Blueprint's full widget tree to JSON: hierarchical parent-child structure, widget classes, slot properties (padding, alignment, anchors), visibility, and is_variable status. Makes any UMG widget fully legible."); }
+	virtual FString GetCategory() const override { return TEXT("UMG"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("widget_path"), TEXT("string"), TEXT("Path to the Widget Blueprint"), true },
+			{ TEXT("include_slot_properties"), TEXT("boolean"), TEXT("Include slot properties like padding, alignment, size rules (default true)"), false, TEXT("true") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
 class FECACommand_GetWidgetInfo : public IECACommand
 {
 public:

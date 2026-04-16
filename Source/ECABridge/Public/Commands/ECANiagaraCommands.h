@@ -527,6 +527,27 @@ public:
 			{ TEXT("expression"), TEXT("string"), TEXT("Custom HLSL expression"), false }
 		};
 	}
-	
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Dump full Niagara system state: all emitters, module stacks, renderers, parameters.
+ */
+class FECACommand_DumpNiagaraSystem : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("dump_niagara_system"); }
+	virtual FString GetDescription() const override { return TEXT("Serialize a complete Niagara system to JSON: all emitters with their module stacks (per stage), renderers, parameters, and settings. Makes any Niagara system fully legible in one call."); }
+	virtual FString GetCategory() const override { return TEXT("Niagara"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("system_path"), TEXT("string"), TEXT("Path to the Niagara system asset"), true },
+			{ TEXT("include_module_inputs"), TEXT("boolean"), TEXT("Include all module input pin values (default true)"), false, TEXT("true") }
+		};
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };

@@ -127,6 +127,25 @@ public:
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
+// ─── dump_animation_blueprint ────────────────────────────────
+// Serialize an Animation Blueprint's state machine, states, transitions, and blend spaces.
+class FECACommand_DumpAnimationBlueprint : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("dump_animation_blueprint"); }
+	virtual FString GetDescription() const override { return TEXT("Serialize an Animation Blueprint to JSON: state machines with states and transitions, blend spaces, variables, and the AnimGraph structure. Makes any AnimBP fully legible."); }
+	virtual FString GetCategory() const override { return TEXT("Animation"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("anim_bp_path"), TEXT("string"), TEXT("Asset path to the Animation Blueprint"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
 // ─── create_animation_sequence ───────────────────────────────
 // Create a new UAnimSequence asset with programmatic bone keyframes.
 class FECACommand_CreateAnimationSequence : public IECACommand

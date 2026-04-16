@@ -256,3 +256,42 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+// ─── dump_level_sequence ─────────────────────────────────────
+// Serialize a complete Level Sequence to JSON: all bindings, tracks, sections, keyframes.
+class FECACommand_DumpLevelSequence : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("dump_level_sequence"); }
+	virtual FString GetDescription() const override { return TEXT("Serialize a complete Level Sequence to JSON: all bindings with tracks, sections, keyframe data, camera cuts, and playback range. Makes any sequence fully legible in one call."); }
+	virtual FString GetCategory() const override { return TEXT("Sequencer"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("sequence_path"), TEXT("string"), TEXT("Asset path of the Level Sequence"), true },
+			{ TEXT("include_keyframes"), TEXT("boolean"), TEXT("Include keyframe values per channel (default true — set false for structure-only overview)"), false, TEXT("true") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── add_sequence_animation_track ────────────────────────────
+class FECACommand_AddSequenceAnimationTrack : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("add_sequence_animation_track"); }
+	virtual FString GetDescription() const override { return TEXT("Add a skeletal animation track to a bound actor in a Level Sequence — required for poses/animations to render in MRQ"); }
+	virtual FString GetCategory() const override { return TEXT("Sequencer"); }
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("sequence_path"), TEXT("string"), TEXT("Asset path of the Level Sequence"), true },
+			{ TEXT("actor_name"), TEXT("string"), TEXT("Name of the bound actor"), true },
+			{ TEXT("animation_path"), TEXT("string"), TEXT("Asset path of the UAnimSequence to play"), true },
+			{ TEXT("start_time"), TEXT("number"), TEXT("Start time in seconds (default 0)"), false, TEXT("0") }
+		};
+	}
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};

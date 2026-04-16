@@ -32,6 +32,9 @@
 
 #include "Tracks/MovieSceneEventTrack.h"
 #include "Sections/MovieSceneEventSection.h"
+#include "Tracks/MovieSceneSkeletalAnimationTrack.h"
+#include "Sections/MovieSceneSkeletalAnimationSection.h"
+#include "Animation/AnimSequenceBase.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "UObject/SavePackage.h"
@@ -102,6 +105,7 @@ REGISTER_ECA_COMMAND(FECACommand_StopSequence);
 REGISTER_ECA_COMMAND(FECACommand_SetSequencePlaybackRange);
 REGISTER_ECA_COMMAND(FECACommand_AddSequenceEventKey);
 REGISTER_ECA_COMMAND(FECACommand_GetSequenceCurrentTime);
+REGISTER_ECA_COMMAND(FECACommand_AddSequenceAnimationTrack);
 
 // ─── create_level_sequence ─────────────────────────────────────
 
@@ -1122,6 +1126,89 @@ FECACommandResult FECACommand_GetSequenceCurrentTime::Execute(const TSharedPtr<F
 	Result->SetNumberField(TEXT("current_frame"), CurrentFrame.Value);
 	Result->SetBoolField(TEXT("is_playing"), Player->IsPlaying());
 	Result->SetNumberField(TEXT("total_duration"), TotalDuration);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── add_sequence_animation_track ────────────────────────────
+
+FECACommandResult FECACommand_AddSequenceAnimationTrack::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SequencePath, ActorName, AnimationPath;
+	double StartTime = 0.0;
+
+	if (!GetStringParam(Params, TEXT("sequence_path"), SequencePath))
+		return FECACommandResult::Error(TEXT("Missing required parameter: sequence_path"));
+	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+	if (!GetStringParam(Params, TEXT("animation_path"), AnimationPath))
+		return FECACommandResult::Error(TEXT("Missing required parameter: animation_path"));
+	GetFloatParam(Params, TEXT("start_time"), StartTime, false);
+
+	ULevelSequence* Seq = SequencerCommandHelpers::LoadSequence(SequencePath);
+	if (!Seq)
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not load Level Sequence at: %s"), *SequencePath));
+
+	UMovieScene* MovieScene = Seq->GetMovieScene();
+	if (!MovieScene)
+		return FECACommandResult::Error(TEXT("Level Sequence has no MovieScene"));
+
+	// Find the actor's binding
+	FGuid BindingGuid;
+	if (!SequencerCommandHelpers::FindActorBinding(Seq, MovieScene, ActorName, BindingGuid))
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor '%s' is not bound to this sequence. Use add_sequence_actor_binding first."), *ActorName));
+
+	// Load the animation
+	UAnimSequenceBase* AnimSeq = LoadObject<UAnimSequenceBase>(nullptr, *AnimationPath);
+	if (!AnimSeq)
+	{
+		FString FullPath = AnimationPath;
+		if (!FullPath.Contains(TEXT(".")))
+		{
+			FString AssetName = FPackageName::GetShortName(FullPath);
+			FullPath = FullPath + TEXT(".") + AssetName;
+		}
+		AnimSeq = LoadObject<UAnimSequenceBase>(nullptr, *FullPath);
+	}
+	if (!AnimSeq)
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not load animation at: %s"), *AnimationPath));
+
+	// Find or create a skeletal animation track on this binding
+	UMovieSceneSkeletalAnimationTrack* AnimTrack = nullptr;
+	const FMovieSceneBinding* Binding = MovieScene->FindBinding(BindingGuid);
+	if (Binding)
+	{
+		for (UMovieSceneTrack* Track : Binding->GetTracks())
+		{
+			AnimTrack = Cast<UMovieSceneSkeletalAnimationTrack>(Track);
+			if (AnimTrack) break;
+		}
+	}
+
+	if (!AnimTrack)
+	{
+		AnimTrack = MovieScene->AddTrack<UMovieSceneSkeletalAnimationTrack>(BindingGuid);
+		if (!AnimTrack)
+			return FECACommandResult::Error(TEXT("Failed to create skeletal animation track"));
+	}
+
+	// Add the animation at the specified time
+	FFrameRate TickResolution = MovieScene->GetTickResolution();
+	FFrameNumber StartFrame = (StartTime * TickResolution).FloorToFrame();
+
+	UMovieSceneSection* NewSection = AnimTrack->AddNewAnimation(StartFrame, AnimSeq);
+	if (!NewSection)
+		return FECACommandResult::Error(TEXT("Failed to add animation to track"));
+
+	Seq->MarkPackageDirty();
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("sequence"), Seq->GetPathName());
+	Result->SetStringField(TEXT("actor_name"), ActorName);
+	Result->SetStringField(TEXT("animation"), AnimSeq->GetPathName());
+	Result->SetNumberField(TEXT("start_time"), StartTime);
+	Result->SetNumberField(TEXT("animation_length"), AnimSeq->GetPlayLength());
+	Result->SetStringField(TEXT("track_class"), AnimTrack->GetClass()->GetName());
 
 	return FECACommandResult::Success(Result);
 }
