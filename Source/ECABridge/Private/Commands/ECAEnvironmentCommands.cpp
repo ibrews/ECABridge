@@ -46,6 +46,9 @@
 #include "Engine/TriggerBox.h"
 #include "Components/BoxComponent.h"
 #include "Engine/World.h"
+#include "Kismet/GameplayStatics.h"
+#include "GameFramework/GameModeBase.h"
+#include "GameFramework/PlayerStart.h"
 
 // ─── REGISTER ───────────────────────────────────────────────
 
@@ -77,6 +80,10 @@ REGISTER_ECA_COMMAND(FECACommand_DistributeActors);
 REGISTER_ECA_COMMAND(FECACommand_SnapshotSceneState);
 REGISTER_ECA_COMMAND(FECACommand_RestoreSceneState);
 REGISTER_ECA_COMMAND(FECACommand_ListSceneSnapshots);
+REGISTER_ECA_COMMAND(FECACommand_SetTimeDilation);
+REGISTER_ECA_COMMAND(FECACommand_MeasureDistance);
+REGISTER_ECA_COMMAND(FECACommand_RandomizeTransforms);
+REGISTER_ECA_COMMAND(FECACommand_GetWorldInfo);
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -3223,6 +3230,372 @@ FECACommandResult FECACommand_ListSceneSnapshots::Execute(const TSharedPtr<FJson
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetArrayField(TEXT("snapshots"), SnapshotArray);
 	Result->SetNumberField(TEXT("total_count"), SnapshotArray.Num());
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── set_time_dilation ─────────────────────────────────────
+
+FECACommandResult FECACommand_SetTimeDilation::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	double TimeDilation = 1.0;
+	if (!GetFloatParam(Params, TEXT("time_dilation"), TimeDilation))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: time_dilation"));
+	}
+
+	// Clamp to UE's valid range (UE min is KINDA_SMALL_NUMBER, max is generally 20)
+	const double MinDilation = 0.0001;
+	const double MaxDilation = 20.0;
+	if (TimeDilation < MinDilation || TimeDilation > MaxDilation)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("time_dilation must be between %f and %f, got %f"), MinDilation, MaxDilation, TimeDilation));
+	}
+
+	AWorldSettings* WorldSettings = World->GetWorldSettings();
+	if (!WorldSettings)
+	{
+		return FECACommandResult::Error(TEXT("Could not access world settings"));
+	}
+
+	double PreviousDilation = WorldSettings->TimeDilation;
+	WorldSettings->TimeDilation = static_cast<float>(TimeDilation);
+	WorldSettings->MarkPackageDirty();
+
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetNumberField(TEXT("time_dilation"), TimeDilation);
+	Result->SetNumberField(TEXT("previous_time_dilation"), PreviousDilation);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── measure_distance ──────────────────────────────────────
+
+FECACommandResult FECACommand_MeasureDistance::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FVector FromLocation = FVector::ZeroVector;
+	FVector ToLocation = FVector::ZeroVector;
+	FString FromLabel;
+	FString ToLabel;
+	bool bHasFrom = false;
+	bool bHasTo = false;
+
+	// Resolve "from" — actor takes priority over point
+	FString FromActorName;
+	if (GetStringParam(Params, TEXT("from_actor"), FromActorName, /*bRequired=*/false) && !FromActorName.IsEmpty())
+	{
+		AActor* FromActor = FindActorByName(FromActorName);
+		if (!FromActor)
+		{
+			return FECACommandResult::Error(FString::Printf(TEXT("from_actor not found: %s"), *FromActorName));
+		}
+		FromLocation = FromActor->GetActorLocation();
+		FromLabel = FromActor->GetActorLabel();
+		bHasFrom = true;
+	}
+	else if (GetVectorParam(Params, TEXT("from_point"), FromLocation, /*bRequired=*/false))
+	{
+		FromLabel = TEXT("point");
+		bHasFrom = true;
+	}
+
+	// Resolve "to" — actor takes priority over point
+	FString ToActorName;
+	if (GetStringParam(Params, TEXT("to_actor"), ToActorName, /*bRequired=*/false) && !ToActorName.IsEmpty())
+	{
+		AActor* ToActor = FindActorByName(ToActorName);
+		if (!ToActor)
+		{
+			return FECACommandResult::Error(FString::Printf(TEXT("to_actor not found: %s"), *ToActorName));
+		}
+		ToLocation = ToActor->GetActorLocation();
+		ToLabel = ToActor->GetActorLabel();
+		bHasTo = true;
+	}
+	else if (GetVectorParam(Params, TEXT("to_point"), ToLocation, /*bRequired=*/false))
+	{
+		ToLabel = TEXT("point");
+		bHasTo = true;
+	}
+
+	if (!bHasFrom)
+	{
+		return FECACommandResult::Error(TEXT("Must specify either from_actor or from_point"));
+	}
+	if (!bHasTo)
+	{
+		return FECACommandResult::Error(TEXT("Must specify either to_actor or to_point"));
+	}
+
+	double Distance = FVector::Dist(FromLocation, ToLocation);
+	FVector Delta = ToLocation - FromLocation;
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetNumberField(TEXT("distance_cm"), Distance);
+	Result->SetNumberField(TEXT("distance_m"), Distance / 100.0);
+	Result->SetStringField(TEXT("from_label"), FromLabel);
+	Result->SetObjectField(TEXT("from_location"), VectorToJson(FromLocation));
+	Result->SetStringField(TEXT("to_label"), ToLabel);
+	Result->SetObjectField(TEXT("to_location"), VectorToJson(ToLocation));
+	Result->SetObjectField(TEXT("delta"), VectorToJson(Delta));
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── randomize_transforms ──────────────────────────────────
+
+FECACommandResult FECACommand_RandomizeTransforms::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// Actor names (required)
+	const TArray<TSharedPtr<FJsonValue>>* ActorNamesArray = nullptr;
+	if (!GetArrayParam(Params, TEXT("actor_names"), ActorNamesArray))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_names"));
+	}
+
+	if (ActorNamesArray->Num() == 0)
+	{
+		return FECACommandResult::Error(TEXT("actor_names array is empty"));
+	}
+
+	// Bounds (optional)
+	FVector BoundsMin;
+	FVector BoundsMax;
+	bool bHasBoundsMin = GetVectorParam(Params, TEXT("bounds_min"), BoundsMin, /*bRequired=*/false);
+	bool bHasBoundsMax = GetVectorParam(Params, TEXT("bounds_max"), BoundsMax, /*bRequired=*/false);
+	bool bHasExplicitBounds = bHasBoundsMin && bHasBoundsMax;
+
+	// Randomization options
+	bool bRandomizeRotation = true;
+	GetBoolParam(Params, TEXT("randomize_rotation"), bRandomizeRotation, /*bRequired=*/false);
+
+	bool bRandomizeScale = false;
+	GetBoolParam(Params, TEXT("randomize_scale"), bRandomizeScale, /*bRequired=*/false);
+
+	double ScaleMin = 0.8;
+	GetFloatParam(Params, TEXT("scale_min"), ScaleMin, /*bRequired=*/false);
+
+	double ScaleMax = 1.2;
+	GetFloatParam(Params, TEXT("scale_max"), ScaleMax, /*bRequired=*/false);
+
+	if (bRandomizeScale && ScaleMin > ScaleMax)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("scale_min (%f) must be <= scale_max (%f)"), ScaleMin, ScaleMax));
+	}
+
+	// Resolve actors
+	TArray<AActor*> Actors;
+	TArray<FString> NotFound;
+
+	for (const TSharedPtr<FJsonValue>& NameVal : *ActorNamesArray)
+	{
+		FString ActorName = NameVal->AsString();
+		AActor* Actor = FindActorByName(ActorName);
+		if (Actor)
+		{
+			Actors.Add(Actor);
+		}
+		else
+		{
+			NotFound.Add(ActorName);
+		}
+	}
+
+	if (Actors.Num() == 0)
+	{
+		return FECACommandResult::Error(TEXT("None of the specified actors were found"));
+	}
+
+	// Randomize each actor
+	TArray<TSharedPtr<FJsonValue>> ResultActors;
+
+	for (AActor* Actor : Actors)
+	{
+		FVector CurrentLocation = Actor->GetActorLocation();
+		FVector NewLocation;
+
+		if (bHasExplicitBounds)
+		{
+			// Scatter within the explicit bounding box
+			NewLocation.X = FMath::FRandRange(BoundsMin.X, BoundsMax.X);
+			NewLocation.Y = FMath::FRandRange(BoundsMin.Y, BoundsMax.Y);
+			NewLocation.Z = FMath::FRandRange(BoundsMin.Z, BoundsMax.Z);
+		}
+		else
+		{
+			// Scatter around current position within +/-100 units
+			NewLocation.X = CurrentLocation.X + FMath::FRandRange(-100.0, 100.0);
+			NewLocation.Y = CurrentLocation.Y + FMath::FRandRange(-100.0, 100.0);
+			NewLocation.Z = CurrentLocation.Z + FMath::FRandRange(-100.0, 100.0);
+		}
+
+		Actor->SetActorLocation(NewLocation);
+
+		if (bRandomizeRotation)
+		{
+			FRotator CurrentRotation = Actor->GetActorRotation();
+			CurrentRotation.Yaw = FMath::FRandRange(0.0, 360.0);
+			Actor->SetActorRotation(CurrentRotation);
+		}
+
+		if (bRandomizeScale)
+		{
+			double Scale = FMath::FRandRange(ScaleMin, ScaleMax);
+			Actor->SetActorScale3D(FVector(Scale));
+		}
+
+		Actor->MarkPackageDirty();
+
+		TSharedPtr<FJsonObject> ActorInfo = MakeShared<FJsonObject>();
+		ActorInfo->SetStringField(TEXT("actor_name"), Actor->GetActorLabel());
+		ActorInfo->SetObjectField(TEXT("location"), VectorToJson(Actor->GetActorLocation()));
+		ActorInfo->SetObjectField(TEXT("rotation"), RotatorToJson(Actor->GetActorRotation()));
+		ActorInfo->SetObjectField(TEXT("scale"), VectorToJson(Actor->GetActorScale3D()));
+		ResultActors.Add(MakeShared<FJsonValueObject>(ActorInfo));
+	}
+
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetArrayField(TEXT("actors"), ResultActors);
+	Result->SetNumberField(TEXT("randomized_count"), Actors.Num());
+
+	if (NotFound.Num() > 0)
+	{
+		TArray<TSharedPtr<FJsonValue>> NotFoundArray;
+		for (const FString& Name : NotFound)
+		{
+			NotFoundArray.Add(MakeShared<FJsonValueString>(Name));
+		}
+		Result->SetArrayField(TEXT("not_found"), NotFoundArray);
+	}
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── get_world_info ────────────────────────────────────────
+
+FECACommandResult FECACommand_GetWorldInfo::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+
+	// Level name and path
+	FString LevelName = World->GetMapName();
+	LevelName.RemoveFromStart(World->StreamingLevelsPrefix);
+	Result->SetStringField(TEXT("level_name"), LevelName);
+
+	ULevel* CurrentLevel = World->GetCurrentLevel();
+	if (CurrentLevel && CurrentLevel->GetOutermost())
+	{
+		Result->SetStringField(TEXT("level_path"), CurrentLevel->GetOutermost()->GetName());
+	}
+
+	// Actor counts
+	int32 TotalActors = 0;
+	int32 LightCount = 0;
+
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		++TotalActors;
+		if ((*It)->IsA<ALight>())
+		{
+			++LightCount;
+		}
+	}
+
+	Result->SetNumberField(TEXT("actor_count"), TotalActors);
+	Result->SetNumberField(TEXT("light_count"), LightCount);
+
+	// World settings
+	AWorldSettings* WorldSettings = World->GetWorldSettings();
+	if (WorldSettings)
+	{
+		Result->SetNumberField(TEXT("time_dilation"), WorldSettings->TimeDilation);
+	}
+
+	// Gravity
+	double GravityZ = World->GetGravityZ();
+	Result->SetNumberField(TEXT("gravity_z"), GravityZ);
+
+	// World bounds — compute from all actors
+	FBox WorldBounds(ForceInit);
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (!Actor || Actor->IsA<AWorldSettings>())
+		{
+			continue;
+		}
+		FVector Origin;
+		FVector BoxExtent;
+		Actor->GetActorBounds(false, Origin, BoxExtent);
+		if (!BoxExtent.IsNearlyZero())
+		{
+			WorldBounds += FBox(Origin - BoxExtent, Origin + BoxExtent);
+		}
+	}
+
+	if (WorldBounds.IsValid)
+	{
+		Result->SetObjectField(TEXT("world_bounds_min"), VectorToJson(WorldBounds.Min));
+		Result->SetObjectField(TEXT("world_bounds_max"), VectorToJson(WorldBounds.Max));
+	}
+
+	// Game mode
+	if (World->GetAuthGameMode())
+	{
+		Result->SetStringField(TEXT("game_mode"), World->GetAuthGameMode()->GetClass()->GetName());
+	}
+	else
+	{
+		// Try to get the default game mode from world settings
+		if (WorldSettings && WorldSettings->DefaultGameMode)
+		{
+			Result->SetStringField(TEXT("game_mode"), WorldSettings->DefaultGameMode->GetName());
+		}
+		else
+		{
+			Result->SetStringField(TEXT("game_mode"), TEXT("None"));
+		}
+	}
+
+	// Player start location
+	for (TActorIterator<APlayerStart> It(World); It; ++It)
+	{
+		APlayerStart* PlayerStart = *It;
+		if (PlayerStart)
+		{
+			Result->SetObjectField(TEXT("player_start_location"), VectorToJson(PlayerStart->GetActorLocation()));
+			Result->SetObjectField(TEXT("player_start_rotation"), RotatorToJson(PlayerStart->GetActorRotation()));
+			break; // Just the first one
+		}
+	}
 
 	return FECACommandResult::Success(Result);
 }

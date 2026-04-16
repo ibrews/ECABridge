@@ -606,3 +606,86 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+// ─── set_time_dilation ──────────────────────────────────
+// Set the world time dilation (slow motion / bullet time / fast forward).
+class FECACommand_SetTimeDilation : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_time_dilation"); }
+	virtual FString GetDescription() const override { return TEXT("Set the world time dilation (slow motion / bullet time / fast forward)"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("time_dilation"), TEXT("number"), TEXT("Time dilation factor — 1.0 is normal, 0.1 is 10x slow-mo, 2.0 is 2x speed"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── measure_distance ───────────────────────────────────
+// Measure the distance between two actors or two points.
+class FECACommand_MeasureDistance : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("measure_distance"); }
+	virtual FString GetDescription() const override { return TEXT("Measure the distance between two actors or two points"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("from_actor"), TEXT("string"), TEXT("Name or label of the source actor"), false },
+			{ TEXT("from_point"), TEXT("object"), TEXT("Source point as {x, y, z}"), false },
+			{ TEXT("to_actor"), TEXT("string"), TEXT("Name or label of the target actor"), false },
+			{ TEXT("to_point"), TEXT("object"), TEXT("Target point as {x, y, z}"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── randomize_transforms ───────────────────────────────
+// Randomly scatter actors within a bounding box.
+class FECACommand_RandomizeTransforms : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("randomize_transforms"); }
+	virtual FString GetDescription() const override { return TEXT("Randomly scatter actors within a bounding box — useful for creating organic-looking scenes"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("actor_names"), TEXT("array"), TEXT("Array of actor name/label strings to randomize"), true },
+			{ TEXT("bounds_min"), TEXT("object"), TEXT("Minimum corner of the bounding box as {x, y, z} — defaults to each actor's position minus 100"), false },
+			{ TEXT("bounds_max"), TEXT("object"), TEXT("Maximum corner of the bounding box as {x, y, z} — defaults to each actor's position plus 100"), false },
+			{ TEXT("randomize_rotation"), TEXT("boolean"), TEXT("Apply random yaw rotation (default: true)"), false, TEXT("true") },
+			{ TEXT("randomize_scale"), TEXT("boolean"), TEXT("Apply random uniform scale (default: false)"), false, TEXT("false") },
+			{ TEXT("scale_min"), TEXT("number"), TEXT("Minimum scale factor when randomize_scale is true (default: 0.8)"), false, TEXT("0.8") },
+			{ TEXT("scale_max"), TEXT("number"), TEXT("Maximum scale factor when randomize_scale is true (default: 1.2)"), false, TEXT("1.2") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── get_world_info ─────────────────────────────────────
+// Get comprehensive world/level information.
+class FECACommand_GetWorldInfo : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("get_world_info"); }
+	virtual FString GetDescription() const override { return TEXT("Get comprehensive world/level information: level name, path, bounds, actor count, gravity, time dilation, game mode, player start"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
