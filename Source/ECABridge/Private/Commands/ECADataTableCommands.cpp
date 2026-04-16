@@ -693,3 +693,122 @@ FECACommandResult FECACommand_DeleteDataTableRow::Execute(const TSharedPtr<FJson
 
 	return FECACommandResult::Success(Result);
 }
+
+//------------------------------------------------------------------------------
+// DumpDataTable
+//------------------------------------------------------------------------------
+REGISTER_ECA_COMMAND(FECACommand_DumpDataTable)
+
+FECACommandResult FECACommand_DumpDataTable::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString AssetPath;
+	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+	}
+
+	UDataTable* DataTable = LoadObject<UDataTable>(nullptr, *AssetPath);
+	if (!DataTable)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("DataTable not found: %s"), *AssetPath));
+	}
+
+	const UScriptStruct* RowStruct = DataTable->GetRowStruct();
+	if (!RowStruct)
+	{
+		return FECACommandResult::Error(TEXT("DataTable has no row structure defined"));
+	}
+
+	int32 MaxRows = 500;
+	GetIntParam(Params, TEXT("max_rows"), MaxRows, false);
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("asset_path"), AssetPath);
+	Result->SetStringField(TEXT("row_struct_name"), RowStruct->GetName());
+	Result->SetStringField(TEXT("row_struct_path"), RowStruct->GetPathName());
+
+	// ---- Schema (columns) ----
+	TArray<TSharedPtr<FJsonValue>> ColumnsArray;
+	for (TFieldIterator<FProperty> PropIt(RowStruct); PropIt; ++PropIt)
+	{
+		FProperty* Property = *PropIt;
+		TSharedPtr<FJsonObject> ColumnObj = MakeShared<FJsonObject>();
+		ColumnObj->SetStringField(TEXT("name"), Property->GetName());
+		ColumnObj->SetStringField(TEXT("type"), GetPropertyTypeString(Property));
+		ColumnObj->SetStringField(TEXT("cpp_type"), Property->GetCPPType());
+
+		FString ToolTip = Property->GetMetaData(TEXT("ToolTip"));
+		if (!ToolTip.IsEmpty())
+		{
+			ColumnObj->SetStringField(TEXT("tooltip"), ToolTip);
+		}
+
+		if (FEnumProperty* EnumProp = CastField<FEnumProperty>(Property))
+		{
+			UEnum* Enum = EnumProp->GetEnum();
+			TArray<TSharedPtr<FJsonValue>> EnumValues;
+			for (int32 i = 0; i < Enum->NumEnums() - 1; i++)
+			{
+				EnumValues.Add(MakeShared<FJsonValueString>(Enum->GetNameStringByIndex(i)));
+			}
+			ColumnObj->SetArrayField(TEXT("enum_values"), EnumValues);
+		}
+		else if (FByteProperty* ByteProp = CastField<FByteProperty>(Property))
+		{
+			if (UEnum* Enum = ByteProp->GetIntPropertyEnum())
+			{
+				TArray<TSharedPtr<FJsonValue>> EnumValues;
+				for (int32 i = 0; i < Enum->NumEnums() - 1; i++)
+				{
+					EnumValues.Add(MakeShared<FJsonValueString>(Enum->GetNameStringByIndex(i)));
+				}
+				ColumnObj->SetArrayField(TEXT("enum_values"), EnumValues);
+			}
+		}
+
+		if (FStructProperty* StructProp = CastField<FStructProperty>(Property))
+		{
+			TArray<TSharedPtr<FJsonValue>> StructFields;
+			for (TFieldIterator<FProperty> InnerIt(StructProp->Struct); InnerIt; ++InnerIt)
+			{
+				TSharedPtr<FJsonObject> FieldInfo = MakeShared<FJsonObject>();
+				FieldInfo->SetStringField(TEXT("name"), InnerIt->GetName());
+				FieldInfo->SetStringField(TEXT("type"), GetPropertyTypeString(*InnerIt));
+				StructFields.Add(MakeShared<FJsonValueObject>(FieldInfo));
+			}
+			ColumnObj->SetArrayField(TEXT("struct_fields"), StructFields);
+		}
+
+		ColumnsArray.Add(MakeShared<FJsonValueObject>(ColumnObj));
+	}
+	Result->SetArrayField(TEXT("columns"), ColumnsArray);
+
+	// ---- Rows ----
+	const TMap<FName, uint8*>& RowMap = DataTable->GetRowMap();
+	int32 TotalRowCount = RowMap.Num();
+	Result->SetNumberField(TEXT("total_row_count"), TotalRowCount);
+
+	TArray<TSharedPtr<FJsonValue>> RowsArray;
+	int32 ReturnedCount = 0;
+
+	for (const auto& Pair : RowMap)
+	{
+		if (MaxRows > 0 && ReturnedCount >= MaxRows)
+		{
+			break;
+		}
+
+		TSharedPtr<FJsonObject> RowObj = MakeShared<FJsonObject>();
+		RowObj->SetStringField(TEXT("row_name"), Pair.Key.ToString());
+		RowObj->SetObjectField(TEXT("data"), RowToJsonObject(RowStruct, Pair.Value));
+
+		RowsArray.Add(MakeShared<FJsonValueObject>(RowObj));
+		ReturnedCount++;
+	}
+
+	Result->SetArrayField(TEXT("rows"), RowsArray);
+	Result->SetNumberField(TEXT("returned_count"), ReturnedCount);
+	Result->SetBoolField(TEXT("truncated"), MaxRows > 0 && TotalRowCount > MaxRows);
+
+	return FECACommandResult::Success(Result);
+}

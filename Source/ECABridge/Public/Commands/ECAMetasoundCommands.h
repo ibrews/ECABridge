@@ -328,6 +328,26 @@ public:
  * 2. Traverses connections forward to determine node order/depth
  * 3. Positions nodes with consistent spacing to avoid overlaps
  */
+/**
+ * Dump full MetaSound graph: all nodes, connections, inputs, outputs in one call.
+ */
+class FECACommand_DumpMetasoundGraph : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("dump_metasound_graph"); }
+	virtual FString GetDescription() const override { return TEXT("Serialize a complete MetaSound source to JSON: all nodes with pins and connections, source inputs/outputs, and graph structure. Combines get_metasound_nodes + get_metasound_interface in one call."); }
+	virtual FString GetCategory() const override { return TEXT("Metasound"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("asset_path"), TEXT("string"), TEXT("Path to the MetaSound source asset"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
 class FECACommand_AutoLayoutMetasoundGraph : public IECACommand
 {
 public:

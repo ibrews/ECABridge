@@ -54,6 +54,7 @@ REGISTER_ECA_COMMAND(FECACommand_GetMetasoundNodeTypes)
 REGISTER_ECA_COMMAND(FECACommand_PreviewMetasound)
 REGISTER_ECA_COMMAND(FECACommand_GetMetasoundInterface)
 REGISTER_ECA_COMMAND(FECACommand_SpawnMetasoundPlayer)
+REGISTER_ECA_COMMAND(FECACommand_DumpMetasoundGraph)
 REGISTER_ECA_COMMAND(FECACommand_AutoLayoutMetasoundGraph)
 
 //------------------------------------------------------------------------------
@@ -2147,6 +2148,107 @@ FECACommandResult FECACommand_AutoLayoutMetasoundGraph::Execute(const TSharedPtr
 		PositionedNodesArray.Add(MakeShared<FJsonValueObject>(NodeInfo));
 	}
 	Result->SetArrayField(TEXT("positioned_nodes"), PositionedNodesArray);
-	
+
+	return FECACommandResult::Success(Result);
+}
+
+//------------------------------------------------------------------------------
+// DumpMetasoundGraph - Full graph dump: nodes, pins, connections, interface
+//------------------------------------------------------------------------------
+
+FECACommandResult FECACommand_DumpMetasoundGraph::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString AssetPath;
+
+	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath, true))
+	{
+		return FECACommandResult::Error(TEXT("asset_path is required"));
+	}
+
+	UMetaSoundSource* MetaSound = LoadMetaSoundSource(AssetPath);
+	if (!MetaSound)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("MetaSound not found: %s"), *AssetPath));
+	}
+
+	// Get builder for node iteration
+	EMetaSoundBuilderResult BuilderResult;
+	UMetaSoundBuilderBase* Builder = GetMetaSoundBuilder(MetaSound, BuilderResult);
+	if (!Builder || BuilderResult != EMetaSoundBuilderResult::Succeeded)
+	{
+		return FECACommandResult::Error(TEXT("Failed to get MetaSound builder. Make sure the editor is running."));
+	}
+
+	const FMetaSoundFrontendDocumentBuilder& DocBuilder = Builder->GetConstBuilder();
+
+	// --- Nodes (always with full details) ---
+	TArray<TSharedPtr<FJsonValue>> NodesArray;
+
+	DocBuilder.IterateNodesByPredicate(
+		[&](const FMetasoundFrontendClass& NodeClass, const FMetasoundFrontendNode& Node, const FGuid& PageID)
+		{
+			NodesArray.Add(MakeShared<FJsonValueObject>(MetasoundNodeToJson(Node, true /* bIncludeDetails */)));
+		},
+		[](const FMetasoundFrontendNode& Node) { return true; },
+		nullptr,
+		true
+	);
+
+	// --- Connections ---
+	TArray<TSharedPtr<FJsonValue>> ConnectionsArray;
+
+	const FMetasoundFrontendDocument& Document = DocBuilder.GetConstDocumentChecked();
+	const FMetasoundFrontendGraphClass& GraphClass = Document.RootGraph;
+
+	GraphClass.IterateGraphPages([&](const FMetasoundFrontendGraph& Graph)
+	{
+		for (const FMetasoundFrontendEdge& Edge : Graph.Edges)
+		{
+			TSharedPtr<FJsonObject> EdgeObj = MakeShared<FJsonObject>();
+			EdgeObj->SetStringField(TEXT("from_node_id"), GetNodeIdString(Edge.FromNodeID));
+			EdgeObj->SetStringField(TEXT("from_vertex_id"), GetNodeIdString(Edge.FromVertexID));
+			EdgeObj->SetStringField(TEXT("to_node_id"), GetNodeIdString(Edge.ToNodeID));
+			EdgeObj->SetStringField(TEXT("to_vertex_id"), GetNodeIdString(Edge.ToVertexID));
+			ConnectionsArray.Add(MakeShared<FJsonValueObject>(EdgeObj));
+		}
+	});
+
+	// --- Interface: source inputs and outputs ---
+	const FMetasoundFrontendClassInterface& Interface = GraphClass.GetDefaultInterface();
+
+	TArray<TSharedPtr<FJsonValue>> SourceInputsArray;
+	for (const FMetasoundFrontendClassInput& Input : Interface.Inputs)
+	{
+		TSharedPtr<FJsonObject> InputObj = MakeShared<FJsonObject>();
+		InputObj->SetStringField(TEXT("name"), Input.Name.ToString());
+		InputObj->SetStringField(TEXT("type"), Input.TypeName.ToString());
+		InputObj->SetStringField(TEXT("vertex_id"), GetNodeIdString(Input.VertexID));
+		InputObj->SetStringField(TEXT("node_id"), GetNodeIdString(Input.NodeID));
+		SourceInputsArray.Add(MakeShared<FJsonValueObject>(InputObj));
+	}
+
+	TArray<TSharedPtr<FJsonValue>> SourceOutputsArray;
+	for (const FMetasoundFrontendClassOutput& Output : Interface.Outputs)
+	{
+		TSharedPtr<FJsonObject> OutputObj = MakeShared<FJsonObject>();
+		OutputObj->SetStringField(TEXT("name"), Output.Name.ToString());
+		OutputObj->SetStringField(TEXT("type"), Output.TypeName.ToString());
+		OutputObj->SetStringField(TEXT("vertex_id"), GetNodeIdString(Output.VertexID));
+		OutputObj->SetStringField(TEXT("node_id"), GetNodeIdString(Output.NodeID));
+		SourceOutputsArray.Add(MakeShared<FJsonValueObject>(OutputObj));
+	}
+
+	// --- Build result ---
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("asset_path"), AssetPath);
+	Result->SetArrayField(TEXT("nodes"), NodesArray);
+	Result->SetNumberField(TEXT("node_count"), NodesArray.Num());
+	Result->SetArrayField(TEXT("connections"), ConnectionsArray);
+	Result->SetNumberField(TEXT("connection_count"), ConnectionsArray.Num());
+	Result->SetArrayField(TEXT("source_inputs"), SourceInputsArray);
+	Result->SetNumberField(TEXT("source_input_count"), SourceInputsArray.Num());
+	Result->SetArrayField(TEXT("source_outputs"), SourceOutputsArray);
+	Result->SetNumberField(TEXT("source_output_count"), SourceOutputsArray.Num());
+
 	return FECACommandResult::Success(Result);
 }

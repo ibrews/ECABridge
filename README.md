@@ -1,11 +1,11 @@
 # ECABridge — AI-Powered Unreal Engine 5 MCP Plugin
 
-330+ MCP tools for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent.
+340+ MCP tools for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent.
 
 ## Features
 
-- **330+ MCP tools** organized by category
-- **Rosetta Stone introspection** — full JSON dumps of assets, blueprints, levels, and dependency graphs
+- **340+ MCP tools** organized by category
+- **12 Rosetta Stone commands** — full JSON dumps of assets, blueprints, levels, materials, Niagara, sequencer, widgets, animation, MetaSound, and DataTables
 - **HTTP/SSE MCP server** on localhost:3000 (Streamable HTTP transport)
 - **UE 5.7 compatible** (built and tested against 5.7.4)
 - **No engine modifications** — drop-in plugin
@@ -21,6 +21,13 @@ LLMs can't read binary `.uasset` or `.umap` files. These commands serialize UE5 
 | `dump_level` | Full level state — all actors with transforms, components, tags. Lightweight or deep mode |
 | `find_assets` | Search the asset registry by class, path, or name wildcard |
 | `get_asset_references` | Dependency graph — what references what, with recursive depth |
+| `dump_material_graph` | Complete material — all expression nodes, connections, material properties, compilation errors |
+| `dump_niagara_system` | Full Niagara system — emitter stacks per stage, renderers, module inputs, parameters |
+| `dump_level_sequence` | Complete sequencer — all bindings, tracks, sections, keyframe channel data |
+| `dump_widget_tree` | Hierarchical widget tree — parent-child structure, slot properties, visibility |
+| `dump_animation_blueprint` | AnimBP — state machines, states, transitions, AnimGraph nodes, variables |
+| `dump_metasound_graph` | Full MetaSound — all nodes, pins, connections, source inputs/outputs |
+| `dump_datatable` | Complete DataTable — schema with types + all row data in one call |
 
 ```bash
 # See everything about a material
@@ -37,6 +44,15 @@ dump_level(max_actors=100)
 
 # What would break if I changed this texture?
 get_asset_references(asset_path="/Game/Textures/T_Hero_D", direction="referencers")
+
+# Full Niagara system with module stacks and renderers
+dump_niagara_system(system_path="/Game/Effects/NS_Fire")
+
+# Read a complete sequencer timeline with keyframes
+dump_level_sequence(sequence_path="/Game/Cinematics/MySeq")
+
+# Inspect a widget tree hierarchy
+dump_widget_tree(widget_path="/Game/UI/WBP_MainMenu")
 ```
 
 ## Command Categories

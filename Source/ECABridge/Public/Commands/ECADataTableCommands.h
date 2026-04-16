@@ -72,6 +72,27 @@ public:
 /**
  * Delete DataTable row - remove a row from a DataTable
  */
+/**
+ * Dump full DataTable: schema + all rows in one call.
+ */
+class FECACommand_DumpDataTable : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("dump_datatable"); }
+	virtual FString GetDescription() const override { return TEXT("Serialize a complete DataTable to JSON: row struct schema with types, plus all row data. Single-call alternative to get_datatable_schema + get_datatable_rows."); }
+	virtual FString GetCategory() const override { return TEXT("DataTable"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("asset_path"), TEXT("string"), TEXT("Content path to the DataTable asset"), true },
+			{ TEXT("max_rows"), TEXT("number"), TEXT("Maximum rows to return (default 500, 0 = unlimited)"), false, TEXT("500") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
 class FECACommand_DeleteDataTableRow : public IECACommand
 {
 public:

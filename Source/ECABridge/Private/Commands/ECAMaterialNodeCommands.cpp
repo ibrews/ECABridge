@@ -81,6 +81,7 @@ REGISTER_ECA_COMMAND(FECACommand_GetMaterialProperty)
 REGISTER_ECA_COMMAND(FECACommand_AutoLayoutMaterialGraph)
 REGISTER_ECA_COMMAND(FECACommand_RenameParameterGroup)
 REGISTER_ECA_COMMAND(FECACommand_ListParameterGroups)
+REGISTER_ECA_COMMAND(FECACommand_DumpMaterialGraph)
 
 //------------------------------------------------------------------------------
 // Helper Functions
@@ -3971,6 +3972,138 @@ FECACommandResult FECACommand_ListParameterGroups::Execute(const TSharedPtr<FJso
 	
 	Result->SetArrayField(TEXT("groups"), GroupsArray);
 	Result->SetNumberField(TEXT("total_groups"), GroupsMap.Num());
-	
+
+	return FECACommandResult::Success(Result);
+}
+
+//------------------------------------------------------------------------------
+// DumpMaterialGraph - Dump complete material graph in one call
+//------------------------------------------------------------------------------
+
+FECACommandResult FECACommand_DumpMaterialGraph::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString MaterialPath;
+	if (!GetStringParam(Params, TEXT("material_path"), MaterialPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: material_path"));
+	}
+
+	UMaterial* Material = LoadMaterialByPath(MaterialPath);
+	if (!Material)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Material not found: %s"), *MaterialPath));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("material_path"), MaterialPath);
+	Result->SetStringField(TEXT("material_name"), Material->GetName());
+
+	// ---- 1. All expression nodes (reuse ExpressionToJson) ----
+	TArray<TSharedPtr<FJsonValue>> NodesArray;
+
+	for (UMaterialExpression* Expr : Material->GetEditorOnlyData()->ExpressionCollection.Expressions)
+	{
+		if (!Expr) continue;
+		NodesArray.Add(MakeShared<FJsonValueObject>(ExpressionToJson(Expr)));
+	}
+
+	Result->SetArrayField(TEXT("nodes"), NodesArray);
+	Result->SetNumberField(TEXT("node_count"), NodesArray.Num());
+
+	// ---- 2. Material input connections ----
+	TSharedPtr<FJsonObject> MaterialInputs = MakeShared<FJsonObject>();
+	auto AddMaterialInput = [&](const TCHAR* Name, const FExpressionInput& Input)
+	{
+		if (Input.Expression)
+		{
+			TSharedPtr<FJsonObject> InputInfo = MakeShared<FJsonObject>();
+			InputInfo->SetStringField(TEXT("connected_node_id"), Input.Expression->MaterialExpressionGuid.ToString());
+			InputInfo->SetNumberField(TEXT("connected_output_index"), Input.OutputIndex);
+			MaterialInputs->SetObjectField(Name, InputInfo);
+		}
+	};
+
+	AddMaterialInput(TEXT("BaseColor"), Material->GetEditorOnlyData()->BaseColor);
+	AddMaterialInput(TEXT("Metallic"), Material->GetEditorOnlyData()->Metallic);
+	AddMaterialInput(TEXT("Specular"), Material->GetEditorOnlyData()->Specular);
+	AddMaterialInput(TEXT("Roughness"), Material->GetEditorOnlyData()->Roughness);
+	AddMaterialInput(TEXT("Normal"), Material->GetEditorOnlyData()->Normal);
+	AddMaterialInput(TEXT("EmissiveColor"), Material->GetEditorOnlyData()->EmissiveColor);
+	AddMaterialInput(TEXT("Opacity"), Material->GetEditorOnlyData()->Opacity);
+	AddMaterialInput(TEXT("OpacityMask"), Material->GetEditorOnlyData()->OpacityMask);
+	AddMaterialInput(TEXT("WorldPositionOffset"), Material->GetEditorOnlyData()->WorldPositionOffset);
+	AddMaterialInput(TEXT("AmbientOcclusion"), Material->GetEditorOnlyData()->AmbientOcclusion);
+	AddMaterialInput(TEXT("SubsurfaceColor"), Material->GetEditorOnlyData()->SubsurfaceColor);
+	AddMaterialInput(TEXT("Refraction"), Material->GetEditorOnlyData()->Refraction);
+	AddMaterialInput(TEXT("PixelDepthOffset"), Material->GetEditorOnlyData()->PixelDepthOffset);
+	AddMaterialInput(TEXT("Displacement"), Material->GetEditorOnlyData()->Displacement);
+	AddMaterialInput(TEXT("ShadingModelFromMaterialExpression"), Material->GetEditorOnlyData()->ShadingModelFromMaterialExpression);
+	AddMaterialInput(TEXT("FrontMaterial"), Material->GetEditorOnlyData()->FrontMaterial);
+	AddMaterialInput(TEXT("SurfaceThickness"), Material->GetEditorOnlyData()->SurfaceThickness);
+	AddMaterialInput(TEXT("Tangent"), Material->GetEditorOnlyData()->Tangent);
+	AddMaterialInput(TEXT("Anisotropy"), Material->GetEditorOnlyData()->Anisotropy);
+	AddMaterialInput(TEXT("ClearCoat"), Material->GetEditorOnlyData()->ClearCoat);
+	AddMaterialInput(TEXT("ClearCoatRoughness"), Material->GetEditorOnlyData()->ClearCoatRoughness);
+
+	Result->SetObjectField(TEXT("material_inputs"), MaterialInputs);
+
+	// ---- 3. Material-level properties ----
+	TSharedPtr<FJsonObject> PropertiesObj = MakeShared<FJsonObject>();
+
+	PropertiesObj->SetNumberField(TEXT("BlendMode"), static_cast<int32>(Material->BlendMode));
+	PropertiesObj->SetNumberField(TEXT("ShadingModel"), static_cast<int32>(Material->GetShadingModels().GetFirstShadingModel()));
+	PropertiesObj->SetBoolField(TEXT("TwoSided"), Material->IsTwoSided());
+	PropertiesObj->SetNumberField(TEXT("OpacityMaskClipValue"), Material->GetOpacityMaskClipValue());
+
+	// String representations for readability
+	switch (Material->BlendMode)
+	{
+		case BLEND_Opaque:       PropertiesObj->SetStringField(TEXT("BlendMode_Name"), TEXT("Opaque")); break;
+		case BLEND_Masked:       PropertiesObj->SetStringField(TEXT("BlendMode_Name"), TEXT("Masked")); break;
+		case BLEND_Translucent:  PropertiesObj->SetStringField(TEXT("BlendMode_Name"), TEXT("Translucent")); break;
+		case BLEND_Additive:     PropertiesObj->SetStringField(TEXT("BlendMode_Name"), TEXT("Additive")); break;
+		case BLEND_Modulate:     PropertiesObj->SetStringField(TEXT("BlendMode_Name"), TEXT("Modulate")); break;
+		default:                 PropertiesObj->SetStringField(TEXT("BlendMode_Name"), TEXT("Unknown")); break;
+	}
+
+	EMaterialShadingModel SM = Material->GetShadingModels().GetFirstShadingModel();
+	switch (SM)
+	{
+		case MSM_DefaultLit:         PropertiesObj->SetStringField(TEXT("ShadingModel_Name"), TEXT("DefaultLit")); break;
+		case MSM_Unlit:              PropertiesObj->SetStringField(TEXT("ShadingModel_Name"), TEXT("Unlit")); break;
+		case MSM_Subsurface:         PropertiesObj->SetStringField(TEXT("ShadingModel_Name"), TEXT("Subsurface")); break;
+		case MSM_PreintegratedSkin:  PropertiesObj->SetStringField(TEXT("ShadingModel_Name"), TEXT("PreintegratedSkin")); break;
+		case MSM_ClearCoat:          PropertiesObj->SetStringField(TEXT("ShadingModel_Name"), TEXT("ClearCoat")); break;
+		case MSM_SubsurfaceProfile:  PropertiesObj->SetStringField(TEXT("ShadingModel_Name"), TEXT("SubsurfaceProfile")); break;
+		case MSM_TwoSidedFoliage:    PropertiesObj->SetStringField(TEXT("ShadingModel_Name"), TEXT("TwoSidedFoliage")); break;
+		case MSM_Hair:               PropertiesObj->SetStringField(TEXT("ShadingModel_Name"), TEXT("Hair")); break;
+		case MSM_Cloth:              PropertiesObj->SetStringField(TEXT("ShadingModel_Name"), TEXT("Cloth")); break;
+		case MSM_Eye:                PropertiesObj->SetStringField(TEXT("ShadingModel_Name"), TEXT("Eye")); break;
+		case MSM_ThinTranslucent:    PropertiesObj->SetStringField(TEXT("ShadingModel_Name"), TEXT("ThinTranslucent")); break;
+		case MSM_Strata:             PropertiesObj->SetStringField(TEXT("ShadingModel_Name"), TEXT("Strata")); break;
+		default:                     PropertiesObj->SetStringField(TEXT("ShadingModel_Name"), TEXT("Unknown")); break;
+	}
+
+	// Additional useful properties via reflection
+	auto AddPropertyIfExists = [&](const TCHAR* PropName)
+	{
+		FProperty* Property = FindMaterialProperty(UMaterial::StaticClass(), PropName);
+		if (Property)
+		{
+			void* ValuePtr = Property->ContainerPtrToValuePtr<void>(Material);
+			PropertiesObj->SetField(PropName, MaterialPropertyToJsonValue(Property, ValuePtr));
+		}
+	};
+
+	AddPropertyIfExists(TEXT("bUseMaterialAttributes"));
+	AddPropertyIfExists(TEXT("bCastDynamicShadowAsMasked"));
+	AddPropertyIfExists(TEXT("DitheredLODTransition"));
+	AddPropertyIfExists(TEXT("bAllowNegativeEmissiveColor"));
+
+	Result->SetObjectField(TEXT("properties"), PropertiesObj);
+
+	// ---- 4. Compilation errors ----
+	AddCompilationErrorsToResult(Result, Material);
+
 	return FECACommandResult::Success(Result);
 }

@@ -368,13 +368,37 @@ public:
 	virtual FString GetName() const override { return TEXT("list_parameter_groups"); }
 	virtual FString GetDescription() const override { return TEXT("List all parameter groups in a material with counts of parameters in each group."); }
 	virtual FString GetCategory() const override { return TEXT("Material"); }
-	
+
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
 			{ TEXT("material_path"), TEXT("string"), TEXT("Path to the Material asset"), true }
 		};
 	}
-	
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Dump complete material graph in one call
+ *
+ * Returns all expression nodes with GUIDs, types, positions, and connections,
+ * material-level properties (BlendMode, ShadingModel, TwoSided, etc.),
+ * material input connections, and compilation errors.
+ */
+class FECACommand_DumpMaterialGraph : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("dump_material_graph"); }
+	virtual FString GetDescription() const override { return TEXT("Dump complete material graph: all nodes, connections, material properties, material inputs, and compilation errors in one call."); }
+	virtual FString GetCategory() const override { return TEXT("Material Node"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("material_path"), TEXT("string"), TEXT("Path to the Material asset"), true }
+		};
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
