@@ -1212,3 +1212,182 @@ FECACommandResult FECACommand_AddSequenceAnimationTrack::Execute(const TSharedPt
 
 	return FECACommandResult::Success(Result);
 }
+
+// ============================================================================
+// Rosetta Stone: dump_level_sequence
+// ============================================================================
+
+REGISTER_ECA_COMMAND(FECACommand_DumpLevelSequence)
+
+static TSharedPtr<FJsonObject> DumpChannelKeys(FMovieSceneDoubleChannel* Channel, const FFrameRate& TickResolution)
+{
+	TSharedPtr<FJsonObject> ChannelObj = MakeShared<FJsonObject>();
+	TArrayView<const FFrameNumber> Times = Channel->GetTimes();
+	TArrayView<const FMovieSceneDoubleValue> Values = Channel->GetValues();
+
+	TArray<TSharedPtr<FJsonValue>> KeysArray;
+	for (int32 i = 0; i < Times.Num(); i++)
+	{
+		TSharedPtr<FJsonObject> KeyObj = MakeShared<FJsonObject>();
+		double TimeSeconds = static_cast<double>(Times[i].Value) / TickResolution.AsDecimal();
+		KeyObj->SetNumberField(TEXT("time"), TimeSeconds);
+		KeyObj->SetNumberField(TEXT("value"), Values[i].Value);
+		KeysArray.Add(MakeShared<FJsonValueObject>(KeyObj));
+	}
+	ChannelObj->SetArrayField(TEXT("keys"), KeysArray);
+	ChannelObj->SetNumberField(TEXT("key_count"), Times.Num());
+	return ChannelObj;
+}
+
+FECACommandResult FECACommand_DumpLevelSequence::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SequencePath;
+	if (!GetStringParam(Params, TEXT("sequence_path"), SequencePath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: sequence_path"));
+	}
+
+	bool bIncludeKeyframes = true;
+	GetBoolParam(Params, TEXT("include_keyframes"), bIncludeKeyframes, false);
+
+	ULevelSequence* Sequence = LoadObject<ULevelSequence>(nullptr, *SequencePath);
+	if (!Sequence)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Level Sequence: %s"), *SequencePath));
+	}
+
+	UMovieScene* MovieScene = Sequence->GetMovieScene();
+	if (!MovieScene)
+	{
+		return FECACommandResult::Error(TEXT("Level Sequence has no MovieScene"));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("sequence_path"), SequencePath);
+	Result->SetStringField(TEXT("sequence_name"), Sequence->GetName());
+
+	// Frame rate and duration
+	FFrameRate DisplayRate = MovieScene->GetDisplayRate();
+	FFrameRate TickResolution = MovieScene->GetTickResolution();
+	Result->SetNumberField(TEXT("display_fps"), DisplayRate.AsDecimal());
+	Result->SetNumberField(TEXT("tick_resolution"), TickResolution.AsDecimal());
+
+	TRange<FFrameNumber> PlaybackRange = MovieScene->GetPlaybackRange();
+	if (PlaybackRange.HasLowerBound() && PlaybackRange.HasUpperBound())
+	{
+		double StartSeconds = static_cast<double>(PlaybackRange.GetLowerBoundValue().Value) / TickResolution.AsDecimal();
+		double EndSeconds = static_cast<double>(PlaybackRange.GetUpperBoundValue().Value) / TickResolution.AsDecimal();
+		Result->SetNumberField(TEXT("start_time"), StartSeconds);
+		Result->SetNumberField(TEXT("end_time"), EndSeconds);
+		Result->SetNumberField(TEXT("duration"), EndSeconds - StartSeconds);
+	}
+
+	// Helper lambda to dump tracks
+	auto DumpTracks = [&](const TArray<UMovieSceneTrack*>& Tracks) -> TArray<TSharedPtr<FJsonValue>>
+	{
+		TArray<TSharedPtr<FJsonValue>> TracksArray;
+		for (UMovieSceneTrack* Track : Tracks)
+		{
+			if (!Track) continue;
+			TSharedPtr<FJsonObject> TrackObj = MakeShared<FJsonObject>();
+			TrackObj->SetStringField(TEXT("name"), Track->GetDisplayName().ToString());
+			TrackObj->SetStringField(TEXT("class"), Track->GetClass()->GetName());
+
+			TArray<TSharedPtr<FJsonValue>> SectionsArray;
+			for (UMovieSceneSection* Section : Track->GetAllSections())
+			{
+				if (!Section) continue;
+				TSharedPtr<FJsonObject> SectionObj = MakeShared<FJsonObject>();
+				SectionObj->SetStringField(TEXT("class"), Section->GetClass()->GetName());
+
+				// Section range
+				TRange<FFrameNumber> SectionRange = Section->GetRange();
+				if (SectionRange.HasLowerBound())
+				{
+					SectionObj->SetNumberField(TEXT("start_time"),
+						static_cast<double>(SectionRange.GetLowerBoundValue().Value) / TickResolution.AsDecimal());
+				}
+				if (SectionRange.HasUpperBound())
+				{
+					SectionObj->SetNumberField(TEXT("end_time"),
+						static_cast<double>(SectionRange.GetUpperBoundValue().Value) / TickResolution.AsDecimal());
+				}
+
+				// Keyframe channels
+				if (bIncludeKeyframes)
+				{
+					FMovieSceneChannelProxy& ChannelProxy = Section->GetChannelProxy();
+					TArrayView<FMovieSceneDoubleChannel*> DoubleChannels = ChannelProxy.GetChannels<FMovieSceneDoubleChannel>();
+
+					if (DoubleChannels.Num() > 0)
+					{
+						TArray<TSharedPtr<FJsonValue>> ChannelsArray;
+						for (int32 ChIdx = 0; ChIdx < DoubleChannels.Num(); ChIdx++)
+						{
+							if (DoubleChannels[ChIdx]->GetTimes().Num() > 0)
+							{
+								TSharedPtr<FJsonObject> ChObj = DumpChannelKeys(DoubleChannels[ChIdx], TickResolution);
+								ChObj->SetNumberField(TEXT("channel_index"), ChIdx);
+								ChannelsArray.Add(MakeShared<FJsonValueObject>(ChObj));
+							}
+						}
+						if (ChannelsArray.Num() > 0)
+						{
+							SectionObj->SetArrayField(TEXT("channels"), ChannelsArray);
+						}
+					}
+				}
+
+				SectionsArray.Add(MakeShared<FJsonValueObject>(SectionObj));
+			}
+			TrackObj->SetArrayField(TEXT("sections"), SectionsArray);
+			TracksArray.Add(MakeShared<FJsonValueObject>(TrackObj));
+		}
+		return TracksArray;
+	};
+
+	// Bindings (actors bound to the sequence)
+	TArray<TSharedPtr<FJsonValue>> BindingsArray;
+	const TArray<FMovieSceneBinding>& Bindings = MovieScene->GetBindings();
+	for (const FMovieSceneBinding& Binding : Bindings)
+	{
+		TSharedPtr<FJsonObject> BindObj = MakeShared<FJsonObject>();
+		BindObj->SetStringField(TEXT("name"), Binding.GetName());
+		BindObj->SetStringField(TEXT("binding_id"), Binding.GetObjectGuid().ToString());
+
+		// Check if possessable or spawnable
+		FMovieScenePossessable* Possessable = MovieScene->FindPossessable(Binding.GetObjectGuid());
+		if (Possessable)
+		{
+			BindObj->SetStringField(TEXT("binding_type"), TEXT("possessable"));
+			BindObj->SetStringField(TEXT("possessed_class"), Possessable->GetPossessedObjectClass() ?
+				Possessable->GetPossessedObjectClass()->GetName() : TEXT("Unknown"));
+		}
+		else
+		{
+			FMovieSceneSpawnable* Spawnable = MovieScene->FindSpawnable(Binding.GetObjectGuid());
+			if (Spawnable)
+			{
+				BindObj->SetStringField(TEXT("binding_type"), TEXT("spawnable"));
+			}
+		}
+
+		// Tracks on this binding
+		BindObj->SetArrayField(TEXT("tracks"), DumpTracks(Binding.GetTracks()));
+		BindingsArray.Add(MakeShared<FJsonValueObject>(BindObj));
+	}
+	Result->SetArrayField(TEXT("bindings"), BindingsArray);
+
+	// Top-level tracks (not bound to actors)
+	Result->SetArrayField(TEXT("master_tracks"), DumpTracks(MovieScene->GetTracks()));
+
+	// Camera cut track
+	UMovieSceneTrack* CameraCut = MovieScene->GetCameraCutTrack();
+	if (CameraCut)
+	{
+		TArray<UMovieSceneTrack*> CutArray = { CameraCut };
+		Result->SetArrayField(TEXT("camera_cut_track"), DumpTracks(CutArray));
+	}
+
+	return FECACommandResult::Success(Result);
+}

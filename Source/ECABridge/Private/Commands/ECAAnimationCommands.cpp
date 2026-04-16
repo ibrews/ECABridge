@@ -21,6 +21,11 @@
 #include "Misc/PackageName.h"
 #include "EngineUtils.h"
 
+#include "EdGraph/EdGraph.h"
+#include "EdGraph/EdGraphNode.h"
+#include "EdGraph/EdGraphPin.h"
+#include "EdGraph/EdGraphSchema.h"
+
 // ─── Helpers ──────────────────────────────────────────────────
 
 namespace AnimationCommandHelpers
@@ -952,6 +957,242 @@ FECACommandResult FECACommand_SetSkeletalMesh::Execute(const TSharedPtr<FJsonObj
 		Result->SetStringField(TEXT("skeleton_name"), NewMesh->GetSkeleton()->GetName());
 		Result->SetStringField(TEXT("skeleton_path"), NewMesh->GetSkeleton()->GetPathName());
 	}
+
+	return FECACommandResult::Success(Result);
+}
+
+// ============================================================================
+// Rosetta Stone: dump_animation_blueprint
+// ============================================================================
+
+REGISTER_ECA_COMMAND(FECACommand_DumpAnimationBlueprint)
+
+FECACommandResult FECACommand_DumpAnimationBlueprint::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString AnimBPPath;
+	if (!GetStringParam(Params, TEXT("anim_bp_path"), AnimBPPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: anim_bp_path"));
+	}
+
+	UAnimBlueprint* AnimBP = LoadObject<UAnimBlueprint>(nullptr, *AnimBPPath);
+	if (!AnimBP)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Animation Blueprint: %s"), *AnimBPPath));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("anim_bp_path"), AnimBPPath);
+	Result->SetStringField(TEXT("anim_bp_name"), AnimBP->GetName());
+	Result->SetStringField(TEXT("parent_class"), AnimBP->ParentClass ? AnimBP->ParentClass->GetName() : TEXT("None"));
+
+	// Target skeleton
+	if (AnimBP->TargetSkeleton)
+	{
+		Result->SetStringField(TEXT("target_skeleton"), AnimBP->TargetSkeleton->GetPathName());
+	}
+
+	// Compilation status
+	switch (AnimBP->Status)
+	{
+	case BS_Dirty: Result->SetStringField(TEXT("compilation_status"), TEXT("dirty")); break;
+	case BS_Error: Result->SetStringField(TEXT("compilation_status"), TEXT("error")); break;
+	case BS_UpToDate: Result->SetStringField(TEXT("compilation_status"), TEXT("up_to_date")); break;
+	case BS_UpToDateWithWarnings: Result->SetStringField(TEXT("compilation_status"), TEXT("warnings")); break;
+	default: Result->SetStringField(TEXT("compilation_status"), TEXT("unknown")); break;
+	}
+
+	// Variables
+	TArray<TSharedPtr<FJsonValue>> VarsArray;
+	for (const FBPVariableDescription& Var : AnimBP->NewVariables)
+	{
+		TSharedPtr<FJsonObject> VarObj = MakeShared<FJsonObject>();
+		VarObj->SetStringField(TEXT("name"), Var.VarName.ToString());
+		VarObj->SetStringField(TEXT("type"), Var.VarType.PinCategory.ToString());
+		if (Var.VarType.PinSubCategoryObject.IsValid())
+		{
+			VarObj->SetStringField(TEXT("sub_type"), Var.VarType.PinSubCategoryObject->GetName());
+		}
+		if (!Var.DefaultValue.IsEmpty())
+		{
+			VarObj->SetStringField(TEXT("default_value"), Var.DefaultValue);
+		}
+		VarsArray.Add(MakeShared<FJsonValueObject>(VarObj));
+	}
+	Result->SetArrayField(TEXT("variables"), VarsArray);
+
+	// All graphs — AnimGraphs, state machine graphs, etc.
+	TArray<TSharedPtr<FJsonValue>> GraphsArray;
+
+	// Function graphs (includes AnimGraph)
+	for (UEdGraph* Graph : AnimBP->FunctionGraphs)
+	{
+		if (!Graph) continue;
+		TSharedPtr<FJsonObject> GraphObj = MakeShared<FJsonObject>();
+		GraphObj->SetStringField(TEXT("name"), Graph->GetName());
+		GraphObj->SetStringField(TEXT("class"), Graph->GetClass()->GetName());
+		GraphObj->SetStringField(TEXT("schema"), Graph->GetSchema() ? Graph->GetSchema()->GetClass()->GetName() : TEXT("None"));
+
+		// All nodes in this graph
+		TArray<TSharedPtr<FJsonValue>> NodesArray;
+		for (UEdGraphNode* Node : Graph->Nodes)
+		{
+			if (!Node) continue;
+			TSharedPtr<FJsonObject> NodeObj = MakeShared<FJsonObject>();
+			NodeObj->SetStringField(TEXT("node_id"), Node->NodeGuid.ToString());
+			NodeObj->SetStringField(TEXT("node_class"), Node->GetClass()->GetName());
+			NodeObj->SetStringField(TEXT("node_title"), Node->GetNodeTitle(ENodeTitleType::FullTitle).ToString());
+			NodeObj->SetNumberField(TEXT("x"), Node->NodePosX);
+			NodeObj->SetNumberField(TEXT("y"), Node->NodePosY);
+
+			if (!Node->NodeComment.IsEmpty())
+			{
+				NodeObj->SetStringField(TEXT("comment"), Node->NodeComment);
+			}
+
+			// Pins summary (don't dump full pin detail for anim nodes — too verbose)
+			int32 InputCount = 0, OutputCount = 0;
+			for (UEdGraphPin* Pin : Node->Pins)
+			{
+				if (Pin->bHidden) continue;
+				if (Pin->Direction == EGPD_Input) InputCount++;
+				else OutputCount++;
+			}
+			NodeObj->SetNumberField(TEXT("input_pins"), InputCount);
+			NodeObj->SetNumberField(TEXT("output_pins"), OutputCount);
+
+			// Check for sub-graphs (state machines have sub-graphs)
+			if (Node->GetSubGraphs().Num() > 0)
+			{
+				TArray<TSharedPtr<FJsonValue>> SubGraphNames;
+				for (UEdGraph* SubGraph : Node->GetSubGraphs())
+				{
+					if (SubGraph)
+					{
+						SubGraphNames.Add(MakeShared<FJsonValueString>(SubGraph->GetName()));
+					}
+				}
+				NodeObj->SetArrayField(TEXT("sub_graphs"), SubGraphNames);
+			}
+
+			NodesArray.Add(MakeShared<FJsonValueObject>(NodeObj));
+		}
+		GraphObj->SetArrayField(TEXT("nodes"), NodesArray);
+		GraphObj->SetNumberField(TEXT("node_count"), NodesArray.Num());
+
+		// Connections
+		TArray<TSharedPtr<FJsonValue>> ConnectionsArray;
+		TSet<FString> SeenConnections;
+		for (UEdGraphNode* Node : Graph->Nodes)
+		{
+			if (!Node) continue;
+			for (UEdGraphPin* Pin : Node->Pins)
+			{
+				if (Pin->Direction != EGPD_Output) continue;
+				for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
+				{
+					if (!LinkedPin || !LinkedPin->GetOwningNode()) continue;
+					FString Key = FString::Printf(TEXT("%s->%s"),
+						*Node->NodeGuid.ToString(), *LinkedPin->GetOwningNode()->NodeGuid.ToString());
+					if (SeenConnections.Contains(Key)) continue;
+					SeenConnections.Add(Key);
+
+					TSharedPtr<FJsonObject> ConnObj = MakeShared<FJsonObject>();
+					ConnObj->SetStringField(TEXT("source_node"), Node->NodeGuid.ToString());
+					ConnObj->SetStringField(TEXT("source_pin"), Pin->PinName.ToString());
+					ConnObj->SetStringField(TEXT("target_node"), LinkedPin->GetOwningNode()->NodeGuid.ToString());
+					ConnObj->SetStringField(TEXT("target_pin"), LinkedPin->PinName.ToString());
+					ConnectionsArray.Add(MakeShared<FJsonValueObject>(ConnObj));
+				}
+			}
+		}
+		GraphObj->SetArrayField(TEXT("connections"), ConnectionsArray);
+
+		// Recursively dump sub-graphs (state machines)
+		TArray<TSharedPtr<FJsonValue>> SubGraphsArray;
+		for (UEdGraphNode* Node : Graph->Nodes)
+		{
+			if (!Node) continue;
+			for (UEdGraph* SubGraph : Node->GetSubGraphs())
+			{
+				if (!SubGraph) continue;
+				TSharedPtr<FJsonObject> SubObj = MakeShared<FJsonObject>();
+				SubObj->SetStringField(TEXT("name"), SubGraph->GetName());
+				SubObj->SetStringField(TEXT("class"), SubGraph->GetClass()->GetName());
+				SubObj->SetStringField(TEXT("parent_node"), Node->GetNodeTitle(ENodeTitleType::FullTitle).ToString());
+
+				TArray<TSharedPtr<FJsonValue>> SubNodesArray;
+				for (UEdGraphNode* SubNode : SubGraph->Nodes)
+				{
+					if (!SubNode) continue;
+					TSharedPtr<FJsonObject> SubNodeObj = MakeShared<FJsonObject>();
+					SubNodeObj->SetStringField(TEXT("node_id"), SubNode->NodeGuid.ToString());
+					SubNodeObj->SetStringField(TEXT("node_class"), SubNode->GetClass()->GetName());
+					SubNodeObj->SetStringField(TEXT("node_title"), SubNode->GetNodeTitle(ENodeTitleType::FullTitle).ToString());
+
+					// For state nodes, look for sub-graphs (the state's internal graph)
+					if (SubNode->GetSubGraphs().Num() > 0)
+					{
+						TArray<TSharedPtr<FJsonValue>> StateSubGraphs;
+						for (UEdGraph* StateGraph : SubNode->GetSubGraphs())
+						{
+							if (StateGraph)
+							{
+								StateSubGraphs.Add(MakeShared<FJsonValueString>(StateGraph->GetName()));
+							}
+						}
+						SubNodeObj->SetArrayField(TEXT("sub_graphs"), StateSubGraphs);
+					}
+
+					SubNodesArray.Add(MakeShared<FJsonValueObject>(SubNodeObj));
+				}
+				SubObj->SetArrayField(TEXT("nodes"), SubNodesArray);
+				SubObj->SetNumberField(TEXT("node_count"), SubNodesArray.Num());
+
+				// Sub-graph connections
+				TArray<TSharedPtr<FJsonValue>> SubConnsArray;
+				for (UEdGraphNode* SubNode : SubGraph->Nodes)
+				{
+					if (!SubNode) continue;
+					for (UEdGraphPin* Pin : SubNode->Pins)
+					{
+						if (Pin->Direction != EGPD_Output) continue;
+						for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
+						{
+							if (!LinkedPin || !LinkedPin->GetOwningNode()) continue;
+							TSharedPtr<FJsonObject> ConnObj = MakeShared<FJsonObject>();
+							ConnObj->SetStringField(TEXT("source"), SubNode->GetNodeTitle(ENodeTitleType::FullTitle).ToString());
+							ConnObj->SetStringField(TEXT("target"), LinkedPin->GetOwningNode()->GetNodeTitle(ENodeTitleType::FullTitle).ToString());
+							SubConnsArray.Add(MakeShared<FJsonValueObject>(ConnObj));
+						}
+					}
+				}
+				SubObj->SetArrayField(TEXT("connections"), SubConnsArray);
+
+				SubGraphsArray.Add(MakeShared<FJsonValueObject>(SubObj));
+			}
+		}
+		if (SubGraphsArray.Num() > 0)
+		{
+			GraphObj->SetArrayField(TEXT("state_machines"), SubGraphsArray);
+		}
+
+		GraphsArray.Add(MakeShared<FJsonValueObject>(GraphObj));
+	}
+
+	// Event graphs (UbergraphPages)
+	for (UEdGraph* Graph : AnimBP->UbergraphPages)
+	{
+		if (!Graph) continue;
+		TSharedPtr<FJsonObject> GraphObj = MakeShared<FJsonObject>();
+		GraphObj->SetStringField(TEXT("name"), Graph->GetName());
+		GraphObj->SetStringField(TEXT("class"), Graph->GetClass()->GetName());
+		GraphObj->SetNumberField(TEXT("node_count"), Graph->Nodes.Num());
+		GraphObj->SetStringField(TEXT("graph_type"), TEXT("event_graph"));
+		GraphsArray.Add(MakeShared<FJsonValueObject>(GraphObj));
+	}
+
+	Result->SetArrayField(TEXT("graphs"), GraphsArray);
 
 	return FECACommandResult::Success(Result);
 }

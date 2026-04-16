@@ -12,6 +12,8 @@
 #include "Components/Image.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
+#include "Components/PanelWidget.h"
+#include "Components/ContentWidget.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -616,6 +618,153 @@ FECACommandResult FECACommand_GetWidgetInfo::Execute(const TSharedPtr<FJsonObjec
 	}
 	Result->SetArrayField(TEXT("widgets"), WidgetsArray);
 	Result->SetNumberField(TEXT("widget_count"), WidgetsArray.Num());
-	
+
+	return FECACommandResult::Success(Result);
+}
+
+// ============================================================================
+// Rosetta Stone: dump_widget_tree
+// ============================================================================
+
+REGISTER_ECA_COMMAND(FECACommand_DumpWidgetTree)
+
+static TSharedPtr<FJsonObject> DumpWidgetRecursive(UWidget* Widget, bool bIncludeSlotProps)
+{
+	if (!Widget) return nullptr;
+
+	TSharedPtr<FJsonObject> WidgetObj = MakeShared<FJsonObject>();
+	WidgetObj->SetStringField(TEXT("name"), Widget->GetName());
+	WidgetObj->SetStringField(TEXT("class"), Widget->GetClass()->GetName());
+	WidgetObj->SetBoolField(TEXT("is_variable"), Widget->bIsVariable);
+
+	// Visibility
+	ESlateVisibility Vis = Widget->GetVisibility();
+	switch (Vis)
+	{
+	case ESlateVisibility::Visible: WidgetObj->SetStringField(TEXT("visibility"), TEXT("Visible")); break;
+	case ESlateVisibility::Collapsed: WidgetObj->SetStringField(TEXT("visibility"), TEXT("Collapsed")); break;
+	case ESlateVisibility::Hidden: WidgetObj->SetStringField(TEXT("visibility"), TEXT("Hidden")); break;
+	case ESlateVisibility::HitTestInvisible: WidgetObj->SetStringField(TEXT("visibility"), TEXT("HitTestInvisible")); break;
+	case ESlateVisibility::SelfHitTestInvisible: WidgetObj->SetStringField(TEXT("visibility"), TEXT("SelfHitTestInvisible")); break;
+	}
+
+	// Slot properties
+	if (bIncludeSlotProps && Widget->Slot)
+	{
+		TSharedPtr<FJsonObject> SlotObj = MakeShared<FJsonObject>();
+		SlotObj->SetStringField(TEXT("slot_class"), Widget->Slot->GetClass()->GetName());
+
+		// Use reflection to read common slot properties
+		UObject* SlotAsObj = Widget->Slot;
+		for (TFieldIterator<FProperty> PropIt(SlotAsObj->GetClass()); PropIt; ++PropIt)
+		{
+			FProperty* Property = *PropIt;
+			if (!Property->HasAnyPropertyFlags(CPF_Edit)) continue;
+
+			FString StringValue;
+			void* ValuePtr = Property->ContainerPtrToValuePtr<void>(SlotAsObj);
+			Property->ExportTextItem_Direct(StringValue, ValuePtr, nullptr, SlotAsObj, PPF_None);
+			if (!StringValue.IsEmpty())
+			{
+				SlotObj->SetStringField(Property->GetName(), StringValue);
+			}
+		}
+		WidgetObj->SetObjectField(TEXT("slot"), SlotObj);
+	}
+
+	// Recurse into children if panel widget
+	if (UPanelWidget* Panel = Cast<UPanelWidget>(Widget))
+	{
+		TArray<TSharedPtr<FJsonValue>> ChildrenArray;
+		for (int32 i = 0; i < Panel->GetChildrenCount(); i++)
+		{
+			UWidget* Child = Panel->GetChildAt(i);
+			TSharedPtr<FJsonObject> ChildObj = DumpWidgetRecursive(Child, bIncludeSlotProps);
+			if (ChildObj)
+			{
+				ChildrenArray.Add(MakeShared<FJsonValueObject>(ChildObj));
+			}
+		}
+		if (ChildrenArray.Num() > 0)
+		{
+			WidgetObj->SetArrayField(TEXT("children"), ChildrenArray);
+		}
+	}
+	// ContentWidget (Border, SizeBox, etc.) — single child
+	else if (UContentWidget* Content = Cast<UContentWidget>(Widget))
+	{
+		UWidget* Child = Content->GetContent();
+		if (Child)
+		{
+			TSharedPtr<FJsonObject> ChildObj = DumpWidgetRecursive(Child, bIncludeSlotProps);
+			if (ChildObj)
+			{
+				TArray<TSharedPtr<FJsonValue>> ChildrenArray;
+				ChildrenArray.Add(MakeShared<FJsonValueObject>(ChildObj));
+				WidgetObj->SetArrayField(TEXT("children"), ChildrenArray);
+			}
+		}
+	}
+
+	return WidgetObj;
+}
+
+FECACommandResult FECACommand_DumpWidgetTree::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString WidgetPath;
+	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+	}
+
+	bool bIncludeSlotProps = true;
+	GetBoolParam(Params, TEXT("include_slot_properties"), bIncludeSlotProps, false);
+
+	UWidgetBlueprint* WidgetBP = LoadObject<UWidgetBlueprint>(nullptr, *WidgetPath);
+	if (!WidgetBP)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Widget Blueprint: %s"), *WidgetPath));
+	}
+
+	UWidgetTree* WidgetTree = WidgetBP->WidgetTree;
+	if (!WidgetTree)
+	{
+		return FECACommandResult::Error(TEXT("Widget Blueprint has no widget tree"));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("widget_path"), WidgetPath);
+	Result->SetStringField(TEXT("widget_name"), WidgetBP->GetName());
+
+	// Root widget
+	if (WidgetTree->RootWidget)
+	{
+		Result->SetObjectField(TEXT("tree"), DumpWidgetRecursive(WidgetTree->RootWidget, bIncludeSlotProps));
+	}
+
+	// Count total widgets
+	int32 TotalWidgets = 0;
+	WidgetTree->ForEachWidget([&TotalWidgets](UWidget*) { TotalWidgets++; });
+	Result->SetNumberField(TEXT("total_widgets"), TotalWidgets);
+
+	// Blueprint variables (for data bindings)
+	UBlueprint* BP = Cast<UBlueprint>(WidgetBP);
+	if (BP)
+	{
+		TArray<TSharedPtr<FJsonValue>> VarsArray;
+		for (const FBPVariableDescription& Var : BP->NewVariables)
+		{
+			TSharedPtr<FJsonObject> VarObj = MakeShared<FJsonObject>();
+			VarObj->SetStringField(TEXT("name"), Var.VarName.ToString());
+			VarObj->SetStringField(TEXT("type"), Var.VarType.PinCategory.ToString());
+			if (Var.VarType.PinSubCategoryObject.IsValid())
+			{
+				VarObj->SetStringField(TEXT("sub_type"), Var.VarType.PinSubCategoryObject->GetName());
+			}
+			VarsArray.Add(MakeShared<FJsonValueObject>(VarObj));
+		}
+		Result->SetArrayField(TEXT("variables"), VarsArray);
+	}
+
 	return FECACommandResult::Success(Result);
 }
