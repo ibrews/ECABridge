@@ -68,7 +68,14 @@ public class ECABridge : ModuleRules
 
 			// Mutable / Customizable Object
 			"CustomizableObject",
-			"CustomizableObjectEditor"
+			"CustomizableObjectEditor",
+
+			// Level Sequencer
+			"LevelSequence",
+			"LevelSequenceEditor",
+			"MovieScene",
+			"MovieSceneTracks",
+			"CinematicCamera"
 		});
 
 		// ModelViewViewModelBlueprint include path - UBT doesn't resolve it via PrivateDependencyModuleNames

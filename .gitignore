@@ -1,0 +1,11 @@
+Binaries/
+Intermediate/
+DerivedDataCache/
+Saved/
+*.pdb
+*.lib
+*.dll
+*.dylib
+*.so
+*.exp
+*.modules
