@@ -3960,3 +3960,238 @@ FECACommandResult FECACommand_AutoLayoutBlueprintGraph_Legacy(const TSharedPtr<F
 	return FECACommandResult::Success(Result);
 }
 #endif // End of legacy AutoLayoutBlueprintGraph
+
+// ============================================================================
+// Rosetta Stone: dump_blueprint_graph
+// ============================================================================
+
+REGISTER_ECA_COMMAND(FECACommand_DumpBlueprintGraph)
+
+static TSharedPtr<FJsonObject> DumpGraphToJson(UEdGraph* Graph, bool bIncludePositions)
+{
+	TSharedPtr<FJsonObject> GraphObj = MakeShared<FJsonObject>();
+	GraphObj->SetStringField(TEXT("name"), Graph->GetName());
+	GraphObj->SetStringField(TEXT("class"), Graph->GetClass()->GetName());
+
+	// Determine graph type
+	FString GraphType = TEXT("unknown");
+	if (Graph->GetSchema())
+	{
+		GraphType = Graph->GetSchema()->GetClass()->GetName();
+	}
+	GraphObj->SetStringField(TEXT("schema"), GraphType);
+
+	// Serialize all nodes
+	TArray<TSharedPtr<FJsonValue>> NodesArray;
+	for (UEdGraphNode* Node : Graph->Nodes)
+	{
+		if (!Node)
+		{
+			continue;
+		}
+
+		TSharedPtr<FJsonObject> NodeObj = NodeToJson(Node);
+
+		// Optionally strip positions
+		if (!bIncludePositions)
+		{
+			NodeObj->RemoveField(TEXT("x"));
+			NodeObj->RemoveField(TEXT("y"));
+		}
+
+		// Add node comment if present
+		if (!Node->NodeComment.IsEmpty())
+		{
+			NodeObj->SetStringField(TEXT("comment"), Node->NodeComment);
+		}
+
+		NodesArray.Add(MakeShared<FJsonValueObject>(NodeObj));
+	}
+	GraphObj->SetArrayField(TEXT("nodes"), NodesArray);
+	GraphObj->SetNumberField(TEXT("node_count"), NodesArray.Num());
+
+	// Build a flat connections list for easier consumption
+	TArray<TSharedPtr<FJsonValue>> ConnectionsArray;
+	TSet<FString> SeenConnections; // Avoid duplicates
+	for (UEdGraphNode* Node : Graph->Nodes)
+	{
+		if (!Node) continue;
+		for (UEdGraphPin* Pin : Node->Pins)
+		{
+			if (Pin->Direction != EGPD_Output) continue;
+			for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
+			{
+				if (!LinkedPin || !LinkedPin->GetOwningNode()) continue;
+
+				// Create a unique key to avoid duplicate entries
+				FString Key = FString::Printf(TEXT("%s:%s->%s:%s"),
+					*Node->NodeGuid.ToString(), *Pin->PinName.ToString(),
+					*LinkedPin->GetOwningNode()->NodeGuid.ToString(), *LinkedPin->PinName.ToString());
+
+				if (SeenConnections.Contains(Key)) continue;
+				SeenConnections.Add(Key);
+
+				TSharedPtr<FJsonObject> ConnObj = MakeShared<FJsonObject>();
+				ConnObj->SetStringField(TEXT("source_node"), Node->NodeGuid.ToString());
+				ConnObj->SetStringField(TEXT("source_pin"), Pin->PinName.ToString());
+				ConnObj->SetStringField(TEXT("target_node"), LinkedPin->GetOwningNode()->NodeGuid.ToString());
+				ConnObj->SetStringField(TEXT("target_pin"), LinkedPin->PinName.ToString());
+
+				// Include pin type for context
+				ConnObj->SetStringField(TEXT("pin_type"), Pin->PinType.PinCategory.ToString());
+
+				ConnectionsArray.Add(MakeShared<FJsonValueObject>(ConnObj));
+			}
+		}
+	}
+	GraphObj->SetArrayField(TEXT("connections"), ConnectionsArray);
+	GraphObj->SetNumberField(TEXT("connection_count"), ConnectionsArray.Num());
+
+	return GraphObj;
+}
+
+FECACommandResult FECACommand_DumpBlueprintGraph::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString BlueprintPath;
+	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+	}
+
+	FString SpecificGraph;
+	GetStringParam(Params, TEXT("graph_name"), SpecificGraph, false);
+
+	bool bIncludePositions = true;
+	GetBoolParam(Params, TEXT("include_positions"), bIncludePositions, false);
+
+	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
+	if (!Blueprint)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintPath));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("blueprint_path"), BlueprintPath);
+	Result->SetStringField(TEXT("blueprint_name"), Blueprint->GetName());
+	Result->SetStringField(TEXT("parent_class"), Blueprint->ParentClass ? Blueprint->ParentClass->GetName() : TEXT("None"));
+	Result->SetStringField(TEXT("blueprint_type"), Blueprint->GetClass()->GetName());
+
+	// Compilation status
+	switch (Blueprint->Status)
+	{
+	case BS_Unknown: Result->SetStringField(TEXT("compilation_status"), TEXT("unknown")); break;
+	case BS_Dirty: Result->SetStringField(TEXT("compilation_status"), TEXT("dirty")); break;
+	case BS_Error: Result->SetStringField(TEXT("compilation_status"), TEXT("error")); break;
+	case BS_UpToDate: Result->SetStringField(TEXT("compilation_status"), TEXT("up_to_date")); break;
+	case BS_UpToDateWithWarnings: Result->SetStringField(TEXT("compilation_status"), TEXT("warnings")); break;
+	default: Result->SetStringField(TEXT("compilation_status"), TEXT("unknown")); break;
+	}
+
+	// --- Variables ---
+	TArray<TSharedPtr<FJsonValue>> VarsArray;
+	for (const FBPVariableDescription& Var : Blueprint->NewVariables)
+	{
+		TSharedPtr<FJsonObject> VarObj = MakeShared<FJsonObject>();
+		VarObj->SetStringField(TEXT("name"), Var.VarName.ToString());
+		VarObj->SetStringField(TEXT("type"), Var.VarType.PinCategory.ToString());
+		if (Var.VarType.PinSubCategoryObject.IsValid())
+		{
+			VarObj->SetStringField(TEXT("sub_type"), Var.VarType.PinSubCategoryObject->GetName());
+		}
+		VarObj->SetBoolField(TEXT("is_array"), Var.VarType.IsArray());
+		VarObj->SetBoolField(TEXT("is_set"), Var.VarType.IsSet());
+		VarObj->SetBoolField(TEXT("is_map"), Var.VarType.IsMap());
+		VarObj->SetBoolField(TEXT("is_reference"), Var.VarType.bIsReference);
+
+		if (!Var.DefaultValue.IsEmpty())
+		{
+			VarObj->SetStringField(TEXT("default_value"), Var.DefaultValue);
+		}
+
+		// Replication
+		if (Var.RepNotifyFunc != NAME_None)
+		{
+			VarObj->SetStringField(TEXT("rep_notify_func"), Var.RepNotifyFunc.ToString());
+		}
+		VarObj->SetBoolField(TEXT("is_instance_editable"),
+			Var.PropertyFlags & CPF_Edit ? true : false);
+		VarObj->SetBoolField(TEXT("is_blueprint_read_only"),
+			Var.PropertyFlags & CPF_BlueprintReadOnly ? true : false);
+
+		// Category
+		FString Category = Var.Category.ToString();
+		if (!Category.IsEmpty() && Category != TEXT("Default"))
+		{
+			VarObj->SetStringField(TEXT("category"), Category);
+		}
+
+		VarsArray.Add(MakeShared<FJsonValueObject>(VarObj));
+	}
+	Result->SetArrayField(TEXT("variables"), VarsArray);
+
+	// --- Components (from SimpleConstructionScript) ---
+	if (Blueprint->SimpleConstructionScript)
+	{
+		TArray<TSharedPtr<FJsonValue>> ComponentsArray;
+		const TArray<USCS_Node*>& SCSNodes = Blueprint->SimpleConstructionScript->GetAllNodes();
+		for (USCS_Node* SCSNode : SCSNodes)
+		{
+			if (!SCSNode || !SCSNode->ComponentTemplate)
+			{
+				continue;
+			}
+			TSharedPtr<FJsonObject> CompObj = MakeShared<FJsonObject>();
+			CompObj->SetStringField(TEXT("name"), SCSNode->GetVariableName().ToString());
+			CompObj->SetStringField(TEXT("class"), SCSNode->ComponentClass ? SCSNode->ComponentClass->GetName() : TEXT("Unknown"));
+			if (SCSNode->ParentComponentOrVariableName != NAME_None)
+			{
+				CompObj->SetStringField(TEXT("parent"), SCSNode->ParentComponentOrVariableName.ToString());
+			}
+			ComponentsArray.Add(MakeShared<FJsonValueObject>(CompObj));
+		}
+		Result->SetArrayField(TEXT("components"), ComponentsArray);
+	}
+
+	// --- Graphs ---
+	TArray<TSharedPtr<FJsonValue>> GraphsArray;
+
+	auto DumpGraphIfMatch = [&](UEdGraph* Graph)
+	{
+		if (!Graph) return;
+		if (!SpecificGraph.IsEmpty() && Graph->GetName() != SpecificGraph) return;
+		GraphsArray.Add(MakeShared<FJsonValueObject>(DumpGraphToJson(Graph, bIncludePositions)));
+	};
+
+	// Event graphs (UbergraphPages)
+	for (UEdGraph* Graph : Blueprint->UbergraphPages)
+	{
+		DumpGraphIfMatch(Graph);
+	}
+
+	// Function graphs
+	for (UEdGraph* Graph : Blueprint->FunctionGraphs)
+	{
+		DumpGraphIfMatch(Graph);
+	}
+
+	// Macro graphs
+	for (UEdGraph* Graph : Blueprint->MacroGraphs)
+	{
+		DumpGraphIfMatch(Graph);
+	}
+
+	Result->SetArrayField(TEXT("graphs"), GraphsArray);
+
+	// --- Interfaces ---
+	TArray<TSharedPtr<FJsonValue>> InterfacesArray;
+	for (const FBPInterfaceDescription& Interface : Blueprint->ImplementedInterfaces)
+	{
+		if (Interface.Interface)
+		{
+			InterfacesArray.Add(MakeShared<FJsonValueString>(Interface.Interface->GetName()));
+		}
+	}
+	Result->SetArrayField(TEXT("interfaces"), InterfacesArray);
+
+	return FECACommandResult::Success(Result);
+}

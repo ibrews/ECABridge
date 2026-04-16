@@ -1,0 +1,17 @@
+# Normalize line endings for source files
+*.h text eol=lf
+*.cpp text eol=lf
+*.cs text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.uplugin text eol=lf
+
+# Binary files
+*.uasset binary
+*.umap binary
+*.dll binary
+*.pdb binary
+*.lib binary
+*.exe binary
+*.png binary
+*.jpg binary

@@ -3993,13 +3993,19 @@ FECACommandResult FECACommand_DumpAsset::Execute(const TSharedPtr<FJsonObject>& 
 	// --- Thumbnail section ---
 	if (bIncludeThumbnail)
 	{
-		FObjectThumbnail* ObjThumb = ThumbnailTools::GenerateThumbnailForObjectToSaveTo(Asset);
-		if (ObjThumb && ObjThumb->GetImageWidth() > 0)
+		// Use ThumbnailManager to render the thumbnail
+		FThumbnailMap ThumbnailMap;
+		TArray<FName> ObjectNames;
+		ObjectNames.Add(FName(*Asset->GetFullName()));
+		ThumbnailTools::ConditionallyLoadThumbnailsForObjects(ObjectNames, ThumbnailMap);
+
+		FObjectThumbnail* ObjThumb = ThumbnailMap.Find(FName(*Asset->GetFullName()));
+		if (ObjThumb && ObjThumb->GetImageWidth() > 0 && ObjThumb->GetUncompressedImageData().Num() > 0)
 		{
-			TArray<uint8> PngData;
-			FImageUtils::ThumbnailCompressImageArray(ObjThumb->GetImageWidth(), ObjThumb->GetImageHeight(),
-				ObjThumb->GetUncompressedImageData(), PngData);
-			Result->SetStringField(TEXT("thumbnail_base64"), FBase64::Encode(PngData));
+			// Convert raw BGRA8 thumbnail data to base64
+			Result->SetStringField(TEXT("thumbnail_base64"), FBase64::Encode(ObjThumb->GetUncompressedImageData()));
+			Result->SetNumberField(TEXT("thumbnail_width"), ObjThumb->GetImageWidth());
+			Result->SetNumberField(TEXT("thumbnail_height"), ObjThumb->GetImageHeight());
 		}
 	}
 
