@@ -1,0 +1,18 @@
+{
+	"RemapUnityFiles": 
+	{
+		"Module.ECABridge.cpp.obj": [
+			"ECABridge.gen.cpp.obj",
+			"ECABridge.init.gen.cpp.obj",
+			"ECABridgeSettings.gen.cpp.obj",
+			"ECAListItemData.gen.cpp.obj",
+			"PerModuleInline.gen.cpp.obj",
+			"BlueprintLisp.cpp.obj",
+			"BlueprintAutoLayout.cpp.obj",
+			"ECAActorCommands.cpp.obj",
+			"ECAAssetCommands.cpp.obj",
+			"ECABlueprintCommands.cpp.obj",
+			"ECABlueprintLispCommands.cpp.obj"
+		]
+	}
+}
