@@ -45,6 +45,7 @@
 #include "BlueprintAutoLayout.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "UObject/UObjectIterator.h"
+#include "AssetRegistry/AssetRegistryModule.h"
 
 // Register all blueprint node commands
 REGISTER_ECA_COMMAND(FECACommand_AddBlueprintEventNode)
@@ -71,6 +72,7 @@ REGISTER_ECA_COMMAND(FECACommand_AddBlueprintCastNode)
 REGISTER_ECA_COMMAND(FECACommand_DeleteBlueprintComponent)
 REGISTER_ECA_COMMAND(FECACommand_AddBlueprintFlowControlNode)
 REGISTER_ECA_COMMAND(FECACommand_AutoLayoutBlueprintGraph)
+REGISTER_ECA_COMMAND(FECACommand_SearchBlueprintUsage)
 
 //------------------------------------------------------------------------------
 // Helper Functions
@@ -4192,6 +4194,113 @@ FECACommandResult FECACommand_DumpBlueprintGraph::Execute(const TSharedPtr<FJson
 		}
 	}
 	Result->SetArrayField(TEXT("interfaces"), InterfacesArray);
+
+	return FECACommandResult::Success(Result);
+}
+
+//------------------------------------------------------------------------------
+// SearchBlueprintUsage
+//------------------------------------------------------------------------------
+
+FECACommandResult FECACommand_SearchBlueprintUsage::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SearchTerm;
+	if (!GetStringParam(Params, TEXT("search_term"), SearchTerm))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: search_term"));
+	}
+
+	FString PathFilter = TEXT("/Game");
+	GetStringParam(Params, TEXT("path_filter"), PathFilter, false);
+
+	int32 MaxResults = 50;
+	GetIntParam(Params, TEXT("max_results"), MaxResults, false);
+
+	// Query the Asset Registry for all Blueprint assets under the path filter
+	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+	IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
+
+	FARFilter Filter;
+	Filter.ClassPaths.Add(UBlueprint::StaticClass()->GetClassPathName());
+	Filter.PackagePaths.Add(FName(*PathFilter));
+	Filter.bRecursivePaths = true;
+	Filter.bRecursiveClasses = true;
+
+	TArray<FAssetData> AssetDataList;
+	AssetRegistry.GetAssets(Filter, AssetDataList);
+
+	TArray<TSharedPtr<FJsonValue>> MatchesArray;
+	int32 TotalMatches = 0;
+
+	for (const FAssetData& AssetData : AssetDataList)
+	{
+		if (MatchesArray.Num() >= MaxResults)
+		{
+			break;
+		}
+
+		FString AssetPath = AssetData.GetObjectPathString();
+		UBlueprint* Blueprint = LoadObject<UBlueprint>(nullptr, *AssetPath);
+		if (!Blueprint)
+		{
+			continue;
+		}
+
+		// Collect all graphs: UbergraphPages + FunctionGraphs
+		TArray<UEdGraph*> AllGraphs;
+		AllGraphs.Append(Blueprint->UbergraphPages);
+		AllGraphs.Append(Blueprint->FunctionGraphs);
+
+		for (UEdGraph* Graph : AllGraphs)
+		{
+			if (!Graph)
+			{
+				continue;
+			}
+
+			TArray<TSharedPtr<FJsonValue>> NodeMatchesArray;
+			int32 GraphMatchCount = 0;
+
+			for (UEdGraphNode* Node : Graph->Nodes)
+			{
+				if (!Node)
+				{
+					continue;
+				}
+
+				FString NodeTitle = Node->GetNodeTitle(ENodeTitleType::FullTitle).ToString();
+				FString ClassName = Node->GetClass()->GetName();
+
+				bool bTitleMatch = NodeTitle.Contains(SearchTerm, ESearchCase::IgnoreCase);
+				bool bClassMatch = ClassName.Contains(SearchTerm, ESearchCase::IgnoreCase);
+
+				if (bTitleMatch || bClassMatch)
+				{
+					TSharedPtr<FJsonObject> NodeMatch = MakeShared<FJsonObject>();
+					NodeMatch->SetStringField(TEXT("node_title"), NodeTitle);
+					NodeMatch->SetStringField(TEXT("node_class"), ClassName);
+					NodeMatchesArray.Add(MakeShared<FJsonValueObject>(NodeMatch));
+					GraphMatchCount++;
+				}
+			}
+
+			if (GraphMatchCount > 0)
+			{
+				TSharedPtr<FJsonObject> MatchObj = MakeShared<FJsonObject>();
+				MatchObj->SetStringField(TEXT("blueprint_path"), AssetData.PackageName.ToString());
+				MatchObj->SetStringField(TEXT("graph_name"), Graph->GetName());
+				MatchObj->SetArrayField(TEXT("node_matches"), NodeMatchesArray);
+				MatchObj->SetNumberField(TEXT("match_count"), GraphMatchCount);
+				MatchesArray.Add(MakeShared<FJsonValueObject>(MatchObj));
+				TotalMatches += GraphMatchCount;
+			}
+		}
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetArrayField(TEXT("matches"), MatchesArray);
+	Result->SetNumberField(TEXT("total_matches"), TotalMatches);
+	Result->SetNumberField(TEXT("blueprints_scanned"), AssetDataList.Num());
 
 	return FECACommandResult::Success(Result);
 }

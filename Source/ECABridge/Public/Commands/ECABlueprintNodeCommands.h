@@ -632,6 +632,28 @@ public:
 			{ TEXT("node_ids"), TEXT("array"), TEXT("Specific node IDs to layout (optional, overrides selected_only)"), false }
 		};
 	}
-	
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Search across multiple Blueprints for nodes matching a search term
+ */
+class FECACommand_SearchBlueprintUsage : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("search_blueprint_usage"); }
+	virtual FString GetDescription() const override { return TEXT("Search across multiple Blueprints for nodes matching a search term. Scans all graphs (UbergraphPages + FunctionGraphs) in each Blueprint."); }
+	virtual FString GetCategory() const override { return TEXT("Blueprint Node"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("search_term"), TEXT("string"), TEXT("Term to search for in node titles and class names (case-insensitive)"), true },
+			{ TEXT("path_filter"), TEXT("string"), TEXT("Asset path to search within (e.g. /Game/Blueprints)"), false, TEXT("/Game") },
+			{ TEXT("max_results"), TEXT("number"), TEXT("Maximum number of matching Blueprints to return"), false, TEXT("50") }
+		};
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };

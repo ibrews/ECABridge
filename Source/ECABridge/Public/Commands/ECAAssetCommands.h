@@ -726,3 +726,45 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+/**
+ * Validate an asset using UE's built-in validation framework.
+ */
+class FECACommand_ValidateAsset : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("validate_asset"); }
+	virtual FString GetDescription() const override { return TEXT("Run UE's asset validation on any asset and return errors/warnings. Use after making changes to verify correctness."); }
+	virtual FString GetCategory() const override { return TEXT("Asset"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("asset_path"), TEXT("string"), TEXT("Content path to the asset to validate"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Get class hierarchy: parents, interfaces, and child classes.
+ */
+class FECACommand_GetClassHierarchy : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("get_class_hierarchy"); }
+	virtual FString GetDescription() const override { return TEXT("Get class hierarchy for any UClass: parent chain, implemented interfaces, direct child classes, and key properties. Essential for understanding what you can cast to and what functions are available."); }
+	virtual FString GetCategory() const override { return TEXT("Asset"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("class_name"), TEXT("string"), TEXT("Class name (e.g., Character, StaticMeshActor, PlayerController) or full path (/Script/Engine.Character)"), true },
+			{ TEXT("include_children"), TEXT("boolean"), TEXT("Include direct child classes (default true)"), false, TEXT("true") },
+			{ TEXT("include_functions"), TEXT("boolean"), TEXT("Include BlueprintCallable functions (default false — can be verbose)"), false, TEXT("false") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};

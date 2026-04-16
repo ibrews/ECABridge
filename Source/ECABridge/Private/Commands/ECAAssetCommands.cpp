@@ -79,6 +79,8 @@ REGISTER_ECA_COMMAND(FECACommand_MoveAsset)
 REGISTER_ECA_COMMAND(FECACommand_DuplicateAsset)
 REGISTER_ECA_COMMAND(FECACommand_GetAssetThumbnail)
 REGISTER_ECA_COMMAND(FECACommand_GetAssetThumbnails)
+REGISTER_ECA_COMMAND(FECACommand_ValidateAsset)
+REGISTER_ECA_COMMAND(FECACommand_GetClassHierarchy)
 
 //------------------------------------------------------------------------------
 // Helper functions
@@ -4215,6 +4217,367 @@ FECACommandResult FECACommand_GetAssetReferences::Execute(const TSharedPtr<FJson
 		TSet<FName> Visited;
 		GetReferencesRecursive(AssetRegistry, FName(*PackageName), false, 1, MaxDepth, Visited, RefsArray);
 		Result->SetArrayField(TEXT("referencers"), RefsArray);
+	}
+
+	return FECACommandResult::Success(Result);
+}
+
+// ============================================================================
+// Rosetta Stone: validate_asset
+// ============================================================================
+
+FECACommandResult FECACommand_ValidateAsset::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString AssetPath;
+	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+	}
+
+	// Load the asset
+	UObject* Asset = LoadObject<UObject>(nullptr, *AssetPath);
+	if (!Asset)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Failed to load asset: %s"), *AssetPath));
+	}
+
+	TArray<TSharedPtr<FJsonValue>> Errors;
+	TArray<TSharedPtr<FJsonValue>> Warnings;
+	bool bIsValid = true;
+
+	// Check if the package is valid and loadable
+	UPackage* Package = Asset->GetOutermost();
+	if (!Package)
+	{
+		Errors.Add(MakeShared<FJsonValueString>(TEXT("Asset has no valid package")));
+		bIsValid = false;
+	}
+
+	// Blueprint-specific validation
+	UBlueprint* Blueprint = Cast<UBlueprint>(Asset);
+	if (!Blueprint)
+	{
+		// Try to get the blueprint from a generated class
+		if (UClass* AssetClass = Cast<UClass>(Asset))
+		{
+			if (AssetClass->ClassGeneratedBy)
+			{
+				Blueprint = Cast<UBlueprint>(AssetClass->ClassGeneratedBy);
+			}
+		}
+	}
+
+	if (Blueprint)
+	{
+		// Check blueprint compilation status
+		if (Blueprint->Status == BS_Error)
+		{
+			bIsValid = false;
+			Errors.Add(MakeShared<FJsonValueString>(TEXT("Blueprint has compilation errors")));
+		}
+		else if (Blueprint->Status == BS_Unknown || Blueprint->Status == BS_Dirty)
+		{
+			Warnings.Add(MakeShared<FJsonValueString>(TEXT("Blueprint needs recompilation (status: dirty/unknown)")));
+		}
+
+		// Check if the generated class exists
+		if (!Blueprint->GeneratedClass)
+		{
+			bIsValid = false;
+			Errors.Add(MakeShared<FJsonValueString>(TEXT("Blueprint has no GeneratedClass — likely broken or never compiled")));
+		}
+
+		// Check the skeleton class
+		if (!Blueprint->SkeletonGeneratedClass)
+		{
+			Warnings.Add(MakeShared<FJsonValueString>(TEXT("Blueprint has no SkeletonGeneratedClass")));
+		}
+
+		// Check for deprecated parent class
+		if (Blueprint->ParentClass && Blueprint->ParentClass->HasAnyClassFlags(CLASS_Deprecated))
+		{
+			Warnings.Add(MakeShared<FJsonValueString>(
+				FString::Printf(TEXT("Parent class %s is deprecated"), *Blueprint->ParentClass->GetName())));
+		}
+	}
+
+	// Material-specific validation
+	UMaterial* Material = Cast<UMaterial>(Asset);
+	if (Material)
+	{
+		// Check material compilation status
+		TArray<FString> CompileErrors;
+		// Check if material has any errors by looking at its validity
+		if (!Material->IsDefaultMaterial())
+		{
+			// Check for missing texture references in expressions
+			for (UMaterialExpression* Expr : Material->GetExpressions())
+			{
+				if (!Expr)
+				{
+					CompileErrors.Add(TEXT("Null expression found in material"));
+				}
+			}
+		}
+
+		if (CompileErrors.Num() > 0)
+		{
+			bIsValid = false;
+			for (const FString& Err : CompileErrors)
+			{
+				Errors.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("Material compile error: %s"), *Err)));
+			}
+		}
+
+		// Check for missing textures referenced by expressions
+		for (UMaterialExpression* Expr : Material->GetExpressions())
+		{
+			if (UMaterialExpressionTextureSample* TexSample = Cast<UMaterialExpressionTextureSample>(Expr))
+			{
+				if (!TexSample->Texture)
+				{
+					Warnings.Add(MakeShared<FJsonValueString>(
+						FString::Printf(TEXT("TextureSample expression '%s' has no texture assigned"),
+							*Expr->GetName())));
+				}
+			}
+		}
+	}
+
+	// General validation: check for null object references in key properties
+	if (UClass* AssetClass = Asset->GetClass())
+	{
+		for (TFieldIterator<FObjectPropertyBase> PropIt(AssetClass); PropIt; ++PropIt)
+		{
+			FObjectPropertyBase* ObjProp = *PropIt;
+			// Only check properties marked as required (EditAnywhere or VisibleAnywhere)
+			if (!ObjProp->HasAnyPropertyFlags(CPF_Edit))
+			{
+				continue;
+			}
+
+			UObject* Value = ObjProp->GetObjectPropertyValue(ObjProp->ContainerPtrToValuePtr<void>(Asset));
+			if (!Value && ObjProp->HasAnyPropertyFlags(CPF_NoClear))
+			{
+				Warnings.Add(MakeShared<FJsonValueString>(
+					FString::Printf(TEXT("Property '%s' is null but marked NoClear"), *ObjProp->GetName())));
+			}
+		}
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("asset_path"), AssetPath);
+	Result->SetStringField(TEXT("asset_class"), Asset->GetClass()->GetName());
+	Result->SetBoolField(TEXT("is_valid"), bIsValid);
+	Result->SetArrayField(TEXT("errors"), Errors);
+	Result->SetArrayField(TEXT("warnings"), Warnings);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ============================================================================
+// Rosetta Stone: get_class_hierarchy
+// ============================================================================
+
+static UClass* FindClassByName(const FString& ClassName)
+{
+	// If it looks like a full path, try directly
+	if (ClassName.Contains(TEXT("/")))
+	{
+		UClass* Found = FindObject<UClass>(nullptr, *ClassName);
+		if (Found) return Found;
+	}
+
+	// Try common script module paths
+	static const TCHAR* ScriptPaths[] = {
+		TEXT("/Script/Engine.%s"),
+		TEXT("/Script/CoreUObject.%s"),
+		TEXT("/Script/UMG.%s"),
+		TEXT("/Script/AIModule.%s"),
+		TEXT("/Script/NavigationSystem.%s"),
+		TEXT("/Script/Niagara.%s"),
+		TEXT("/Script/PhysicsCore.%s"),
+		TEXT("/Script/EnhancedInput.%s"),
+		TEXT("/Script/GameplayAbilities.%s"),
+		TEXT("/Script/GameplayTasks.%s"),
+		TEXT("/Script/InputCore.%s"),
+		TEXT("/Script/Slate.%s"),
+		TEXT("/Script/SlateCore.%s"),
+	};
+
+	for (const TCHAR* PathPrefix : ScriptPaths)
+	{
+		FString FullPath = FString(PathPrefix).Replace(TEXT("%s"), *ClassName);
+		UClass* Found = FindObject<UClass>(nullptr, *FullPath);
+		if (Found) return Found;
+	}
+
+	// Fall back to iterating all loaded classes
+	for (TObjectIterator<UClass> It; It; ++It)
+	{
+		if (It->GetName() == ClassName)
+		{
+			return *It;
+		}
+	}
+
+	return nullptr;
+}
+
+FECACommandResult FECACommand_GetClassHierarchy::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString ClassName;
+	if (!GetStringParam(Params, TEXT("class_name"), ClassName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: class_name"));
+	}
+
+	bool bIncludeChildren = true;
+	GetBoolParam(Params, TEXT("include_children"), bIncludeChildren, false);
+
+	bool bIncludeFunctions = false;
+	GetBoolParam(Params, TEXT("include_functions"), bIncludeFunctions, false);
+
+	UClass* TargetClass = FindClassByName(ClassName);
+	if (!TargetClass)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Class not found: %s. Try the full path, e.g. /Script/Engine.Character"), *ClassName));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("class_name"), TargetClass->GetName());
+	Result->SetStringField(TEXT("class_path"), TargetClass->GetPathName());
+
+	// Build parent chain
+	TArray<TSharedPtr<FJsonValue>> ParentChain;
+	UClass* Current = TargetClass->GetSuperClass();
+	while (Current)
+	{
+		TSharedPtr<FJsonObject> ParentObj = MakeShared<FJsonObject>();
+		ParentObj->SetStringField(TEXT("name"), Current->GetName());
+		ParentObj->SetStringField(TEXT("path"), Current->GetPathName());
+		ParentChain.Add(MakeShared<FJsonValueObject>(ParentObj));
+		Current = Current->GetSuperClass();
+	}
+	Result->SetArrayField(TEXT("parent_chain"), ParentChain);
+
+	// Interfaces
+	TArray<TSharedPtr<FJsonValue>> InterfacesArray;
+	for (const FImplementedInterface& Iface : TargetClass->Interfaces)
+	{
+		if (Iface.Class)
+		{
+			TSharedPtr<FJsonObject> IfaceObj = MakeShared<FJsonObject>();
+			IfaceObj->SetStringField(TEXT("name"), Iface.Class->GetName());
+			IfaceObj->SetStringField(TEXT("path"), Iface.Class->GetPathName());
+			InterfacesArray.Add(MakeShared<FJsonValueObject>(IfaceObj));
+		}
+	}
+	Result->SetArrayField(TEXT("interfaces"), InterfacesArray);
+
+	// Children
+	if (bIncludeChildren)
+	{
+		TArray<TSharedPtr<FJsonValue>> ChildrenArray;
+		for (TObjectIterator<UClass> It; It; ++It)
+		{
+			if (It->GetSuperClass() == TargetClass)
+			{
+				TSharedPtr<FJsonObject> ChildObj = MakeShared<FJsonObject>();
+				ChildObj->SetStringField(TEXT("name"), It->GetName());
+				ChildObj->SetStringField(TEXT("path"), It->GetPathName());
+				ChildrenArray.Add(MakeShared<FJsonValueObject>(ChildObj));
+			}
+		}
+		Result->SetArrayField(TEXT("children"), ChildrenArray);
+		Result->SetNumberField(TEXT("children_count"), ChildrenArray.Num());
+	}
+
+	// BlueprintCallable functions
+	if (bIncludeFunctions)
+	{
+		TArray<TSharedPtr<FJsonValue>> FunctionsArray;
+		for (TFieldIterator<UFunction> FuncIt(TargetClass, EFieldIteratorFlags::IncludeSuper); FuncIt; ++FuncIt)
+		{
+			UFunction* Func = *FuncIt;
+			if (!Func->HasAnyFunctionFlags(FUNC_BlueprintCallable))
+			{
+				continue;
+			}
+
+			TSharedPtr<FJsonObject> FuncObj = MakeShared<FJsonObject>();
+			FuncObj->SetStringField(TEXT("name"), Func->GetName());
+
+			// Determine the class that owns this function
+			UClass* OwnerClass = Func->GetOwnerClass();
+			if (OwnerClass)
+			{
+				FuncObj->SetStringField(TEXT("defined_in"), OwnerClass->GetName());
+			}
+
+			// Flags
+			TArray<TSharedPtr<FJsonValue>> FlagsList;
+			if (Func->HasAnyFunctionFlags(FUNC_Static))
+				FlagsList.Add(MakeShared<FJsonValueString>(TEXT("Static")));
+			if (Func->HasAnyFunctionFlags(FUNC_BlueprintPure))
+				FlagsList.Add(MakeShared<FJsonValueString>(TEXT("Pure")));
+			if (Func->HasAnyFunctionFlags(FUNC_BlueprintEvent))
+				FlagsList.Add(MakeShared<FJsonValueString>(TEXT("Event")));
+			if (Func->HasAnyFunctionFlags(FUNC_Net))
+				FlagsList.Add(MakeShared<FJsonValueString>(TEXT("Net")));
+			if (FlagsList.Num() > 0)
+			{
+				FuncObj->SetArrayField(TEXT("flags"), FlagsList);
+			}
+
+			// Parameters
+			TArray<TSharedPtr<FJsonValue>> ParamsArray;
+			for (TFieldIterator<FProperty> ParamIt(Func); ParamIt; ++ParamIt)
+			{
+				FProperty* Param = *ParamIt;
+				if (Param->HasAnyPropertyFlags(CPF_ReturnParm))
+				{
+					FuncObj->SetStringField(TEXT("return_type"), Param->GetCPPType());
+					continue;
+				}
+				if (Param->HasAnyPropertyFlags(CPF_Parm))
+				{
+					TSharedPtr<FJsonObject> ParamObj = MakeShared<FJsonObject>();
+					ParamObj->SetStringField(TEXT("name"), Param->GetName());
+					ParamObj->SetStringField(TEXT("type"), Param->GetCPPType());
+					if (Param->HasAnyPropertyFlags(CPF_OutParm))
+					{
+						ParamObj->SetBoolField(TEXT("is_out"), true);
+					}
+					ParamsArray.Add(MakeShared<FJsonValueObject>(ParamObj));
+				}
+			}
+			if (ParamsArray.Num() > 0)
+			{
+				FuncObj->SetArrayField(TEXT("params"), ParamsArray);
+			}
+
+			FunctionsArray.Add(MakeShared<FJsonValueObject>(FuncObj));
+		}
+		Result->SetArrayField(TEXT("functions"), FunctionsArray);
+		Result->SetNumberField(TEXT("function_count"), FunctionsArray.Num());
+	}
+
+	// Class flags summary
+	TArray<TSharedPtr<FJsonValue>> ClassFlagsArray;
+	if (TargetClass->HasAnyClassFlags(CLASS_Abstract))
+		ClassFlagsArray.Add(MakeShared<FJsonValueString>(TEXT("Abstract")));
+	if (TargetClass->HasAnyClassFlags(CLASS_Deprecated))
+		ClassFlagsArray.Add(MakeShared<FJsonValueString>(TEXT("Deprecated")));
+	if (TargetClass->HasAnyClassFlags(CLASS_Transient))
+		ClassFlagsArray.Add(MakeShared<FJsonValueString>(TEXT("Transient")));
+	if (TargetClass->HasAnyClassFlags(CLASS_MinimalAPI))
+		ClassFlagsArray.Add(MakeShared<FJsonValueString>(TEXT("MinimalAPI")));
+	if (TargetClass->HasAnyClassFlags(CLASS_NotPlaceable))
+		ClassFlagsArray.Add(MakeShared<FJsonValueString>(TEXT("NotPlaceable")));
+	if (ClassFlagsArray.Num() > 0)
+	{
+		Result->SetArrayField(TEXT("class_flags"), ClassFlagsArray);
 	}
 
 	return FECACommandResult::Success(Result);

@@ -26,6 +26,7 @@
 #include "UnrealClient.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Widgets/Docking/SDockTab.h"
+#include "AssetRegistry/AssetRegistryModule.h"
 
 // Register all editor commands
 REGISTER_ECA_COMMAND(FECACommand_FocusViewport)
@@ -41,6 +42,7 @@ REGISTER_ECA_COMMAND(FECACommand_SaveLevel)
 REGISTER_ECA_COMMAND(FECACommand_PlayInEditor)
 REGISTER_ECA_COMMAND(FECACommand_StopPlayInEditor)
 REGISTER_ECA_COMMAND(FECACommand_GetPlayState)
+REGISTER_ECA_COMMAND(FECACommand_GetProjectOverview)
 
 //------------------------------------------------------------------------------
 // FocusViewport
@@ -760,6 +762,146 @@ FECACommandResult FECACommand_GetPlayState::Execute(const TSharedPtr<FJsonObject
 		State = TEXT("Stopped");
 	}
 	Result->SetStringField(TEXT("state"), State);
-	
+
+	return FECACommandResult::Success(Result);
+}
+
+//------------------------------------------------------------------------------
+// GetProjectOverview
+//------------------------------------------------------------------------------
+
+// Recursive helper: build a JSON tree of folders with asset counts by class
+static void BuildFolderTree(
+	IAssetRegistry& AssetRegistry,
+	const FString& FolderPath,
+	int32 CurrentDepth,
+	int32 MaxDepth,
+	TSharedPtr<FJsonObject>& OutNode,
+	TMap<FString, int32>& GlobalClassCounts,
+	int32& TotalAssets)
+{
+	// Query assets directly in this folder (non-recursive)
+	FARFilter Filter;
+	Filter.PackagePaths.Add(FName(*FolderPath));
+	Filter.bRecursivePaths = false;
+
+	TArray<FAssetData> AssetDataList;
+	AssetRegistry.GetAssets(Filter, AssetDataList);
+
+	// Count assets by class in this folder
+	TMap<FString, int32> LocalClassCounts;
+	for (const FAssetData& Data : AssetDataList)
+	{
+		FString ClassName = Data.AssetClassPath.GetAssetName().ToString();
+		LocalClassCounts.FindOrAdd(ClassName)++;
+		GlobalClassCounts.FindOrAdd(ClassName)++;
+		TotalAssets++;
+	}
+
+	OutNode->SetStringField(TEXT("path"), FolderPath);
+	OutNode->SetNumberField(TEXT("asset_count"), AssetDataList.Num());
+
+	if (LocalClassCounts.Num() > 0)
+	{
+		TSharedPtr<FJsonObject> ClassCountsObj = MakeShared<FJsonObject>();
+		for (const auto& Pair : LocalClassCounts)
+		{
+			ClassCountsObj->SetNumberField(Pair.Key, Pair.Value);
+		}
+		OutNode->SetObjectField(TEXT("assets_by_class"), ClassCountsObj);
+	}
+
+	// Recurse into subfolders if within depth limit
+	if (CurrentDepth < MaxDepth)
+	{
+		TArray<FString> SubPaths;
+		AssetRegistry.GetSubPaths(FolderPath, SubPaths, false);
+
+		if (SubPaths.Num() > 0)
+		{
+			TArray<TSharedPtr<FJsonValue>> ChildrenArray;
+			for (const FString& SubPath : SubPaths)
+			{
+				TSharedPtr<FJsonObject> ChildNode = MakeShared<FJsonObject>();
+				BuildFolderTree(AssetRegistry, SubPath, CurrentDepth + 1, MaxDepth, ChildNode, GlobalClassCounts, TotalAssets);
+				ChildrenArray.Add(MakeShared<FJsonValueObject>(ChildNode));
+			}
+			OutNode->SetArrayField(TEXT("children"), ChildrenArray);
+		}
+	}
+	else
+	{
+		// At max depth, count recursive assets to show there's more
+		FARFilter RecFilter;
+		RecFilter.PackagePaths.Add(FName(*FolderPath));
+		RecFilter.bRecursivePaths = true;
+
+		TArray<FAssetData> RecAssets;
+		AssetRegistry.GetAssets(RecFilter, RecAssets);
+		int32 DeepCount = RecAssets.Num() - AssetDataList.Num();
+		if (DeepCount > 0)
+		{
+			OutNode->SetNumberField(TEXT("nested_asset_count"), DeepCount);
+
+			// Still count them globally
+			for (const FAssetData& Data : RecAssets)
+			{
+				// Skip the ones we already counted
+				if (AssetDataList.ContainsByPredicate([&](const FAssetData& Local) {
+					return Local.GetObjectPathString() == Data.GetObjectPathString();
+				}))
+				{
+					continue;
+				}
+				FString ClassName = Data.AssetClassPath.GetAssetName().ToString();
+				GlobalClassCounts.FindOrAdd(ClassName)++;
+				TotalAssets++;
+			}
+		}
+	}
+}
+
+FECACommandResult FECACommand_GetProjectOverview::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString RootPath = TEXT("/Game/");
+	GetStringParam(Params, TEXT("path"), RootPath, false);
+
+	int32 MaxDepth = 3;
+	GetIntParam(Params, TEXT("max_depth"), MaxDepth, false);
+	MaxDepth = FMath::Clamp(MaxDepth, 1, 10);
+
+	bool bIncludeEngineContent = false;
+	GetBoolParam(Params, TEXT("include_engine_content"), bIncludeEngineContent, false);
+
+	IAssetRegistry& AssetRegistry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
+
+	TMap<FString, int32> GlobalClassCounts;
+	int32 TotalAssets = 0;
+
+	// Build the folder tree for the main path
+	TSharedPtr<FJsonObject> FolderTree = MakeShared<FJsonObject>();
+	BuildFolderTree(AssetRegistry, RootPath, 1, MaxDepth, FolderTree, GlobalClassCounts, TotalAssets);
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetObjectField(TEXT("folder_tree"), FolderTree);
+
+	// Optionally add engine content as a sibling tree
+	if (bIncludeEngineContent)
+	{
+		TSharedPtr<FJsonObject> EngineTree = MakeShared<FJsonObject>();
+		BuildFolderTree(AssetRegistry, TEXT("/Engine/"), 1, FMath::Min(MaxDepth, 2), EngineTree, GlobalClassCounts, TotalAssets);
+		Result->SetObjectField(TEXT("engine_folder_tree"), EngineTree);
+	}
+
+	Result->SetNumberField(TEXT("total_assets"), TotalAssets);
+
+	// Global class counts
+	TSharedPtr<FJsonObject> ClassCountsObj = MakeShared<FJsonObject>();
+	for (const auto& Pair : GlobalClassCounts)
+	{
+		ClassCountsObj->SetNumberField(Pair.Key, Pair.Value);
+	}
+	Result->SetObjectField(TEXT("assets_by_class"), ClassCountsObj);
+
 	return FECACommandResult::Success(Result);
 }

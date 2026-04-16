@@ -220,6 +220,28 @@ public:
 	virtual FString GetName() const override { return TEXT("get_play_state"); }
 	virtual FString GetDescription() const override { return TEXT("Get the current Play in Editor state"); }
 	virtual FString GetCategory() const override { return TEXT("Editor"); }
-	
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Get a high-level overview of the entire project: folder tree, asset counts by type.
+ */
+class FECACommand_GetProjectOverview : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("get_project_overview"); }
+	virtual FString GetDescription() const override { return TEXT("Get project overview: content folder tree with asset counts by type and class, total assets. Essential for understanding an unfamiliar project."); }
+	virtual FString GetCategory() const override { return TEXT("Editor"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("path"), TEXT("string"), TEXT("Root path to scan (default /Game/)"), false, TEXT("/Game/") },
+			{ TEXT("max_depth"), TEXT("number"), TEXT("Maximum folder depth to show (default 3)"), false, TEXT("3") },
+			{ TEXT("include_engine_content"), TEXT("boolean"), TEXT("Include /Engine/ content (default false)"), false, TEXT("false") }
+		};
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };

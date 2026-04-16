@@ -1,11 +1,12 @@
 # ECABridge — AI-Powered Unreal Engine 5 MCP Plugin
 
-340+ MCP tools for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent.
+350+ MCP tools for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent.
 
 ## Features
 
-- **340+ MCP tools** organized by category
+- **350+ MCP tools** organized by category
 - **12 Rosetta Stone commands** — full JSON dumps of assets, blueprints, levels, materials, Niagara, sequencer, widgets, animation, MetaSound, and DataTables
+- **6 workflow commands** — project overview, cross-blueprint search, asset validation, snapshot/diff, undo-batching, class hierarchy
 - **HTTP/SSE MCP server** on localhost:3000 (Streamable HTTP transport)
 - **UE 5.7 compatible** (built and tested against 5.7.4)
 - **No engine modifications** — drop-in plugin
@@ -200,6 +201,45 @@ dump_datatable(asset_path="/Game/Data/DT_WeaponStats")
 **Serialize any asset you can't otherwise read:**
 ```
 dump_asset(asset_path="/Game/SomeOpaqueAsset", include_thumbnail=true)
+```
+
+**Get a bird's-eye view of an unfamiliar project:**
+```
+get_project_overview(path="/Game/", max_depth=3)
+```
+
+**Find every Blueprint that calls a specific function:**
+```
+search_blueprint_usage(search_term="SetActorLocation", path_filter="/Game/Blueprints/")
+```
+
+**Understand a class before you use it:**
+```
+get_class_hierarchy(class_name="Character", include_functions=true)
+```
+
+**Validate your work after making changes:**
+```
+validate_asset(asset_path="/Game/Blueprints/BP_Enemy")
+```
+
+**Track what changed — snapshot before, diff after:**
+```
+snapshot_asset(asset_path="/Game/Materials/M_Hero")
+# ...make changes...
+diff_asset(asset_path="/Game/Materials/M_Hero", snapshot_id="<id from snapshot>")
+```
+
+**Batch multiple operations into a single undo step:**
+```
+batch_operation(
+  description="Setup enemy spawner",
+  commands=[
+    {name: "create_actor", arguments: {actor_type: "StaticMeshActor", name: "Spawner", ...}},
+    {name: "set_actor_material", arguments: {actor_name: "Spawner", material_path: "..."}},
+    {name: "add_actor_tag", arguments: {actor_name: "Spawner", tag: "EnemySpawn"}}
+  ]
+)
 ```
 
 ## Requirements
