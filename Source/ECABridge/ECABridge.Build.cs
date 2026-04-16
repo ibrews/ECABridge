@@ -75,7 +75,12 @@ public class ECABridge : ModuleRules
 			"LevelSequenceEditor",
 			"MovieScene",
 			"MovieSceneTracks",
-			"CinematicCamera"
+			"CinematicCamera",
+
+			// Movie Render Queue
+			"MovieRenderPipelineCore",
+			"MovieRenderPipelineEditor",
+			"MovieRenderPipelineRenderPasses"
 		});
 
 		// ModelViewViewModelBlueprint include path - UBT doesn't resolve it via PrivateDependencyModuleNames
