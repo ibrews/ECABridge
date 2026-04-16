@@ -80,7 +80,11 @@ public class ECABridge : ModuleRules
 			// Movie Render Queue
 			"MovieRenderPipelineCore",
 			"MovieRenderPipelineEditor",
-			"MovieRenderPipelineRenderPasses"
+			"MovieRenderPipelineRenderPasses",
+
+			// Navigation / AI
+			"NavigationSystem",
+			"AIModule"
 		});
 
 		// ModelViewViewModelBlueprint include path - UBT doesn't resolve it via PrivateDependencyModuleNames
