@@ -71,6 +71,47 @@ public:
 };
 
 /**
+ * Open the MetaHuman Character editor for an asset (triggers the preview viewport).
+ * Works for any asset class — generic asset editor opener.
+ */
+class FECACommand_OpenMetaHumanEditor : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("open_metahuman_editor"); }
+	virtual FString GetDescription() const override { return TEXT("Open the MetaHuman Character editor on an asset (or any asset via UAssetEditorSubsystem). Makes the MetaHuman visible in the editor preview viewport where skin/eyes/freckles/makeup settings render."); }
+	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("character_path"), TEXT("string"), TEXT("Content path to the MetaHumanCharacter asset (or any asset)"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Trigger the MetaHuman build/assembly pipeline — generates the mesh from data settings.
+ */
+class FECACommand_BuildMetaHuman : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("build_metahuman"); }
+	virtual FString GetDescription() const override { return TEXT("Trigger the MetaHuman Character build/assembly pipeline for a character asset. This generates the actual face and body mesh from the data settings (skin tone, eyes, body type, etc.). Required to see changes in the viewport. Operation may be async — check back after a few seconds."); }
+	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("character_path"), TEXT("string"), TEXT("Content path to the MetaHumanCharacter to build"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
  * Describe a MetaHuman in natural language and apply best-guess settings.
  * Takes descriptive terms like "large white-skinned with purple hair" and maps them to properties.
  */

@@ -26,12 +26,16 @@
 #include "Dom/JsonValue.h"
 #include "Modules/ModuleManager.h"
 #include "Editor.h"
+#include "Editor/EditorEngine.h"
+#include "Subsystems/AssetEditorSubsystem.h"
 
 // Register all MetaHuman commands
 REGISTER_ECA_COMMAND(FECACommand_CreateMetaHumanCharacter)
 REGISTER_ECA_COMMAND(FECACommand_DumpMetaHumanCharacter)
 REGISTER_ECA_COMMAND(FECACommand_SetMetaHumanProperty)
 REGISTER_ECA_COMMAND(FECACommand_DescribeMetaHuman)
+REGISTER_ECA_COMMAND(FECACommand_OpenMetaHumanEditor)
+REGISTER_ECA_COMMAND(FECACommand_BuildMetaHuman)
 
 //==============================================================================
 // Internal helpers (file-local)
@@ -901,6 +905,143 @@ FECACommandResult FECACommand_DescribeMetaHuman::Execute(const TSharedPtr<FJsonO
 	Result->SetArrayField (TEXT("matched_keywords"),   MatchedKeywords);
 	Result->SetObjectField(TEXT("applied_properties"), AppliedProperties);
 	Result->SetArrayField (TEXT("notes"),              Notes);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ============================================================================
+// open_metahuman_editor
+// ============================================================================
+
+FECACommandResult FECACommand_OpenMetaHumanEditor::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString CharacterPath;
+	if (!GetStringParam(Params, TEXT("character_path"), CharacterPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: character_path"));
+	}
+
+	UObject* Asset = LoadObject<UObject>(nullptr, *CharacterPath);
+	if (!Asset)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Failed to load asset: %s"), *CharacterPath));
+	}
+
+	UAssetEditorSubsystem* EditorSubsystem = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr;
+	if (!EditorSubsystem)
+	{
+		return FECACommandResult::Error(TEXT("AssetEditorSubsystem not available"));
+	}
+
+	bool bOpened = EditorSubsystem->OpenEditorForAsset(Asset);
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("asset_path"), CharacterPath);
+	Result->SetStringField(TEXT("asset_class"), Asset->GetClass()->GetName());
+	Result->SetBoolField(TEXT("opened"), bOpened);
+	if (!bOpened)
+	{
+		Result->SetStringField(TEXT("note"), TEXT("OpenEditorForAsset returned false — asset editor may not be registered for this class"));
+	}
+
+	return FECACommandResult::Success(Result);
+}
+
+// ============================================================================
+// build_metahuman
+// ============================================================================
+
+FECACommandResult FECACommand_BuildMetaHuman::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString CharacterPath;
+	if (!GetStringParam(Params, TEXT("character_path"), CharacterPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: character_path"));
+	}
+
+	UObject* AssetObj = LoadObject<UObject>(nullptr, *CharacterPath);
+	if (!AssetObj)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Failed to load asset: %s"), *CharacterPath));
+	}
+
+	// Verify it's a MetaHumanCharacter
+	UClass* MHClass = FindObject<UClass>(nullptr, TEXT("/Script/MetaHumanCharacter.MetaHumanCharacter"));
+	if (!MHClass || !AssetObj->IsA(MHClass))
+	{
+		return FECACommandResult::Error(TEXT("Asset is not a MetaHumanCharacter. MetaHuman plugin may not be loaded."));
+	}
+
+	// The MetaHuman build pipeline is driven by UMetaHumanCharacterEditorSubsystem
+	// Find it by class name (avoid compile-time dependency on editor subsystem header)
+	UClass* EditorSubsystemClass = FindObject<UClass>(nullptr, TEXT("/Script/MetaHumanCharacterEditor.MetaHumanCharacterEditorSubsystem"));
+	if (!EditorSubsystemClass)
+	{
+		return FECACommandResult::Error(TEXT("MetaHumanCharacterEditorSubsystem class not found. MetaHumanCharacterEditor module may not be loaded."));
+	}
+
+	UEditorEngine* EdEngine = Cast<UEditorEngine>(GEditor);
+	if (!EdEngine)
+	{
+		return FECACommandResult::Error(TEXT("GEditor not available"));
+	}
+
+	UEditorSubsystem* MHEditorSubsystem = EdEngine->GetEditorSubsystemBase(EditorSubsystemClass);
+	if (!MHEditorSubsystem)
+	{
+		return FECACommandResult::Error(TEXT("Could not get MetaHumanCharacterEditorSubsystem instance"));
+	}
+
+	// Try calling "Build" or "AssembleCollection" function via reflection
+	// MetaHumanCharacterEditorSubsystem has functions like RunCharacterEditorPipeline, Build, etc.
+	UFunction* BuildFunc = MHEditorSubsystem->FindFunction(FName(TEXT("Build")));
+	if (!BuildFunc)
+	{
+		BuildFunc = MHEditorSubsystem->FindFunction(FName(TEXT("AssembleCollection")));
+	}
+	if (!BuildFunc)
+	{
+		BuildFunc = MHEditorSubsystem->FindFunction(FName(TEXT("BuildCharacter")));
+	}
+	if (!BuildFunc)
+	{
+		BuildFunc = MHEditorSubsystem->FindFunction(FName(TEXT("AssembleActor")));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("character_path"), CharacterPath);
+
+	if (!BuildFunc)
+	{
+		// No build function found — list available UFUNCTION BlueprintCallable methods
+		TArray<TSharedPtr<FJsonValue>> AvailableFuncs;
+		for (TFieldIterator<UFunction> FuncIt(EditorSubsystemClass); FuncIt; ++FuncIt)
+		{
+			UFunction* Func = *FuncIt;
+			if (Func->HasAnyFunctionFlags(FUNC_BlueprintCallable | FUNC_Native))
+			{
+				AvailableFuncs.Add(MakeShared<FJsonValueString>(Func->GetName()));
+			}
+		}
+		Result->SetArrayField(TEXT("available_functions"), AvailableFuncs);
+		Result->SetStringField(TEXT("note"), TEXT("No Build/AssembleCollection/BuildCharacter function found on MetaHumanCharacterEditorSubsystem. Check available_functions and use run_console_command or open the MetaHuman editor and click Build manually. You can also try set_asset_property to trigger a PostEditChange which may kick off a rebuild."));
+		Result->SetBoolField(TEXT("triggered"), false);
+		return FECACommandResult::Success(Result);
+	}
+
+	// Call the function — most likely signature is (UMetaHumanCharacter*)
+	struct FBuildParams
+	{
+		UObject* Character;
+	};
+	FBuildParams BuildParams;
+	BuildParams.Character = AssetObj;
+
+	MHEditorSubsystem->ProcessEvent(BuildFunc, &BuildParams);
+
+	Result->SetStringField(TEXT("function_called"), BuildFunc->GetName());
+	Result->SetBoolField(TEXT("triggered"), true);
+	Result->SetStringField(TEXT("note"), TEXT("Build pipeline triggered. Operation is async — give it a few seconds then check the MetaHuman editor viewport."));
 
 	return FECACommandResult::Success(Result);
 }
