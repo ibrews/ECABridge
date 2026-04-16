@@ -103,7 +103,14 @@ public class ECABridge : ModuleRules
 			// Gameplay Ability System - requires GameplayAbilities plugin
 			"GameplayAbilities",
 			"GameplayTags",
-			"GameplayTasks"
+			"GameplayTasks",
+
+			// MetaHuman Character - requires MetaHumanCharacter plugin
+			"MetaHumanCharacter",
+			"MetaHumanCharacterPalette",
+
+			// Enhanced Input - requires EnhancedInput plugin
+			"EnhancedInput"
 		});
 
 		// ModelViewViewModelBlueprint include path - UBT doesn't resolve it via PrivateDependencyModuleNames

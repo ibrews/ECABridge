@@ -122,6 +122,11 @@ FECACommandResult FECACommand_CreateLevelSequence::Execute(const TSharedPtr<FJso
 	if (FrameRate <= 0.0)
 		return FECACommandResult::Error(TEXT("frame_rate must be a positive number"));
 
+	double Duration = 5.0;
+	GetFloatParam(Params, TEXT("duration"), Duration, false);
+	if (Duration <= 0.0)
+		Duration = 5.0;
+
 	// Build the full package name
 	FString FullPackagePath = PackagePath / AssetName;
 
@@ -147,11 +152,12 @@ FECACommandResult FECACommand_CreateLevelSequence::Execute(const TSharedPtr<FJso
 		FFrameRate DisplayRate(static_cast<int32>(FrameRate), 1);
 		MovieScene->SetDisplayRate(DisplayRate);
 
-		// Set a default playback range (5 seconds)
+		// Set the playback range based on the requested duration
 		FFrameRate TickResolution = MovieScene->GetTickResolution();
 		FFrameNumber StartFrame = 0;
-		int32 DurationFrames = (TickResolution / DisplayRate).AsDecimal() * static_cast<int32>(FrameRate) * 5; // 5 seconds
-		MovieScene->SetPlaybackRange(StartFrame, DurationFrames);
+		// Duration in ticks = Duration (seconds) × TickResolution (ticks/sec)
+		int32 DurationTicks = FMath::RoundToInt(Duration * TickResolution.AsDecimal());
+		MovieScene->SetPlaybackRange(StartFrame, DurationTicks);
 	}
 
 	// Notify the asset registry
@@ -422,6 +428,11 @@ FECACommandResult FECACommand_AddSequenceCamera::Execute(const TSharedPtr<FJsonO
 	UMovieSceneCameraCutSection* CutSection = CameraCutTrack->AddNewCameraCut(CameraBindingID, StartFrame);
 	if (!CutSection)
 		return FECACommandResult::Error(TEXT("Failed to add camera cut section"));
+
+	// Explicitly extend the cut section to cover the FULL playback range.
+	// Without this, AddNewCameraCut places a 1-tick section; MRQ would then
+	// only render up to wherever camera keyframes happen to be, not the full duration.
+	CutSection->SetRange(MovieScene->GetPlaybackRange());
 
 	Seq->MarkPackageDirty();
 

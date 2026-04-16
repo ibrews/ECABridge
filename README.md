@@ -1,14 +1,17 @@
 # ECABridge — AI-Powered Unreal Engine 5 MCP Plugin
 
-360+ MCP tools for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent.
+370+ MCP tools for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent.
 
 ## Features
 
-- **360+ MCP tools** organized by category
+- **370+ MCP tools** organized by category
 - **12 Rosetta Stone commands** — full JSON dumps of assets, blueprints, levels, materials, Niagara, sequencer, widgets, animation, MetaSound, and DataTables
 - **6 workflow commands** — project overview, cross-blueprint search, asset validation, snapshot/diff, undo-batching, class hierarchy
 - **5 refactoring commands** — replace references, bulk rename, search-and-replace properties, world settings
 - **5 advanced system commands** — landscape, source control, PCG graphs, Control Rig, Gameplay Ability System
+- **4 MetaHuman commands** — create, dump, set properties, natural-language description
+- **5 Enhanced Input commands** — actions, mapping contexts, key bindings
+- **2 Niagara Data Channel commands** — create and dump cross-system data channels
 - **HTTP/SSE MCP server** on localhost:3000 (Streamable HTTP transport)
 - **UE 5.7 compatible** (built and tested against 5.7.4)
 - **No engine modifications** — drop-in plugin
@@ -293,6 +296,30 @@ dump_control_rig(rig_path="/Game/Characters/CR_Mannequin")
 **Inspect a Gameplay Ability / Effect / AttributeSet:**
 ```
 dump_gameplay_ability(asset_path="/Game/GAS/GA_Fireball")
+```
+
+**Create a MetaHuman and describe it in natural language:**
+```
+create_metahuman_character(asset_path="/Game/Characters/MH_Hero")
+describe_metahuman(character_path="/Game/Characters/MH_Hero",
+                   description="tall muscular with purple hair and green eyes")
+```
+
+**Build an input system from scratch:**
+```
+create_input_action(asset_path="/Game/Input/IA_Jump", value_type="Digital")
+create_input_mapping_context(asset_path="/Game/Input/IMC_Gameplay")
+add_input_mapping(context_path="/Game/Input/IMC_Gameplay",
+                  action_path="/Game/Input/IA_Jump", key="SpaceBar")
+dump_input_mapping_context(context_path="/Game/Input/IMC_Gameplay")
+```
+
+**Create a Niagara Data Channel for cross-system communication:**
+```
+create_niagara_data_channel(
+  asset_path="/Game/FX/NDC_Hits",
+  variables=[{name: "Position", type: "Vector"}, {name: "Damage", type: "Float"}]
+)
 ```
 
 ## Requirements

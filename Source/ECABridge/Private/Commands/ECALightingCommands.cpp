@@ -15,6 +15,8 @@
 #include "Components/PointLightComponent.h"
 #include "Components/SpotLightComponent.h"
 #include "Components/DirectionalLightComponent.h"
+#include "Components/SkyLightComponent.h"
+#include "Engine/SkyLight.h"
 
 #include "EngineUtils.h"
 #include "Editor.h"
@@ -118,6 +120,47 @@ FECACommandResult FECACommand_SetLightProperties::Execute(const TSharedPtr<FJson
 	}
 
 	ULightComponent* LightComp = LightingCommandHelpers::GetLightComponent(Actor);
+
+	// SkyLight uses USkyLightComponent (inherits ULightComponentBase, NOT ULightComponent)
+	// Handle it as a special case before the normal path.
+	USkyLightComponent* SkyComp = Actor->FindComponentByClass<USkyLightComponent>();
+	if (!LightComp && SkyComp)
+	{
+		int32 PropertiesSet = 0;
+		TSharedPtr<FJsonObject> Result = MakeResult();
+		Result->SetStringField(TEXT("actor_name"), ActorName);
+		Result->SetStringField(TEXT("light_type"), TEXT("SkyLight"));
+
+		double Intensity;
+		if (GetFloatParam(Params, TEXT("intensity"), Intensity, /*bRequired=*/false))
+		{
+			SkyComp->SetIntensity(static_cast<float>(Intensity));
+			Result->SetNumberField(TEXT("intensity"), Intensity);
+			++PropertiesSet;
+		}
+
+		const TSharedPtr<FJsonObject>* ColorObj = nullptr;
+		if (GetObjectParam(Params, TEXT("color"), ColorObj, /*bRequired=*/false))
+		{
+			double R = (*ColorObj)->GetNumberField(TEXT("r"));
+			double G = (*ColorObj)->GetNumberField(TEXT("g"));
+			double B = (*ColorObj)->GetNumberField(TEXT("b"));
+			SkyComp->SetLightColor(FLinearColor(
+				static_cast<float>(R / 255.0),
+				static_cast<float>(G / 255.0),
+				static_cast<float>(B / 255.0), 1.0f));
+			++PropertiesSet;
+		}
+
+		if (PropertiesSet == 0)
+			return FECACommandResult::Error(TEXT("No valid properties provided for SkyLight. Supported: intensity, color."));
+
+		SkyComp->MarkRenderStateDirty();
+		Actor->MarkPackageDirty();
+		Result->SetNumberField(TEXT("properties_set"), PropertiesSet);
+		return FECACommandResult::Success(Result);
+	}
+
 	if (!LightComp)
 	{
 		return FECACommandResult::Error(FString::Printf(TEXT("Actor '%s' has no light component"), *ActorName));

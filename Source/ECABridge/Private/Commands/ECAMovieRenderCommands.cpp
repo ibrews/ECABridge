@@ -19,6 +19,7 @@
 #include "Editor/EditorEngine.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
+#include "FileHelpers.h"
 
 extern UNREALED_API UEditorEngine* GEditor;
 
@@ -86,6 +87,9 @@ FECACommandResult FECACommand_RenderSequence::Execute(const TSharedPtr<FJsonObje
 	double FrameRate = 30.0;
 	GetFloatParam(Params, TEXT("frame_rate"), FrameRate, /*bRequired=*/false);
 
+	bool bSaveLevelFirst = false;
+	GetBoolParam(Params, TEXT("save_level_first"), bSaveLevelFirst, /*bRequired=*/false);
+
 	// --- Validate parameters ---
 	if (OutputFormat != TEXT("png") && OutputFormat != TEXT("jpg") && OutputFormat != TEXT("exr") && OutputFormat != TEXT("mp4") && OutputFormat != TEXT("video"))
 	{
@@ -101,6 +105,12 @@ FECACommandResult FECACommand_RenderSequence::Execute(const TSharedPtr<FJsonObje
 	if (FrameRate <= 0.0)
 	{
 		return FECACommandResult::Error(TEXT("frame_rate must be a positive number"));
+	}
+
+	// --- Optionally save the level first so MRQ PIE picks up any deletions/changes ---
+	if (bSaveLevelFirst)
+	{
+		FEditorFileUtils::SaveCurrentLevel();
 	}
 
 	// --- Load sequence ---
