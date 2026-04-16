@@ -170,3 +170,113 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+// ─── enable_physics_simulation ─────────────────────────────
+// Enable/disable physics simulation on an actor's components.
+class FECACommand_EnablePhysicsSimulation : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("enable_physics_simulation"); }
+	virtual FString GetDescription() const override { return TEXT("Enable or disable physics simulation on an actor's primitive components"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("actor_name"), TEXT("string"), TEXT("Name or label of the target actor"), true },
+			{ TEXT("enable"), TEXT("boolean"), TEXT("Whether to enable physics simulation (default: true)"), false, TEXT("true") },
+			{ TEXT("component_name"), TEXT("string"), TEXT("Specific primitive component name — if omitted, affects all primitive components"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── apply_impulse ─────────────────────────────────────────
+// Apply a physics impulse to an actor (push/launch/hit effect).
+class FECACommand_ApplyImpulse : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("apply_impulse"); }
+	virtual FString GetDescription() const override { return TEXT("Apply a physics impulse to an actor for push, launch, or hit effects"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("actor_name"), TEXT("string"), TEXT("Name or label of the target actor"), true },
+			{ TEXT("impulse"), TEXT("object"), TEXT("Impulse vector as {x, y, z}"), true },
+			{ TEXT("location"), TEXT("object"), TEXT("World position for impulse application as {x, y, z} — defaults to actor center"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── set_actor_visibility ──────────────────────────────────
+// Show or hide actors.
+class FECACommand_SetActorVisibility : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_actor_visibility"); }
+	virtual FString GetDescription() const override { return TEXT("Show or hide an actor in the game"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("actor_name"), TEXT("string"), TEXT("Name or label of the target actor"), true },
+			{ TEXT("visible"), TEXT("boolean"), TEXT("Whether the actor should be visible"), true },
+			{ TEXT("affect_children"), TEXT("boolean"), TEXT("Whether to propagate visibility to child components (default: true)"), false, TEXT("true") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── batch_spawn_actors ────────────────────────────────────
+// Spawn multiple actors in one call — useful for grids, arrays, crowds.
+class FECACommand_BatchSpawnActors : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("batch_spawn_actors"); }
+	virtual FString GetDescription() const override { return TEXT("Spawn multiple actors in one call — useful for building grids, arrays, or crowds"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("actor_type"), TEXT("string"), TEXT("Type of actor to spawn (e.g. StaticMeshActor)"), true },
+			{ TEXT("count"), TEXT("number"), TEXT("Number of actors to spawn"), true },
+			{ TEXT("base_location"), TEXT("object"), TEXT("Starting location as {x, y, z}"), true },
+			{ TEXT("spacing"), TEXT("object"), TEXT("Offset between each spawned actor as {x, y, z} (default: {x:200, y:0, z:0})"), false, TEXT("{x:200, y:0, z:0}") },
+			{ TEXT("base_name"), TEXT("string"), TEXT("Base label for spawned actors — each gets an incrementing suffix (default: SpawnedActor)"), false, TEXT("SpawnedActor") },
+			{ TEXT("mesh"), TEXT("string"), TEXT("Asset path to a static mesh to assign (optional)"), false },
+			{ TEXT("material"), TEXT("string"), TEXT("Asset path to a material to apply (optional)"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── teleport_actor ────────────────────────────────────────
+// Instantly move an actor to a new location without physics interpolation.
+class FECACommand_TeleportActor : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("teleport_actor"); }
+	virtual FString GetDescription() const override { return TEXT("Instantly move an actor to a new location without physics interpolation"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("actor_name"), TEXT("string"), TEXT("Name or label of the target actor"), true },
+			{ TEXT("location"), TEXT("object"), TEXT("Target location as {x, y, z}"), true },
+			{ TEXT("rotation"), TEXT("object"), TEXT("Target rotation as {pitch, yaw, roll} (optional — keeps current rotation if omitted)"), false },
+			{ TEXT("sweep"), TEXT("boolean"), TEXT("Whether to sweep to the target location, stopping at collision (default: false)"), false, TEXT("false") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};

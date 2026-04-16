@@ -10,6 +10,7 @@
 #include "Components/DirectionalLightComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Components/SplineComponent.h"
+#include "Components/PrimitiveComponent.h"
 #include "Camera/CameraActor.h"
 #include "Engine/Light.h"
 #include "GameFramework/WorldSettings.h"
@@ -34,6 +35,11 @@ REGISTER_ECA_COMMAND(FECACommand_SetWorldGravity);
 REGISTER_ECA_COMMAND(FECACommand_GetSceneStats);
 REGISTER_ECA_COMMAND(FECACommand_BatchSetActorProperty);
 REGISTER_ECA_COMMAND(FECACommand_CreateSplinePath);
+REGISTER_ECA_COMMAND(FECACommand_EnablePhysicsSimulation);
+REGISTER_ECA_COMMAND(FECACommand_ApplyImpulse);
+REGISTER_ECA_COMMAND(FECACommand_SetActorVisibility);
+REGISTER_ECA_COMMAND(FECACommand_BatchSpawnActors);
+REGISTER_ECA_COMMAND(FECACommand_TeleportActor);
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -868,6 +874,433 @@ FECACommandResult FECACommand_CreateSplinePath::Execute(const TSharedPtr<FJsonOb
 		PointsResult.Add(MakeShared<FJsonValueObject>(VectorToJson(Pt)));
 	}
 	Result->SetArrayField(TEXT("points"), PointsResult);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── enable_physics_simulation ─────────────────────────────
+
+FECACommandResult FECACommand_EnablePhysicsSimulation::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	// Actor name (required)
+	FString ActorName;
+	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+	}
+
+	AActor* Actor = FindActorByName(ActorName);
+	if (!Actor)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+	}
+
+	// Enable (optional, default true)
+	bool bEnable = true;
+	GetBoolParam(Params, TEXT("enable"), bEnable, /*bRequired=*/false);
+
+	// Component name (optional)
+	FString ComponentName;
+	bool bHasComponentName = GetStringParam(Params, TEXT("component_name"), ComponentName, /*bRequired=*/false) && !ComponentName.IsEmpty();
+
+	int32 AffectedCount = 0;
+
+	TArray<UPrimitiveComponent*> PrimitiveComponents;
+	Actor->GetComponents<UPrimitiveComponent>(PrimitiveComponents);
+
+	for (UPrimitiveComponent* PrimComp : PrimitiveComponents)
+	{
+		if (!PrimComp)
+		{
+			continue;
+		}
+
+		if (bHasComponentName && PrimComp->GetName() != ComponentName)
+		{
+			continue;
+		}
+
+		PrimComp->SetSimulatePhysics(bEnable);
+		++AffectedCount;
+	}
+
+	if (AffectedCount == 0)
+	{
+		if (bHasComponentName)
+		{
+			return FECACommandResult::Error(FString::Printf(TEXT("No primitive component named '%s' found on actor '%s'"), *ComponentName, *ActorName));
+		}
+		return FECACommandResult::Error(FString::Printf(TEXT("No primitive components found on actor '%s'"), *ActorName));
+	}
+
+	Actor->MarkPackageDirty();
+
+	// Refresh viewports
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), Actor->GetActorLabel());
+	Result->SetBoolField(TEXT("simulate_physics"), bEnable);
+	Result->SetNumberField(TEXT("components_affected"), AffectedCount);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── apply_impulse ─────────────────────────────────────────
+
+FECACommandResult FECACommand_ApplyImpulse::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	// Actor name (required)
+	FString ActorName;
+	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+	}
+
+	AActor* Actor = FindActorByName(ActorName);
+	if (!Actor)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+	}
+
+	// Impulse (required)
+	FVector Impulse;
+	if (!GetVectorParam(Params, TEXT("impulse"), Impulse))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: impulse"));
+	}
+
+	// Get the root primitive component
+	UPrimitiveComponent* RootPrim = Cast<UPrimitiveComponent>(Actor->GetRootComponent());
+	if (!RootPrim)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor '%s' has no root primitive component to apply impulse to"), *ActorName));
+	}
+
+	if (!RootPrim->IsSimulatingPhysics())
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor '%s' root component is not simulating physics — enable physics simulation first"), *ActorName));
+	}
+
+	// Location (optional — defaults to actor center)
+	FVector Location;
+	bool bHasLocation = GetVectorParam(Params, TEXT("location"), Location, /*bRequired=*/false);
+
+	if (bHasLocation)
+	{
+		RootPrim->AddImpulseAtLocation(Impulse, Location);
+	}
+	else
+	{
+		RootPrim->AddImpulse(Impulse);
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), Actor->GetActorLabel());
+	Result->SetObjectField(TEXT("impulse"), VectorToJson(Impulse));
+	if (bHasLocation)
+	{
+		Result->SetObjectField(TEXT("location"), VectorToJson(Location));
+	}
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── set_actor_visibility ──────────────────────────────────
+
+FECACommandResult FECACommand_SetActorVisibility::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	// Actor name (required)
+	FString ActorName;
+	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+	}
+
+	AActor* Actor = FindActorByName(ActorName);
+	if (!Actor)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+	}
+
+	// Visible (required)
+	bool bVisible = true;
+	if (!GetBoolParam(Params, TEXT("visible"), bVisible))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: visible"));
+	}
+
+	// Affect children (optional, default true)
+	bool bAffectChildren = true;
+	GetBoolParam(Params, TEXT("affect_children"), bAffectChildren, /*bRequired=*/false);
+
+	// SetActorHiddenInGame takes "hidden" — invert the visible flag
+	Actor->SetActorHiddenInGame(!bVisible);
+
+	if (bAffectChildren)
+	{
+		// Propagate to all components
+		TArray<USceneComponent*> ChildComponents;
+		Actor->GetRootComponent()->GetChildrenComponents(true, ChildComponents);
+		for (USceneComponent* Child : ChildComponents)
+		{
+			if (Child)
+			{
+				Child->SetVisibility(bVisible, true);
+			}
+		}
+	}
+
+	Actor->MarkPackageDirty();
+
+	// Refresh viewports
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), Actor->GetActorLabel());
+	Result->SetBoolField(TEXT("visible"), bVisible);
+	Result->SetBoolField(TEXT("affect_children"), bAffectChildren);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── batch_spawn_actors ────────────────────────────────────
+
+FECACommandResult FECACommand_BatchSpawnActors::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// Actor type (required)
+	FString ActorType;
+	if (!GetStringParam(Params, TEXT("actor_type"), ActorType))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_type"));
+	}
+
+	// Count (required)
+	int32 Count = 0;
+	if (!GetIntParam(Params, TEXT("count"), Count))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: count"));
+	}
+	if (Count <= 0)
+	{
+		return FECACommandResult::Error(TEXT("count must be greater than 0"));
+	}
+	if (Count > 1000)
+	{
+		return FECACommandResult::Error(TEXT("count exceeds maximum of 1000"));
+	}
+
+	// Base location (required)
+	FVector BaseLocation;
+	if (!GetVectorParam(Params, TEXT("base_location"), BaseLocation))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: base_location"));
+	}
+
+	// Spacing (optional, default {200,0,0})
+	FVector Spacing(200.0, 0.0, 0.0);
+	GetVectorParam(Params, TEXT("spacing"), Spacing, /*bRequired=*/false);
+
+	// Base name (optional)
+	FString BaseName = TEXT("SpawnedActor");
+	GetStringParam(Params, TEXT("base_name"), BaseName, /*bRequired=*/false);
+
+	// Mesh (optional)
+	FString MeshPath;
+	bool bHasMesh = GetStringParam(Params, TEXT("mesh"), MeshPath, /*bRequired=*/false) && !MeshPath.IsEmpty();
+	UStaticMesh* Mesh = nullptr;
+	if (bHasMesh)
+	{
+		Mesh = EnvironmentCommandHelpers::LoadMeshByPath(MeshPath);
+		if (!Mesh)
+		{
+			return FECACommandResult::Error(FString::Printf(TEXT("Could not load static mesh at: %s"), *MeshPath));
+		}
+	}
+
+	// Material (optional)
+	FString MaterialPath;
+	bool bHasMaterial = GetStringParam(Params, TEXT("material"), MaterialPath, /*bRequired=*/false) && !MaterialPath.IsEmpty();
+	UMaterialInterface* Material = nullptr;
+	if (bHasMaterial)
+	{
+		Material = EnvironmentCommandHelpers::LoadMaterialByPath(MaterialPath);
+		if (!Material)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("batch_spawn_actors: Could not load material at '%s', using default"), *MaterialPath);
+			bHasMaterial = false;
+		}
+	}
+
+	// Determine the actor class to spawn
+	// Default to StaticMeshActor for common types
+	bool bIsStaticMeshActor = ActorType.Equals(TEXT("StaticMeshActor"), ESearchCase::IgnoreCase)
+		|| ActorType.Equals(TEXT("AStaticMeshActor"), ESearchCase::IgnoreCase);
+
+	TArray<TSharedPtr<FJsonValue>> SpawnedActors;
+
+	for (int32 i = 0; i < Count; ++i)
+	{
+		FVector SpawnLocation = BaseLocation + (Spacing * static_cast<double>(i));
+		FString ActorLabel = FString::Printf(TEXT("%s_%d"), *BaseName, i);
+
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+		AActor* SpawnedActor = nullptr;
+
+		if (bIsStaticMeshActor)
+		{
+			AStaticMeshActor* SMActor = World->SpawnActor<AStaticMeshActor>(SpawnLocation, FRotator::ZeroRotator, SpawnParams);
+			if (SMActor)
+			{
+				SMActor->SetActorLabel(ActorLabel);
+
+				UStaticMeshComponent* MeshComp = SMActor->GetStaticMeshComponent();
+				if (MeshComp)
+				{
+					if (Mesh)
+					{
+						MeshComp->SetStaticMesh(Mesh);
+					}
+					else
+					{
+						// Default to a cube if no mesh specified
+						UStaticMesh* DefaultMesh = EnvironmentCommandHelpers::LoadMeshByPath(TEXT("/Engine/BasicShapes/Cube"));
+						if (DefaultMesh)
+						{
+							MeshComp->SetStaticMesh(DefaultMesh);
+						}
+					}
+
+					if (bHasMaterial && Material)
+					{
+						MeshComp->SetMaterial(0, Material);
+					}
+				}
+
+				SpawnedActor = SMActor;
+			}
+		}
+		else
+		{
+			// Generic actor spawn
+			SpawnedActor = World->SpawnActor<AActor>(FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
+			if (SpawnedActor)
+			{
+				SpawnedActor->SetActorLocation(SpawnLocation);
+				SpawnedActor->SetActorLabel(ActorLabel);
+			}
+		}
+
+		if (SpawnedActor)
+		{
+			TSharedPtr<FJsonObject> ActorInfo = MakeShared<FJsonObject>();
+			ActorInfo->SetStringField(TEXT("name"), SpawnedActor->GetActorLabel());
+			ActorInfo->SetObjectField(TEXT("location"), VectorToJson(SpawnLocation));
+			SpawnedActors.Add(MakeShared<FJsonValueObject>(ActorInfo));
+		}
+	}
+
+	// Notify editor
+	if (GEditor)
+	{
+		GEditor->BroadcastLevelActorListChanged();
+		GEditor->RedrawAllViewports();
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_type"), ActorType);
+	Result->SetNumberField(TEXT("requested_count"), Count);
+	Result->SetNumberField(TEXT("spawned_count"), SpawnedActors.Num());
+	Result->SetObjectField(TEXT("base_location"), VectorToJson(BaseLocation));
+	Result->SetObjectField(TEXT("spacing"), VectorToJson(Spacing));
+	Result->SetArrayField(TEXT("spawned_actors"), SpawnedActors);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── teleport_actor ────────────────────────────────────────
+
+FECACommandResult FECACommand_TeleportActor::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	// Actor name (required)
+	FString ActorName;
+	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+	}
+
+	AActor* Actor = FindActorByName(ActorName);
+	if (!Actor)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+	}
+
+	// Location (required)
+	FVector Location;
+	if (!GetVectorParam(Params, TEXT("location"), Location))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: location"));
+	}
+
+	// Sweep (optional, default false)
+	bool bSweep = false;
+	GetBoolParam(Params, TEXT("sweep"), bSweep, /*bRequired=*/false);
+
+	// Rotation (optional)
+	FRotator Rotation;
+	bool bHasRotation = GetRotatorParam(Params, TEXT("rotation"), Rotation, /*bRequired=*/false);
+
+	bool bMoved = false;
+	FHitResult SweepHitResult;
+
+	if (bHasRotation)
+	{
+		bMoved = Actor->SetActorLocationAndRotation(Location, Rotation, bSweep, bSweep ? &SweepHitResult : nullptr);
+	}
+	else
+	{
+		bMoved = Actor->SetActorLocation(Location, bSweep, bSweep ? &SweepHitResult : nullptr);
+	}
+
+	Actor->MarkPackageDirty();
+
+	// Refresh viewports
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), Actor->GetActorLabel());
+	Result->SetObjectField(TEXT("location"), VectorToJson(Actor->GetActorLocation()));
+	Result->SetObjectField(TEXT("rotation"), RotatorToJson(Actor->GetActorRotation()));
+	Result->SetBoolField(TEXT("sweep"), bSweep);
+	Result->SetBoolField(TEXT("success"), bMoved);
+
+	if (bSweep && SweepHitResult.bBlockingHit)
+	{
+		Result->SetBoolField(TEXT("sweep_hit"), true);
+		Result->SetObjectField(TEXT("sweep_hit_location"), VectorToJson(SweepHitResult.Location));
+	}
 
 	return FECACommandResult::Success(Result);
 }
