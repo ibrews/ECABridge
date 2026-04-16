@@ -550,3 +550,59 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+// ─── snapshot_scene_state ────────────────────────────────
+// Capture a snapshot of all actors' transforms, visibility, and key properties for A/B comparison or undo.
+class FECACommand_SnapshotSceneState : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("snapshot_scene_state"); }
+	virtual FString GetDescription() const override { return TEXT("Capture a snapshot of all actors' transforms, visibility, and key properties — useful for A/B comparison or undo"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("snapshot_name"), TEXT("string"), TEXT("Name for this snapshot"), true },
+			{ TEXT("include_properties"), TEXT("boolean"), TEXT("If true, also capture material assignments and light settings (default: false)"), false, TEXT("false") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── restore_scene_state ─────────────────────────────────
+// Restore actors to a previously captured snapshot state.
+class FECACommand_RestoreSceneState : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("restore_scene_state"); }
+	virtual FString GetDescription() const override { return TEXT("Restore actors to a previously captured snapshot state"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("snapshot_name"), TEXT("string"), TEXT("Name of the snapshot to restore"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── list_scene_snapshots ────────────────────────────────
+// List all available scene snapshots.
+class FECACommand_ListSceneSnapshots : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("list_scene_snapshots"); }
+	virtual FString GetDescription() const override { return TEXT("List all available scene snapshots with actor counts and timestamps"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};

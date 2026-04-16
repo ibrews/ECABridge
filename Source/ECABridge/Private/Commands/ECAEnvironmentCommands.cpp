@@ -74,6 +74,9 @@ REGISTER_ECA_COMMAND(FECACommand_SpawnAudioSource);
 REGISTER_ECA_COMMAND(FECACommand_SpawnTriggerBox);
 REGISTER_ECA_COMMAND(FECACommand_AlignActors);
 REGISTER_ECA_COMMAND(FECACommand_DistributeActors);
+REGISTER_ECA_COMMAND(FECACommand_SnapshotSceneState);
+REGISTER_ECA_COMMAND(FECACommand_RestoreSceneState);
+REGISTER_ECA_COMMAND(FECACommand_ListSceneSnapshots);
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -2872,6 +2875,354 @@ FECACommandResult FECACommand_DistributeActors::Execute(const TSharedPtr<FJsonOb
 		}
 		Result->SetArrayField(TEXT("not_found"), NotFoundArray);
 	}
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── Scene Snapshot Storage ───────────────────────────────────
+
+namespace EnvironmentCommandHelpers
+{
+	// Each snapshot is a JSON object containing:
+	//   "snapshot_name" (string), "timestamp" (string), "include_properties" (bool),
+	//   "actors" (array of actor data objects)
+	static TMap<FString, TSharedPtr<FJsonObject>> SceneSnapshots;
+}
+
+// ─── snapshot_scene_state ─────────────────────────────────────
+
+FECACommandResult FECACommand_SnapshotSceneState::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	FString SnapshotName;
+	if (!GetStringParam(Params, TEXT("snapshot_name"), SnapshotName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: snapshot_name"));
+	}
+
+	bool bIncludeProperties = false;
+	GetBoolParam(Params, TEXT("include_properties"), bIncludeProperties, /*bRequired=*/false);
+
+	// Build actor data array
+	TArray<TSharedPtr<FJsonValue>> ActorArray;
+	int32 ActorCount = 0;
+
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (!Actor || Actor->IsPendingKillPending())
+		{
+			continue;
+		}
+
+		// Skip transient/hidden editor-only actors (world settings, brushes, etc.)
+		if (Actor->IsA<AWorldSettings>())
+		{
+			continue;
+		}
+
+		TSharedPtr<FJsonObject> ActorData = MakeShared<FJsonObject>();
+		ActorData->SetStringField(TEXT("name"), Actor->GetActorLabel());
+		ActorData->SetStringField(TEXT("object_name"), Actor->GetName());
+		ActorData->SetStringField(TEXT("class"), Actor->GetClass()->GetName());
+
+		// Transform
+		FVector Location = Actor->GetActorLocation();
+		FRotator Rotation = Actor->GetActorRotation();
+		FVector Scale = Actor->GetActorScale3D();
+		ActorData->SetObjectField(TEXT("location"), VectorToJson(Location));
+		ActorData->SetObjectField(TEXT("rotation"), RotatorToJson(Rotation));
+		ActorData->SetObjectField(TEXT("scale"), VectorToJson(Scale));
+
+		// Visibility
+		ActorData->SetBoolField(TEXT("hidden"), Actor->IsHidden());
+
+		// Extended properties if requested
+		if (bIncludeProperties)
+		{
+			// Capture material assignments from static mesh components
+			TArray<TSharedPtr<FJsonValue>> MaterialArray;
+			TArray<UStaticMeshComponent*> MeshComps;
+			Actor->GetComponents<UStaticMeshComponent>(MeshComps);
+			for (UStaticMeshComponent* MeshComp : MeshComps)
+			{
+				for (int32 MatIdx = 0; MatIdx < MeshComp->GetNumMaterials(); ++MatIdx)
+				{
+					UMaterialInterface* Mat = MeshComp->GetMaterial(MatIdx);
+					TSharedPtr<FJsonObject> MatData = MakeShared<FJsonObject>();
+					MatData->SetStringField(TEXT("component"), MeshComp->GetName());
+					MatData->SetNumberField(TEXT("index"), MatIdx);
+					MatData->SetStringField(TEXT("material"), Mat ? Mat->GetPathName() : TEXT("None"));
+					MaterialArray.Add(MakeShared<FJsonValueObject>(MatData));
+				}
+			}
+			if (MaterialArray.Num() > 0)
+			{
+				ActorData->SetArrayField(TEXT("materials"), MaterialArray);
+			}
+
+			// Capture light settings if this actor has a light component
+			ULightComponent* LightComp = Actor->FindComponentByClass<ULightComponent>();
+			if (LightComp)
+			{
+				TSharedPtr<FJsonObject> LightData = MakeShared<FJsonObject>();
+				LightData->SetNumberField(TEXT("intensity"), LightComp->Intensity);
+				FLinearColor LightColor = LightComp->GetLightColor();
+				TSharedPtr<FJsonObject> ColorObj = MakeShared<FJsonObject>();
+				ColorObj->SetNumberField(TEXT("r"), FMath::RoundToInt(LightColor.R * 255.f));
+				ColorObj->SetNumberField(TEXT("g"), FMath::RoundToInt(LightColor.G * 255.f));
+				ColorObj->SetNumberField(TEXT("b"), FMath::RoundToInt(LightColor.B * 255.f));
+				LightData->SetObjectField(TEXT("color"), ColorObj);
+				LightData->SetBoolField(TEXT("cast_shadows"), LightComp->CastShadows);
+				ActorData->SetObjectField(TEXT("light_settings"), LightData);
+			}
+		}
+
+		ActorArray.Add(MakeShared<FJsonValueObject>(ActorData));
+		++ActorCount;
+	}
+
+	// Build the snapshot object
+	TSharedPtr<FJsonObject> Snapshot = MakeShared<FJsonObject>();
+	Snapshot->SetStringField(TEXT("snapshot_name"), SnapshotName);
+	Snapshot->SetStringField(TEXT("timestamp"), FDateTime::Now().ToString(TEXT("%Y-%m-%d %H:%M:%S")));
+	Snapshot->SetBoolField(TEXT("include_properties"), bIncludeProperties);
+	Snapshot->SetArrayField(TEXT("actors"), ActorArray);
+
+	// Store it
+	EnvironmentCommandHelpers::SceneSnapshots.Add(SnapshotName, Snapshot);
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("snapshot_name"), SnapshotName);
+	Result->SetNumberField(TEXT("actor_count"), ActorCount);
+	Result->SetBoolField(TEXT("include_properties"), bIncludeProperties);
+	Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Snapshot '%s' captured with %d actors"), *SnapshotName, ActorCount));
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── restore_scene_state ──────────────────────────────────────
+
+FECACommandResult FECACommand_RestoreSceneState::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	FString SnapshotName;
+	if (!GetStringParam(Params, TEXT("snapshot_name"), SnapshotName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: snapshot_name"));
+	}
+
+	TSharedPtr<FJsonObject>* FoundSnapshot = EnvironmentCommandHelpers::SceneSnapshots.Find(SnapshotName);
+	if (!FoundSnapshot || !FoundSnapshot->IsValid())
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Snapshot '%s' not found"), *SnapshotName));
+	}
+
+	TSharedPtr<FJsonObject> Snapshot = *FoundSnapshot;
+	bool bIncludeProperties = Snapshot->GetBoolField(TEXT("include_properties"));
+	const TArray<TSharedPtr<FJsonValue>>& ActorArray = Snapshot->GetArrayField(TEXT("actors"));
+
+	int32 RestoredCount = 0;
+	int32 MissingCount = 0;
+	TArray<TSharedPtr<FJsonValue>> MissingActors;
+
+	for (const TSharedPtr<FJsonValue>& ActorValue : ActorArray)
+	{
+		const TSharedPtr<FJsonObject>& ActorData = ActorValue->AsObject();
+		if (!ActorData.IsValid())
+		{
+			continue;
+		}
+
+		FString ActorLabel = ActorData->GetStringField(TEXT("name"));
+		FString ActorObjName = ActorData->GetStringField(TEXT("object_name"));
+
+		// Find the actor in the current world — try label first, then object name
+		AActor* Actor = FindActorByName(ActorLabel);
+		if (!Actor)
+		{
+			Actor = FindActorByName(ActorObjName);
+		}
+
+		if (!Actor)
+		{
+			++MissingCount;
+			MissingActors.Add(MakeShared<FJsonValueString>(ActorLabel.IsEmpty() ? ActorObjName : ActorLabel));
+			continue;
+		}
+
+		// Restore transform
+		const TSharedPtr<FJsonObject>* LocObj = nullptr;
+		if (ActorData->TryGetObjectField(TEXT("location"), LocObj) && LocObj->IsValid())
+		{
+			FVector Location(
+				(*LocObj)->GetNumberField(TEXT("x")),
+				(*LocObj)->GetNumberField(TEXT("y")),
+				(*LocObj)->GetNumberField(TEXT("z"))
+			);
+			Actor->SetActorLocation(Location);
+		}
+
+		const TSharedPtr<FJsonObject>* RotObj = nullptr;
+		if (ActorData->TryGetObjectField(TEXT("rotation"), RotObj) && RotObj->IsValid())
+		{
+			FRotator Rotation(
+				(*RotObj)->GetNumberField(TEXT("pitch")),
+				(*RotObj)->GetNumberField(TEXT("yaw")),
+				(*RotObj)->GetNumberField(TEXT("roll"))
+			);
+			Actor->SetActorRotation(Rotation);
+		}
+
+		const TSharedPtr<FJsonObject>* ScaleObj = nullptr;
+		if (ActorData->TryGetObjectField(TEXT("scale"), ScaleObj) && ScaleObj->IsValid())
+		{
+			FVector Scale(
+				(*ScaleObj)->GetNumberField(TEXT("x")),
+				(*ScaleObj)->GetNumberField(TEXT("y")),
+				(*ScaleObj)->GetNumberField(TEXT("z"))
+			);
+			Actor->SetActorScale3D(Scale);
+		}
+
+		// Restore visibility if include_properties was true during snapshot
+		if (bIncludeProperties)
+		{
+			bool bHidden = ActorData->GetBoolField(TEXT("hidden"));
+			Actor->SetActorHiddenInGame(bHidden);
+#if WITH_EDITOR
+			Actor->SetIsTemporarilyHiddenInEditor(bHidden);
+#endif
+
+			// Restore material assignments
+			const TArray<TSharedPtr<FJsonValue>>* MaterialArray = nullptr;
+			if (ActorData->TryGetArrayField(TEXT("materials"), MaterialArray))
+			{
+				TArray<UStaticMeshComponent*> MeshComps;
+				Actor->GetComponents<UStaticMeshComponent>(MeshComps);
+
+				for (const TSharedPtr<FJsonValue>& MatValue : *MaterialArray)
+				{
+					const TSharedPtr<FJsonObject>& MatData = MatValue->AsObject();
+					if (!MatData.IsValid())
+					{
+						continue;
+					}
+
+					FString CompName = MatData->GetStringField(TEXT("component"));
+					int32 MatIdx = static_cast<int32>(MatData->GetNumberField(TEXT("index")));
+					FString MaterialPath = MatData->GetStringField(TEXT("material"));
+
+					if (MaterialPath == TEXT("None") || MaterialPath.IsEmpty())
+					{
+						continue;
+					}
+
+					// Find the matching mesh component
+					for (UStaticMeshComponent* MeshComp : MeshComps)
+					{
+						if (MeshComp->GetName() == CompName)
+						{
+							UMaterialInterface* Mat = EnvironmentCommandHelpers::LoadMaterialByPath(MaterialPath);
+							if (Mat && MatIdx < MeshComp->GetNumMaterials())
+							{
+								MeshComp->SetMaterial(MatIdx, Mat);
+							}
+							break;
+						}
+					}
+				}
+			}
+
+			// Restore light settings
+			const TSharedPtr<FJsonObject>* LightDataObj = nullptr;
+			if (ActorData->TryGetObjectField(TEXT("light_settings"), LightDataObj) && LightDataObj->IsValid())
+			{
+				ULightComponent* LightComp = Actor->FindComponentByClass<ULightComponent>();
+				if (LightComp)
+				{
+					LightComp->SetIntensity((*LightDataObj)->GetNumberField(TEXT("intensity")));
+					LightComp->SetCastShadows((*LightDataObj)->GetBoolField(TEXT("cast_shadows")));
+
+					const TSharedPtr<FJsonObject>* ColorObj = nullptr;
+					if ((*LightDataObj)->TryGetObjectField(TEXT("color"), ColorObj) && ColorObj->IsValid())
+					{
+						FColor LightColor(
+							static_cast<uint8>((*ColorObj)->GetNumberField(TEXT("r"))),
+							static_cast<uint8>((*ColorObj)->GetNumberField(TEXT("g"))),
+							static_cast<uint8>((*ColorObj)->GetNumberField(TEXT("b")))
+						);
+						LightComp->SetLightColor(LightColor);
+					}
+				}
+			}
+		}
+
+		Actor->MarkPackageDirty();
+		++RestoredCount;
+	}
+
+	// Refresh viewports
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("snapshot_name"), SnapshotName);
+	Result->SetNumberField(TEXT("restored_count"), RestoredCount);
+	Result->SetNumberField(TEXT("missing_count"), MissingCount);
+
+	if (MissingActors.Num() > 0)
+	{
+		Result->SetArrayField(TEXT("missing_actors"), MissingActors);
+	}
+
+	Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Restored %d actors from snapshot '%s' (%d missing)"), RestoredCount, *SnapshotName, MissingCount));
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── list_scene_snapshots ─────────────────────────────────────
+
+FECACommandResult FECACommand_ListSceneSnapshots::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	TArray<TSharedPtr<FJsonValue>> SnapshotArray;
+
+	for (const auto& Pair : EnvironmentCommandHelpers::SceneSnapshots)
+	{
+		const TSharedPtr<FJsonObject>& Snapshot = Pair.Value;
+		if (!Snapshot.IsValid())
+		{
+			continue;
+		}
+
+		TSharedPtr<FJsonObject> Info = MakeShared<FJsonObject>();
+		Info->SetStringField(TEXT("snapshot_name"), Pair.Key);
+		Info->SetStringField(TEXT("timestamp"), Snapshot->GetStringField(TEXT("timestamp")));
+		Info->SetBoolField(TEXT("include_properties"), Snapshot->GetBoolField(TEXT("include_properties")));
+
+		const TArray<TSharedPtr<FJsonValue>>& Actors = Snapshot->GetArrayField(TEXT("actors"));
+		Info->SetNumberField(TEXT("actor_count"), Actors.Num());
+
+		SnapshotArray.Add(MakeShared<FJsonValueObject>(Info));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetArrayField(TEXT("snapshots"), SnapshotArray);
+	Result->SetNumberField(TEXT("total_count"), SnapshotArray.Num());
 
 	return FECACommandResult::Success(Result);
 }
