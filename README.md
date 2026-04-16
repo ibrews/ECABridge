@@ -1,21 +1,53 @@
 # ECABridge — AI-Powered Unreal Engine 5 MCP Plugin
 
-300+ MCP tools for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent.
+330+ MCP tools for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent.
 
 ## Features
 
-- **300+ MCP tools** organized by category
+- **330+ MCP tools** organized by category
+- **Rosetta Stone introspection** — full JSON dumps of assets, blueprints, levels, and dependency graphs
 - **HTTP/SSE MCP server** on localhost:3000 (Streamable HTTP transport)
 - **UE 5.7 compatible** (built and tested against 5.7.4)
 - **No engine modifications** — drop-in plugin
+
+## Rosetta Stone: Deep Introspection
+
+LLMs can't read binary `.uasset` or `.umap` files. These commands serialize UE5 assets into structured JSON, making any asset fully legible in a single MCP call:
+
+| Command | What it does |
+|---------|-------------|
+| `dump_asset` | Full JSON of any asset — all UPROPERTYs, sub-objects, references, metadata, optional thumbnail |
+| `dump_blueprint_graph` | Complete Blueprint — all graphs, nodes, pins, connections, variables, components |
+| `dump_level` | Full level state — all actors with transforms, components, tags. Lightweight or deep mode |
+| `find_assets` | Search the asset registry by class, path, or name wildcard |
+| `get_asset_references` | Dependency graph — what references what, with recursive depth |
+
+```bash
+# See everything about a material
+dump_asset(asset_path="/Game/Materials/M_Hero")
+
+# Search for all blueprints in a folder
+find_assets(class_filter="Blueprint", path_filter="/Game/Blueprints/")
+
+# Read the full node graph of a blueprint
+dump_blueprint_graph(blueprint_path="/Game/Blueprints/BP_Enemy")
+
+# Get all actors in the current level (lightweight mode)
+dump_level(max_actors=100)
+
+# What would break if I changed this texture?
+get_asset_references(asset_path="/Game/Textures/T_Hero_D", direction="referencers")
+```
 
 ## Command Categories
 
 | Category | Commands | Highlights |
 |----------|----------|------------|
-| **Actor** | 8 | Spawn, delete, transform, find, duplicate, select |
+| **Actor** | 35+ | Spawn, delete, transform, find, duplicate, select, describe, hierarchy, tags, folders, visibility, mobility |
 | **Blueprint** | 25+ | Create, compile, add nodes/variables/components, wire graphs, Blueprint Lisp DSL |
+| **Blueprint Node** | 34+ | Events, functions, macros, casts, flow control, batch ops, auto-layout, **full graph dump** |
 | **Material** | 16+ | Create materials/instances, edit node graphs, set parameters |
+| **Material Node** | 20+ | Add/delete/connect nodes, set properties, auto-layout, error checking |
 | **Mesh** | 40+ | Primitives, booleans, extrude, subdivide, simplify, UVs, import/export |
 | **Niagara** | 20+ | Create systems/emitters, add modules/renderers, set parameters |
 | **MetaSound** | 15+ | Create sources, add/connect nodes, set inputs, preview |
@@ -25,13 +57,13 @@
 | **Sequencer** | 8 | Create sequences, bind actors, keyframe transforms, spawn cameras, camera properties (FOV/aperture), float key animation |
 | **Animation** | 6 | Play/stop animations, list compatible anims, set AnimBP, skeleton info, **create animations programmatically from bone keyframes** |
 | **Lighting** | 4 | Set light properties, get light info, one-command 3-point rig, post-process settings |
-| **Movie Render Queue** | 2 | Render sequences to PNG/JPG with configurable resolution, check render progress |
+| **Movie Render Queue** | 2 | Render sequences to PNG/JPG/MP4 with configurable resolution, check render progress |
 | **Environment/PCG** | 28+ | Generate grids/circles, walls, fog, sky, splines, gravity, batch spawn/set/destroy, physics simulation, impulse, visibility, teleport, scene stats, camera screenshots, decals, 3D text, describe actor, clone arrays, audio, triggers, align/distribute, scene snapshots, time dilation, measurements, scatter |
 | **AI/Navigation** | 4 | Build navmesh, find paths, move actors, navmesh info |
 | **Data Table** | 4 | Schema, rows, CRUD |
-| **Editor** | 10+ | Viewport control, screenshots, PIE, console commands, save/open levels |
+| **Editor** | 10+ | Viewport control, screenshots, PIE, console commands, save/open levels, **full level dump** |
 | **View** | 3 | Camera control, scene description, frustum queries |
-| **Asset** | 10+ | Import/export textures/meshes, create materials, thumbnails |
+| **Asset** | 15+ | Import/export, create materials, thumbnails, **dump_asset, find_assets, get_asset_references** |
 | **Component** | 5 | Properties, transforms, physics, static mesh |
 | **Project** | 3+ | Settings, input mappings |
 
