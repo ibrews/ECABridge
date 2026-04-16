@@ -81,6 +81,7 @@ REGISTER_ECA_COMMAND(FECACommand_GetActorAnimations);
 REGISTER_ECA_COMMAND(FECACommand_SetAnimationBlueprint);
 REGISTER_ECA_COMMAND(FECACommand_GetSkeletonInfo);
 REGISTER_ECA_COMMAND(FECACommand_CreateAnimationSequence);
+REGISTER_ECA_COMMAND(FECACommand_SetSkeletalMesh);
 
 // ─── play_animation ───────────────────────────────────────────
 
@@ -819,6 +820,20 @@ FECACommandResult FECACommand_CreateAnimationSequence::Execute(const TSharedPtr<
 	// Force refresh to update SequenceLength and compressed data
 	AnimSequence->RefreshCacheData();
 
+	// Force the sequence length to be computed from the data model
+	// If length is still 0, manually set it based on frame count and rate
+	if (AnimSequence->GetPlayLength() <= 0.0f)
+	{
+		float Duration = static_cast<float>(FrameCount - 1) / static_cast<float>(FrameRateInt);
+		// Use reflection to set SequenceLength since it may be computed differently
+		FProperty* LenProp = AnimSequence->GetClass()->FindPropertyByName(TEXT("SequenceLength"));
+		if (LenProp)
+		{
+			float* LenPtr = LenProp->ContainerPtrToValuePtr<float>(AnimSequence);
+			if (LenPtr) *LenPtr = Duration;
+		}
+	}
+
 	// ── Save the package ──
 	AnimSequence->MarkPackageDirty();
 	FAssetRegistryModule::AssetCreated(AnimSequence);
@@ -860,6 +875,82 @@ FECACommandResult FECACommand_CreateAnimationSequence::Execute(const TSharedPtr<
 	{
 		Result->SetStringField(TEXT("save_warning"),
 			TEXT("Asset was created in memory but could not be saved to disk. Use Save All in the editor."));
+	}
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── set_skeletal_mesh ──────────────────────────────────────
+
+FECACommandResult FECACommand_SetSkeletalMesh::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString ActorName, MeshPath;
+	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
+		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+
+	FString ComponentName;
+	GetStringParam(Params, TEXT("component_name"), ComponentName, /*bRequired=*/false);
+
+	// Find the actor
+	AActor* Actor = FindActorByName(ActorName);
+	if (!Actor)
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor '%s' not found in the level"), *ActorName));
+
+	// Find the SkeletalMeshComponent
+	USkeletalMeshComponent* SkelComp = nullptr;
+
+	if (!ComponentName.IsEmpty())
+	{
+		// Look for a specific component by name
+		TArray<USkeletalMeshComponent*> SkelComps;
+		Actor->GetComponents<USkeletalMeshComponent>(SkelComps);
+		for (USkeletalMeshComponent* Comp : SkelComps)
+		{
+			if (Comp && Comp->GetName() == ComponentName)
+			{
+				SkelComp = Comp;
+				break;
+			}
+		}
+		if (!SkelComp)
+			return FECACommandResult::Error(FString::Printf(
+				TEXT("SkeletalMeshComponent '%s' not found on actor '%s'"), *ComponentName, *ActorName));
+	}
+	else
+	{
+		SkelComp = AnimationCommandHelpers::GetSkeletalMeshComponent(Actor);
+		if (!SkelComp)
+			return FECACommandResult::Error(FString::Printf(TEXT("Actor '%s' has no SkeletalMeshComponent"), *ActorName));
+	}
+
+	// Load the skeletal mesh asset
+	USkeletalMesh* NewMesh = AnimationCommandHelpers::LoadSkeletalMesh(MeshPath);
+	if (!NewMesh)
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not load skeletal mesh at: %s"), *MeshPath));
+
+	// Set the skeletal mesh on the component
+	SkelComp->SetSkeletalMeshAsset(NewMesh);
+
+	// Gather bone count from the new mesh
+	int32 BoneCount = 0;
+	if (NewMesh->GetSkeleton())
+	{
+		BoneCount = NewMesh->GetSkeleton()->GetReferenceSkeleton().GetRawBoneNum();
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), ActorName);
+	Result->SetStringField(TEXT("mesh_name"), NewMesh->GetName());
+	Result->SetStringField(TEXT("mesh_path"), NewMesh->GetPathName());
+	Result->SetNumberField(TEXT("bone_count"), BoneCount);
+	Result->SetStringField(TEXT("component_name"), SkelComp->GetName());
+
+	if (NewMesh->GetSkeleton())
+	{
+		Result->SetStringField(TEXT("skeleton_name"), NewMesh->GetSkeleton()->GetName());
+		Result->SetStringField(TEXT("skeleton_path"), NewMesh->GetSkeleton()->GetPathName());
 	}
 
 	return FECACommandResult::Success(Result);

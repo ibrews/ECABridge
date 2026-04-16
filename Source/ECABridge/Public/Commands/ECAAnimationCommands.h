@@ -105,6 +105,28 @@ public:
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
+// ─── set_skeletal_mesh ──────────────────────────────────────
+// Set a skeletal mesh on a SkeletalMeshActor or any actor with a
+// SkeletalMeshComponent.
+class FECACommand_SetSkeletalMesh : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_skeletal_mesh"); }
+	virtual FString GetDescription() const override { return TEXT("Set a skeletal mesh on an actor's SkeletalMeshComponent"); }
+	virtual FString GetCategory() const override { return TEXT("Animation"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("actor_name"), TEXT("string"), TEXT("Name/label of the actor in the level"), true },
+			{ TEXT("mesh_path"), TEXT("string"), TEXT("Asset path to a USkeletalMesh (e.g. /Game/Characters/SK_Mannequin)"), true },
+			{ TEXT("component_name"), TEXT("string"), TEXT("Specific SkeletalMeshComponent to target (optional, uses first found if omitted)"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
 // ─── create_animation_sequence ───────────────────────────────
 // Create a new UAnimSequence asset with programmatic bone keyframes.
 class FECACommand_CreateAnimationSequence : public IECACommand
