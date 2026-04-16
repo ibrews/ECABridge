@@ -816,6 +816,9 @@ FECACommandResult FECACommand_CreateAnimationSequence::Execute(const TSharedPtr<
 
 	Controller.CloseBracket();
 
+	// Force refresh to update SequenceLength and compressed data
+	AnimSequence->RefreshCacheData();
+
 	// ── Save the package ──
 	AnimSequence->MarkPackageDirty();
 	FAssetRegistryModule::AssetCreated(AnimSequence);
