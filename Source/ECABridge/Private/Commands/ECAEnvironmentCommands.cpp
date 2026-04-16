@@ -67,6 +67,9 @@
 #include "UnrealEdGlobals.h"
 #include "Editor/UnrealEdEngine.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Scalability.h"
+#include "GameFramework/GameUserSettings.h"
+#include "RHI.h"
 // Landscape API requires complex setup — using simplified plane-based terrain instead
 // #include "Landscape.h"
 // #include "LandscapeProxy.h"
@@ -133,6 +136,10 @@ REGISTER_ECA_COMMAND(FECACommand_SpawnBlueprintAt);
 REGISTER_ECA_COMMAND(FECACommand_CopyActorTransform);
 REGISTER_ECA_COMMAND(FECACommand_GetAllAssetPaths);
 REGISTER_ECA_COMMAND(FECACommand_SetActorColor);
+REGISTER_ECA_COMMAND(FECACommand_GetPerformanceStats);
+REGISTER_ECA_COMMAND(FECACommand_SetScalabilitySettings);
+REGISTER_ECA_COMMAND(FECACommand_OptimizeForVR);
+REGISTER_ECA_COMMAND(FECACommand_ListHeavyActors);
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -5875,6 +5882,510 @@ FECACommandResult FECACommand_SetActorColor::Execute(const TSharedPtr<FJsonObjec
 	Result->SetObjectField(TEXT("color"), ColorResult);
 	Result->SetNumberField(TEXT("opacity"), Opacity);
 	Result->SetNumberField(TEXT("materials_applied"), MaterialsApplied);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── get_performance_stats ────────────────────────────────────
+
+FECACommandResult FECACommand_GetPerformanceStats::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+
+	// --- FPS and frame time ---
+	// Use the engine's tracked frame time data
+	extern ENGINE_API float GAverageFPS;
+	extern ENGINE_API float GAverageMS;
+	Result->SetNumberField(TEXT("average_fps"), static_cast<double>(GAverageFPS));
+	Result->SetNumberField(TEXT("average_frame_time_ms"), static_cast<double>(GAverageMS));
+
+	// Current max FPS setting
+	if (GEngine)
+	{
+		float MaxFPS = GEngine->GetMaxFPS();
+		Result->SetNumberField(TEXT("max_fps_setting"), static_cast<double>(MaxFPS));
+		Result->SetBoolField(TEXT("frame_rate_smoothing"), GEngine->bSmoothFrameRate);
+	}
+
+	// --- RHI / GPU stats ---
+	// Draw calls and triangle count from the viewport stats
+	int32 TotalTriangles = 0;
+	int32 TotalDrawCalls = 0;
+	int32 TotalMeshes = 0;
+
+	// Iterate world actors to count mesh complexity
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (!Actor) continue;
+
+		TArray<UStaticMeshComponent*> StaticMeshComponents;
+		Actor->GetComponents<UStaticMeshComponent>(StaticMeshComponents);
+
+		for (UStaticMeshComponent* SMC : StaticMeshComponents)
+		{
+			if (!SMC || !SMC->GetStaticMesh()) continue;
+			TotalMeshes++;
+
+			UStaticMesh* Mesh = SMC->GetStaticMesh();
+			if (Mesh->GetRenderData() && Mesh->GetRenderData()->LODResources.Num() > 0)
+			{
+				const FStaticMeshLODResources& LOD0 = Mesh->GetRenderData()->LODResources[0];
+				TotalTriangles += LOD0.GetNumTriangles();
+				TotalDrawCalls += LOD0.Sections.Num();
+			}
+		}
+
+		TArray<USkeletalMeshComponent*> SkelMeshComponents;
+		Actor->GetComponents<USkeletalMeshComponent>(SkelMeshComponents);
+
+		for (USkeletalMeshComponent* SkMC : SkelMeshComponents)
+		{
+			if (!SkMC || !SkMC->GetSkeletalMeshAsset()) continue;
+			TotalMeshes++;
+
+			// Estimate skeletal mesh contribution
+			TotalTriangles += 10000;
+			TotalDrawCalls += 1;
+		}
+	}
+
+	Result->SetNumberField(TEXT("total_triangles"), TotalTriangles);
+	Result->SetNumberField(TEXT("estimated_draw_calls"), TotalDrawCalls);
+	Result->SetNumberField(TEXT("total_mesh_components"), TotalMeshes);
+
+	// --- Texture memory ---
+	// Use RHI to get texture memory stats if available
+#if !UE_BUILD_SHIPPING
+	FTextureMemoryStats TexMemStats;
+	RHIGetTextureMemoryStats(TexMemStats);
+	if (TexMemStats.DedicatedVideoMemory > 0)
+	{
+		Result->SetNumberField(TEXT("dedicated_video_memory_mb"), static_cast<double>(TexMemStats.DedicatedVideoMemory) / (1024.0 * 1024.0));
+		Result->SetNumberField(TEXT("texture_pool_size_mb"), static_cast<double>(TexMemStats.TexturePoolSize) / (1024.0 * 1024.0));
+		// AllocatedMemorySize not available in UE 5.7's FTextureMemoryStats
+	}
+#endif
+
+	// --- Actor counts ---
+	int32 TotalActors = 0;
+	int32 LightCount = 0;
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		TotalActors++;
+		if ((*It)->FindComponentByClass<ULightComponent>())
+		{
+			LightCount++;
+		}
+	}
+	Result->SetNumberField(TEXT("total_actors"), TotalActors);
+	Result->SetNumberField(TEXT("light_count"), LightCount);
+
+	// Execute stat commands for additional info that the user can see in viewport
+	if (GEngine)
+	{
+		GEngine->Exec(World, TEXT("stat fps"));
+	}
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── set_scalability_settings ─────────────────────────────────
+
+FECACommandResult FECACommand_SetScalabilitySettings::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	TArray<TSharedPtr<FJsonValue>> AppliedSettings;
+
+	// Check for preset first
+	FString Preset;
+	bool bHasPreset = GetStringParam(Params, TEXT("preset"), Preset, /*bRequired=*/false) && !Preset.IsEmpty();
+
+	if (bHasPreset)
+	{
+		Preset = Preset.ToLower();
+
+		int32 QualityLevel = -1;
+		if (Preset == TEXT("low")) QualityLevel = 0;
+		else if (Preset == TEXT("medium")) QualityLevel = 1;
+		else if (Preset == TEXT("high")) QualityLevel = 2;
+		else if (Preset == TEXT("epic")) QualityLevel = 3;
+		else if (Preset == TEXT("cinematic")) QualityLevel = 4;
+		else
+		{
+			return FECACommandResult::Error(FString::Printf(TEXT("Invalid preset '%s'. Must be: low, medium, high, epic, or cinematic"), *Preset));
+		}
+
+		// Apply overall scalability preset using sg.* console commands
+		// These correspond to the scalability system's quality levels
+		FString Commands[] = {
+			FString::Printf(TEXT("sg.ViewDistanceQuality %d"), QualityLevel),
+			FString::Printf(TEXT("sg.AntiAliasingQuality %d"), QualityLevel),
+			FString::Printf(TEXT("sg.PostProcessQuality %d"), QualityLevel),
+			FString::Printf(TEXT("sg.ShadowQuality %d"), QualityLevel),
+			FString::Printf(TEXT("sg.TextureQuality %d"), QualityLevel),
+			FString::Printf(TEXT("sg.EffectsQuality %d"), QualityLevel),
+			FString::Printf(TEXT("sg.FoliageQuality %d"), QualityLevel)
+		};
+
+		for (const FString& Cmd : Commands)
+		{
+			GEngine->Exec(World, *Cmd);
+		}
+
+		Result->SetStringField(TEXT("preset"), Preset);
+		Result->SetNumberField(TEXT("quality_level"), QualityLevel);
+
+		TSharedPtr<FJsonObject> Setting = MakeShared<FJsonObject>();
+		Setting->SetStringField(TEXT("setting"), TEXT("preset"));
+		Setting->SetStringField(TEXT("value"), Preset);
+		AppliedSettings.Add(MakeShared<FJsonValueObject>(Setting));
+	}
+	else
+	{
+		// Apply individual settings via sg.* console commands
+		struct FScalabilitySetting
+		{
+			FString ParamName;
+			FString ConsoleVar;
+			FString DisplayName;
+		};
+
+		TArray<FScalabilitySetting> Settings = {
+			{ TEXT("view_distance"), TEXT("sg.ViewDistanceQuality"), TEXT("View Distance") },
+			{ TEXT("anti_aliasing"), TEXT("sg.AntiAliasingQuality"), TEXT("Anti-Aliasing") },
+			{ TEXT("post_process"), TEXT("sg.PostProcessQuality"), TEXT("Post Process") },
+			{ TEXT("shadows"), TEXT("sg.ShadowQuality"), TEXT("Shadows") },
+			{ TEXT("textures"), TEXT("sg.TextureQuality"), TEXT("Textures") },
+			{ TEXT("effects"), TEXT("sg.EffectsQuality"), TEXT("Effects") },
+			{ TEXT("foliage"), TEXT("sg.FoliageQuality"), TEXT("Foliage") }
+		};
+
+		int32 SettingsApplied = 0;
+		for (const FScalabilitySetting& S : Settings)
+		{
+			double Value = -1;
+			if (GetFloatParam(Params, S.ParamName, Value, /*bRequired=*/false))
+			{
+				int32 Level = FMath::Clamp(static_cast<int32>(Value), 0, 4);
+				FString Cmd = FString::Printf(TEXT("%s %d"), *S.ConsoleVar, Level);
+				GEngine->Exec(World, *Cmd);
+
+				TSharedPtr<FJsonObject> Setting = MakeShared<FJsonObject>();
+				Setting->SetStringField(TEXT("setting"), S.DisplayName);
+				Setting->SetNumberField(TEXT("value"), Level);
+				Setting->SetStringField(TEXT("command"), Cmd);
+				AppliedSettings.Add(MakeShared<FJsonValueObject>(Setting));
+				++SettingsApplied;
+			}
+		}
+
+		if (SettingsApplied == 0)
+		{
+			return FECACommandResult::Error(TEXT("No settings provided. Specify either 'preset' or individual quality levels (view_distance, anti_aliasing, post_process, shadows, textures, effects, foliage)"));
+		}
+
+		Result->SetNumberField(TEXT("settings_applied"), SettingsApplied);
+	}
+
+	Result->SetArrayField(TEXT("applied"), AppliedSettings);
+
+	// Refresh viewports
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── optimize_for_vr ──────────────────────────────────────────
+
+FECACommandResult FECACommand_OptimizeForVR::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	TArray<TSharedPtr<FJsonValue>> AppliedCommands;
+
+	// --- Target FPS ---
+	double TargetFPS = 90.0;
+	GetFloatParam(Params, TEXT("target_fps"), TargetFPS, /*bRequired=*/false);
+	TargetFPS = FMath::Clamp(TargetFPS, 30.0, 240.0);
+
+	{
+		FString Cmd = FString::Printf(TEXT("t.MaxFPS %d"), static_cast<int32>(TargetFPS));
+		GEngine->Exec(World, *Cmd);
+
+		TSharedPtr<FJsonObject> CmdInfo = MakeShared<FJsonObject>();
+		CmdInfo->SetStringField(TEXT("command"), Cmd);
+		CmdInfo->SetStringField(TEXT("description"), TEXT("Set max FPS for VR target"));
+		AppliedCommands.Add(MakeShared<FJsonValueObject>(CmdInfo));
+	}
+
+	// --- Instanced Stereo ---
+	bool bEnableInstancedStereo = true;
+	GetBoolParam(Params, TEXT("enable_instanced_stereo"), bEnableInstancedStereo, /*bRequired=*/false);
+
+	{
+		FString Cmd = FString::Printf(TEXT("vr.InstancedStereo %d"), bEnableInstancedStereo ? 1 : 0);
+		GEngine->Exec(World, *Cmd);
+
+		TSharedPtr<FJsonObject> CmdInfo = MakeShared<FJsonObject>();
+		CmdInfo->SetStringField(TEXT("command"), Cmd);
+		CmdInfo->SetStringField(TEXT("description"), TEXT("Instanced stereo rendering for VR"));
+		AppliedCommands.Add(MakeShared<FJsonValueObject>(CmdInfo));
+	}
+
+	// --- Screen Percentage ---
+	double ScreenPercentage = 100.0;
+	GetFloatParam(Params, TEXT("screen_percentage"), ScreenPercentage, /*bRequired=*/false);
+	ScreenPercentage = FMath::Clamp(ScreenPercentage, 50.0, 200.0);
+
+	{
+		FString Cmd = FString::Printf(TEXT("r.ScreenPercentage %d"), static_cast<int32>(ScreenPercentage));
+		GEngine->Exec(World, *Cmd);
+
+		TSharedPtr<FJsonObject> CmdInfo = MakeShared<FJsonObject>();
+		CmdInfo->SetStringField(TEXT("command"), Cmd);
+		CmdInfo->SetStringField(TEXT("description"), TEXT("Screen percentage / resolution scale"));
+		AppliedCommands.Add(MakeShared<FJsonValueObject>(CmdInfo));
+	}
+
+	// --- VR-optimized scalability: reduce shadow and effects quality ---
+	{
+		// Shadow quality: medium (1) for VR to save GPU budget
+		FString Cmd = TEXT("sg.ShadowQuality 1");
+		GEngine->Exec(World, *Cmd);
+		TSharedPtr<FJsonObject> CmdInfo = MakeShared<FJsonObject>();
+		CmdInfo->SetStringField(TEXT("command"), Cmd);
+		CmdInfo->SetStringField(TEXT("description"), TEXT("Reduced shadow quality for VR"));
+		AppliedCommands.Add(MakeShared<FJsonValueObject>(CmdInfo));
+	}
+
+	{
+		// Effects quality: medium (1) for VR
+		FString Cmd = TEXT("sg.EffectsQuality 1");
+		GEngine->Exec(World, *Cmd);
+		TSharedPtr<FJsonObject> CmdInfo = MakeShared<FJsonObject>();
+		CmdInfo->SetStringField(TEXT("command"), Cmd);
+		CmdInfo->SetStringField(TEXT("description"), TEXT("Reduced effects quality for VR"));
+		AppliedCommands.Add(MakeShared<FJsonValueObject>(CmdInfo));
+	}
+
+	{
+		// Post process: medium (1) — many post-process effects are expensive in VR
+		FString Cmd = TEXT("sg.PostProcessQuality 1");
+		GEngine->Exec(World, *Cmd);
+		TSharedPtr<FJsonObject> CmdInfo = MakeShared<FJsonObject>();
+		CmdInfo->SetStringField(TEXT("command"), Cmd);
+		CmdInfo->SetStringField(TEXT("description"), TEXT("Reduced post-process quality for VR"));
+		AppliedCommands.Add(MakeShared<FJsonValueObject>(CmdInfo));
+	}
+
+	{
+		// Forward shading is preferred for VR — enable via console
+		FString Cmd = TEXT("r.ForwardShading 1");
+		GEngine->Exec(World, *Cmd);
+		TSharedPtr<FJsonObject> CmdInfo = MakeShared<FJsonObject>();
+		CmdInfo->SetStringField(TEXT("command"), Cmd);
+		CmdInfo->SetStringField(TEXT("description"), TEXT("Enable forward shading (preferred for VR)"));
+		AppliedCommands.Add(MakeShared<FJsonValueObject>(CmdInfo));
+	}
+
+	{
+		// MSAA works better than TAA in VR (no ghosting on head movement)
+		FString Cmd = TEXT("r.AntiAliasingMethod 4");
+		GEngine->Exec(World, *Cmd);
+		TSharedPtr<FJsonObject> CmdInfo = MakeShared<FJsonObject>();
+		CmdInfo->SetStringField(TEXT("command"), Cmd);
+		CmdInfo->SetStringField(TEXT("description"), TEXT("Set anti-aliasing to MSAA (better for VR than TAA)"));
+		AppliedCommands.Add(MakeShared<FJsonValueObject>(CmdInfo));
+	}
+
+	{
+		// Disable motion blur — causes nausea in VR
+		FString Cmd = TEXT("r.MotionBlurQuality 0");
+		GEngine->Exec(World, *Cmd);
+		TSharedPtr<FJsonObject> CmdInfo = MakeShared<FJsonObject>();
+		CmdInfo->SetStringField(TEXT("command"), Cmd);
+		CmdInfo->SetStringField(TEXT("description"), TEXT("Disable motion blur (causes nausea in VR)"));
+		AppliedCommands.Add(MakeShared<FJsonValueObject>(CmdInfo));
+	}
+
+	{
+		// Disable lens flare — not appropriate for VR
+		FString Cmd = TEXT("r.LensFlareQuality 0");
+		GEngine->Exec(World, *Cmd);
+		TSharedPtr<FJsonObject> CmdInfo = MakeShared<FJsonObject>();
+		CmdInfo->SetStringField(TEXT("command"), Cmd);
+		CmdInfo->SetStringField(TEXT("description"), TEXT("Disable lens flare (not appropriate for VR)"));
+		AppliedCommands.Add(MakeShared<FJsonValueObject>(CmdInfo));
+	}
+
+	// Refresh viewports
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+
+	// Build result
+	Result->SetNumberField(TEXT("target_fps"), TargetFPS);
+	Result->SetBoolField(TEXT("instanced_stereo"), bEnableInstancedStereo);
+	Result->SetNumberField(TEXT("screen_percentage"), ScreenPercentage);
+	Result->SetNumberField(TEXT("commands_executed"), AppliedCommands.Num());
+	Result->SetArrayField(TEXT("applied_commands"), AppliedCommands);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── list_heavy_actors ────────────────────────────────────────
+
+FECACommandResult FECACommand_ListHeavyActors::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// Thresholds
+	double TriangleThreshold = 50000.0;
+	GetFloatParam(Params, TEXT("triangle_threshold"), TriangleThreshold, /*bRequired=*/false);
+
+	double MaterialThreshold = 5.0;
+	GetFloatParam(Params, TEXT("material_threshold"), MaterialThreshold, /*bRequired=*/false);
+
+	int32 TriThresh = static_cast<int32>(TriangleThreshold);
+	int32 MatThresh = static_cast<int32>(MaterialThreshold);
+
+	// Collect heavy actor data
+	struct FHeavyActorInfo
+	{
+		FString Name;
+		FString ClassName;
+		int32 TotalTriangles = 0;
+		int32 TotalMaterials = 0;
+		int32 MeshComponentCount = 0;
+		bool bFlaggedByTriangles = false;
+		bool bFlaggedByMaterials = false;
+	};
+
+	TArray<FHeavyActorInfo> HeavyActors;
+
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (!Actor) continue;
+
+		FHeavyActorInfo Info;
+		Info.Name = Actor->GetActorLabel();
+		if (Info.Name.IsEmpty())
+		{
+			Info.Name = Actor->GetName();
+		}
+		Info.ClassName = Actor->GetClass()->GetName();
+
+		// Count triangles and materials across all mesh components
+		TArray<UStaticMeshComponent*> StaticMeshComponents;
+		Actor->GetComponents<UStaticMeshComponent>(StaticMeshComponents);
+
+		for (UStaticMeshComponent* SMC : StaticMeshComponents)
+		{
+			if (!SMC || !SMC->GetStaticMesh()) continue;
+			Info.MeshComponentCount++;
+
+			UStaticMesh* Mesh = SMC->GetStaticMesh();
+			if (Mesh->GetRenderData() && Mesh->GetRenderData()->LODResources.Num() > 0)
+			{
+				const FStaticMeshLODResources& LOD0 = Mesh->GetRenderData()->LODResources[0];
+				Info.TotalTriangles += LOD0.GetNumTriangles();
+			}
+
+			Info.TotalMaterials += SMC->GetNumMaterials();
+		}
+
+		TArray<USkeletalMeshComponent*> SkelMeshComponents;
+		Actor->GetComponents<USkeletalMeshComponent>(SkelMeshComponents);
+
+		for (USkeletalMeshComponent* SkMC : SkelMeshComponents)
+		{
+			if (!SkMC || !SkMC->GetSkeletalMeshAsset()) continue;
+			Info.MeshComponentCount++;
+
+			// Skeletal mesh triangle counting requires render data headers not easily accessible
+			// Just count it as a mesh component for now
+			Info.TotalTriangles += 10000; // Estimate for skeletal meshes
+
+			Info.TotalMaterials += SkMC->GetNumMaterials();
+		}
+
+		// Skip actors with no mesh data
+		if (Info.MeshComponentCount == 0) continue;
+
+		// Check against thresholds
+		Info.bFlaggedByTriangles = (Info.TotalTriangles >= TriThresh);
+		Info.bFlaggedByMaterials = (Info.TotalMaterials >= MatThresh);
+
+		if (Info.bFlaggedByTriangles || Info.bFlaggedByMaterials)
+		{
+			HeavyActors.Add(Info);
+		}
+	}
+
+	// Sort by total triangles descending (heaviest first)
+	HeavyActors.Sort([](const FHeavyActorInfo& A, const FHeavyActorInfo& B) -> bool
+	{
+		return A.TotalTriangles > B.TotalTriangles;
+	});
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetNumberField(TEXT("heavy_actor_count"), HeavyActors.Num());
+	Result->SetNumberField(TEXT("triangle_threshold"), TriThresh);
+	Result->SetNumberField(TEXT("material_threshold"), MatThresh);
+
+	TArray<TSharedPtr<FJsonValue>> ActorArray;
+	for (const FHeavyActorInfo& Info : HeavyActors)
+	{
+		TSharedPtr<FJsonObject> ActorObj = MakeShared<FJsonObject>();
+		ActorObj->SetStringField(TEXT("name"), Info.Name);
+		ActorObj->SetStringField(TEXT("class"), Info.ClassName);
+		ActorObj->SetNumberField(TEXT("total_triangles"), Info.TotalTriangles);
+		ActorObj->SetNumberField(TEXT("total_materials"), Info.TotalMaterials);
+		ActorObj->SetNumberField(TEXT("mesh_components"), Info.MeshComponentCount);
+
+		TArray<TSharedPtr<FJsonValue>> Flags;
+		if (Info.bFlaggedByTriangles)
+		{
+			Flags.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("triangles >= %d"), TriThresh)));
+		}
+		if (Info.bFlaggedByMaterials)
+		{
+			Flags.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("materials >= %d"), MatThresh)));
+		}
+		ActorObj->SetArrayField(TEXT("flags"), Flags);
+
+		ActorArray.Add(MakeShared<FJsonValueObject>(ActorObj));
+	}
+
+	Result->SetArrayField(TEXT("heavy_actors"), ActorArray);
 
 	return FECACommandResult::Success(Result);
 }

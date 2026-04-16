@@ -176,3 +176,83 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+// ─── stop_sequence ────────────────────────────────────────────
+// Stop a playing level sequence.
+class FECACommand_StopSequence : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("stop_sequence"); }
+	virtual FString GetDescription() const override { return TEXT("Stop a playing Level Sequence"); }
+	virtual FString GetCategory() const override { return TEXT("Sequencer"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("sequence_path"), TEXT("string"), TEXT("Asset path of the Level Sequence to stop (optional — stops the first playing sequence if not specified)"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── set_sequence_playback_range ──────────────────────────────
+// Set the playback range (start/end) of a sequence.
+class FECACommand_SetSequencePlaybackRange : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_sequence_playback_range"); }
+	virtual FString GetDescription() const override { return TEXT("Set the playback range (start/end time) of a Level Sequence"); }
+	virtual FString GetCategory() const override { return TEXT("Sequencer"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("sequence_path"), TEXT("string"), TEXT("Asset path of the Level Sequence"), true },
+			{ TEXT("start_time"), TEXT("number"), TEXT("Start time in seconds (default 0)"), false, TEXT("0") },
+			{ TEXT("end_time"), TEXT("number"), TEXT("End time in seconds"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── add_sequence_event_key ───────────────────────────────────
+// Add a named event at a specific time in a sequence.
+class FECACommand_AddSequenceEventKey : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("add_sequence_event_key"); }
+	virtual FString GetDescription() const override { return TEXT("Add a named event key at a specific time in a Level Sequence (useful for triggering effects, sounds, etc.)"); }
+	virtual FString GetCategory() const override { return TEXT("Sequencer"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("sequence_path"), TEXT("string"), TEXT("Asset path of the Level Sequence"), true },
+			{ TEXT("time"), TEXT("number"), TEXT("Event time in seconds"), true },
+			{ TEXT("event_name"), TEXT("string"), TEXT("Name of the event to trigger"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── get_sequence_current_time ────────────────────────────────
+// Get the current playback position of a playing sequence.
+class FECACommand_GetSequenceCurrentTime : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("get_sequence_current_time"); }
+	virtual FString GetDescription() const override { return TEXT("Get the current playback position of a playing Level Sequence"); }
+	virtual FString GetCategory() const override { return TEXT("Sequencer"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("sequence_path"), TEXT("string"), TEXT("Asset path of the Level Sequence (optional — uses the first playing sequence if not specified)"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};

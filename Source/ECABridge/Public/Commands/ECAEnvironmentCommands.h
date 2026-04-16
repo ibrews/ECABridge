@@ -1249,3 +1249,87 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+// ─── get_performance_stats ────────────────────────────────────
+// Get detailed performance statistics.
+class FECACommand_GetPerformanceStats : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("get_performance_stats"); }
+	virtual FString GetDescription() const override { return TEXT("Get detailed performance statistics: FPS, frame time, draw calls, triangle count, texture memory, and mesh count"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── set_scalability_settings ─────────────────────────────────
+// Set rendering scalability presets.
+class FECACommand_SetScalabilitySettings : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_scalability_settings"); }
+	virtual FString GetDescription() const override { return TEXT("Set rendering scalability presets (Low, Medium, High, Epic, Cinematic) or individual quality levels"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("preset"), TEXT("string"), TEXT("Scalability preset: low, medium, high, epic, or cinematic — overrides individual settings if provided"), false },
+			{ TEXT("view_distance"), TEXT("number"), TEXT("View distance quality level 0-4 (0=low, 4=cinematic)"), false },
+			{ TEXT("anti_aliasing"), TEXT("number"), TEXT("Anti-aliasing quality level 0-4"), false },
+			{ TEXT("post_process"), TEXT("number"), TEXT("Post-process quality level 0-4"), false },
+			{ TEXT("shadows"), TEXT("number"), TEXT("Shadow quality level 0-4"), false },
+			{ TEXT("textures"), TEXT("number"), TEXT("Texture quality level 0-4"), false },
+			{ TEXT("effects"), TEXT("number"), TEXT("Effects quality level 0-4"), false },
+			{ TEXT("foliage"), TEXT("number"), TEXT("Foliage quality level 0-4"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── optimize_for_vr ──────────────────────────────────────────
+// Apply VR-optimized settings in one command.
+class FECACommand_OptimizeForVR : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("optimize_for_vr"); }
+	virtual FString GetDescription() const override { return TEXT("Apply VR-optimized rendering settings in one command: target FPS, instanced stereo, screen percentage, and reduced shadow/effects quality"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("target_fps"), TEXT("number"), TEXT("Target frame rate for VR (default: 90)"), false, TEXT("90") },
+			{ TEXT("enable_instanced_stereo"), TEXT("boolean"), TEXT("Enable instanced stereo rendering for VR (default: true)"), false, TEXT("true") },
+			{ TEXT("screen_percentage"), TEXT("number"), TEXT("Screen percentage 50-200 (default: 100)"), false, TEXT("100") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── list_heavy_actors ────────────────────────────────────────
+// Find actors that are likely causing performance issues.
+class FECACommand_ListHeavyActors : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("list_heavy_actors"); }
+	virtual FString GetDescription() const override { return TEXT("Find actors that are likely causing performance issues — sorted by triangle count and material count"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("triangle_threshold"), TEXT("number"), TEXT("Minimum triangle count to flag an actor as heavy (default: 50000)"), false, TEXT("50000") },
+			{ TEXT("material_threshold"), TEXT("number"), TEXT("Minimum material count to flag an actor as heavy (default: 5)"), false, TEXT("5") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};

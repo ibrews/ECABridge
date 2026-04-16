@@ -30,6 +30,9 @@
 #include "Sections/MovieSceneFloatSection.h"
 #include "Channels/MovieSceneFloatChannel.h"
 
+#include "Tracks/MovieSceneEventTrack.h"
+#include "Sections/MovieSceneEventSection.h"
+
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "UObject/SavePackage.h"
 #include "Misc/PackageName.h"
@@ -95,6 +98,10 @@ REGISTER_ECA_COMMAND(FECACommand_PlaySequence);
 REGISTER_ECA_COMMAND(FECACommand_GetSequenceInfo);
 REGISTER_ECA_COMMAND(FECACommand_SetCameraProperties);
 REGISTER_ECA_COMMAND(FECACommand_AddSequenceFloatKey);
+REGISTER_ECA_COMMAND(FECACommand_StopSequence);
+REGISTER_ECA_COMMAND(FECACommand_SetSequencePlaybackRange);
+REGISTER_ECA_COMMAND(FECACommand_AddSequenceEventKey);
+REGISTER_ECA_COMMAND(FECACommand_GetSequenceCurrentTime);
 
 // ─── create_level_sequence ─────────────────────────────────────
 
@@ -801,6 +808,320 @@ FECACommandResult FECACommand_AddSequenceFloatKey::Execute(const TSharedPtr<FJso
 	Result->SetNumberField(TEXT("time_seconds"), Time);
 	Result->SetNumberField(TEXT("frame_number"), FrameNumber.Value);
 	Result->SetNumberField(TEXT("value"), Value);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── stop_sequence ────────────────────────────────────────────
+
+FECACommandResult FECACommand_StopSequence::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+		return FECACommandResult::Error(TEXT("No editor world available"));
+
+	FString SequencePath;
+	bool bHasPath = GetStringParam(Params, TEXT("sequence_path"), SequencePath, false);
+
+	ULevelSequence* TargetSeq = nullptr;
+	if (bHasPath)
+	{
+		TargetSeq = SequencerCommandHelpers::LoadSequence(SequencePath);
+		if (!TargetSeq)
+			return FECACommandResult::Error(FString::Printf(TEXT("Could not load Level Sequence at: %s"), *SequencePath));
+	}
+
+	// Find the LevelSequenceActor(s) and stop the matching one
+	ALevelSequenceActor* FoundActor = nullptr;
+	for (TActorIterator<ALevelSequenceActor> It(World); It; ++It)
+	{
+		ALevelSequenceActor* SeqActor = *It;
+		ULevelSequencePlayer* Player = SeqActor->GetSequencePlayer();
+		if (!Player)
+			continue;
+
+		if (TargetSeq)
+		{
+			// Stop only the one matching the requested sequence
+			if (SeqActor->GetSequence() == TargetSeq)
+			{
+				Player->Stop();
+				FoundActor = SeqActor;
+				break;
+			}
+		}
+		else
+		{
+			// No path specified — stop the first one that is playing
+			if (Player->IsPlaying())
+			{
+				Player->Stop();
+				FoundActor = SeqActor;
+				break;
+			}
+		}
+	}
+
+	if (!FoundActor)
+	{
+		if (bHasPath)
+			return FECACommandResult::Error(FString::Printf(TEXT("No LevelSequenceActor found in the level playing sequence: %s"), *SequencePath));
+		else
+			return FECACommandResult::Error(TEXT("No playing LevelSequenceActor found in the level"));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	ULevelSequence* StoppedSeq = Cast<ULevelSequence>(FoundActor->GetSequence());
+	Result->SetStringField(TEXT("sequence"), StoppedSeq ? StoppedSeq->GetPathName() : TEXT("unknown"));
+	Result->SetStringField(TEXT("state"), TEXT("stopped"));
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── set_sequence_playback_range ──────────────────────────────
+
+FECACommandResult FECACommand_SetSequencePlaybackRange::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SequencePath;
+	double StartTime = 0.0, EndTime = 0.0;
+
+	if (!GetStringParam(Params, TEXT("sequence_path"), SequencePath))
+		return FECACommandResult::Error(TEXT("Missing required parameter: sequence_path"));
+	if (!GetFloatParam(Params, TEXT("end_time"), EndTime))
+		return FECACommandResult::Error(TEXT("Missing required parameter: end_time"));
+
+	GetFloatParam(Params, TEXT("start_time"), StartTime, false);
+
+	if (EndTime <= StartTime)
+		return FECACommandResult::Error(TEXT("end_time must be greater than start_time"));
+
+	ULevelSequence* Seq = SequencerCommandHelpers::LoadSequence(SequencePath);
+	if (!Seq)
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not load Level Sequence at: %s"), *SequencePath));
+
+	UMovieScene* MovieScene = Seq->GetMovieScene();
+	if (!MovieScene)
+		return FECACommandResult::Error(TEXT("Level Sequence has no MovieScene"));
+
+	FFrameRate TickResolution = MovieScene->GetTickResolution();
+	FFrameNumber StartFrame = (StartTime * TickResolution).FloorToFrame();
+	FFrameNumber EndFrame = (EndTime * TickResolution).FloorToFrame();
+
+	MovieScene->SetPlaybackRange(StartFrame, (EndFrame - StartFrame).Value);
+
+	Seq->MarkPackageDirty();
+
+	// Read back the range for confirmation
+	TRange<FFrameNumber> NewRange = MovieScene->GetPlaybackRange();
+	double ActualStart = static_cast<double>(NewRange.GetLowerBoundValue().Value) / TickResolution.AsDecimal();
+	double ActualEnd = static_cast<double>(NewRange.GetUpperBoundValue().Value) / TickResolution.AsDecimal();
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("sequence"), Seq->GetPathName());
+	Result->SetNumberField(TEXT("start_time"), ActualStart);
+	Result->SetNumberField(TEXT("end_time"), ActualEnd);
+	Result->SetNumberField(TEXT("start_frame"), NewRange.GetLowerBoundValue().Value);
+	Result->SetNumberField(TEXT("end_frame"), NewRange.GetUpperBoundValue().Value);
+	Result->SetNumberField(TEXT("duration_seconds"), ActualEnd - ActualStart);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── add_sequence_event_key ───────────────────────────────────
+
+FECACommandResult FECACommand_AddSequenceEventKey::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SequencePath, EventName;
+	double Time = 0.0;
+
+	if (!GetStringParam(Params, TEXT("sequence_path"), SequencePath))
+		return FECACommandResult::Error(TEXT("Missing required parameter: sequence_path"));
+	if (!GetFloatParam(Params, TEXT("time"), Time))
+		return FECACommandResult::Error(TEXT("Missing required parameter: time"));
+	if (!GetStringParam(Params, TEXT("event_name"), EventName))
+		return FECACommandResult::Error(TEXT("Missing required parameter: event_name"));
+
+	ULevelSequence* Seq = SequencerCommandHelpers::LoadSequence(SequencePath);
+	if (!Seq)
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not load Level Sequence at: %s"), *SequencePath));
+
+	UMovieScene* MovieScene = Seq->GetMovieScene();
+	if (!MovieScene)
+		return FECACommandResult::Error(TEXT("Level Sequence has no MovieScene"));
+
+	// Find or create a top-level event track
+	UMovieSceneEventTrack* EventTrack = nullptr;
+	for (UMovieSceneTrack* Track : MovieScene->GetTracks())
+	{
+		UMovieSceneEventTrack* Candidate = Cast<UMovieSceneEventTrack>(Track);
+		if (Candidate)
+		{
+			EventTrack = Candidate;
+			break;
+		}
+	}
+
+	if (!EventTrack)
+	{
+		EventTrack = MovieScene->AddTrack<UMovieSceneEventTrack>();
+		if (!EventTrack)
+			return FECACommandResult::Error(TEXT("Failed to create event track"));
+	}
+
+	// Get or create an event section on the track
+	UMovieSceneEventSection* EventSection = nullptr;
+	const TArray<UMovieSceneSection*>& Sections = EventTrack->GetAllSections();
+	if (Sections.Num() > 0)
+	{
+		EventSection = Cast<UMovieSceneEventSection>(Sections[0]);
+	}
+
+	if (!EventSection)
+	{
+		UMovieSceneSection* NewSection = EventTrack->CreateNewSection();
+		EventSection = Cast<UMovieSceneEventSection>(NewSection);
+		if (!EventSection)
+			return FECACommandResult::Error(TEXT("Failed to create event section"));
+
+		EventTrack->AddSection(*EventSection);
+		EventSection->SetRange(MovieScene->GetPlaybackRange());
+	}
+
+	// Convert time in seconds to FFrameNumber
+	FFrameRate TickResolution = MovieScene->GetTickResolution();
+	FFrameNumber FrameNumber = (Time * TickResolution).FloorToFrame();
+
+	// Expand section range if needed to contain this key
+	TRange<FFrameNumber> SectionRange = EventSection->GetRange();
+	if (!SectionRange.Contains(FrameNumber))
+	{
+		if (SectionRange.HasLowerBound() && FrameNumber < SectionRange.GetLowerBoundValue())
+		{
+			EventSection->SetRange(TRange<FFrameNumber>(FrameNumber, SectionRange.GetUpperBound()));
+		}
+		else if (SectionRange.HasUpperBound() && FrameNumber >= SectionRange.GetUpperBoundValue())
+		{
+			EventSection->SetRange(TRange<FFrameNumber>(SectionRange.GetLowerBound(), TRangeBound<FFrameNumber>::Exclusive(FrameNumber + 1)));
+		}
+	}
+
+	// Add the event key via the channel data
+	// UMovieSceneEventSection stores FMovieSceneEventSectionData which holds FEventPayload keys
+	// We need to get a mutable reference to the event data — the public API only exposes const.
+	// Access the channel through the channel proxy instead.
+	TArrayView<FMovieSceneEventSectionData*> EventChannels = EventSection->GetChannelProxy().GetChannels<FMovieSceneEventSectionData>();
+	if (EventChannels.Num() < 1)
+		return FECACommandResult::Error(TEXT("Event section has no event channels"));
+
+	FMovieSceneEventSectionData* EventChannel = EventChannels[0];
+	FEventPayload Payload;
+	Payload.EventName = FName(*EventName);
+	TMovieSceneChannelData<FEventPayload> ChannelData = EventChannel->GetData();
+	ChannelData.AddKey(FrameNumber, Payload);
+
+	Seq->MarkPackageDirty();
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("sequence"), Seq->GetPathName());
+	Result->SetStringField(TEXT("event_name"), EventName);
+	Result->SetNumberField(TEXT("time_seconds"), Time);
+	Result->SetNumberField(TEXT("frame_number"), FrameNumber.Value);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── get_sequence_current_time ────────────────────────────────
+
+FECACommandResult FECACommand_GetSequenceCurrentTime::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+		return FECACommandResult::Error(TEXT("No editor world available"));
+
+	FString SequencePath;
+	bool bHasPath = GetStringParam(Params, TEXT("sequence_path"), SequencePath, false);
+
+	ULevelSequence* TargetSeq = nullptr;
+	if (bHasPath)
+	{
+		TargetSeq = SequencerCommandHelpers::LoadSequence(SequencePath);
+		if (!TargetSeq)
+			return FECACommandResult::Error(FString::Printf(TEXT("Could not load Level Sequence at: %s"), *SequencePath));
+	}
+
+	// Find the LevelSequenceActor
+	ALevelSequenceActor* FoundActor = nullptr;
+	for (TActorIterator<ALevelSequenceActor> It(World); It; ++It)
+	{
+		ALevelSequenceActor* SeqActor = *It;
+		ULevelSequencePlayer* Player = SeqActor->GetSequencePlayer();
+		if (!Player)
+			continue;
+
+		if (TargetSeq)
+		{
+			if (SeqActor->GetSequence() == TargetSeq)
+			{
+				FoundActor = SeqActor;
+				break;
+			}
+		}
+		else
+		{
+			// No path specified — use the first one found (prefer playing)
+			if (Player->IsPlaying())
+			{
+				FoundActor = SeqActor;
+				break;
+			}
+			if (!FoundActor)
+			{
+				FoundActor = SeqActor;
+			}
+		}
+	}
+
+	if (!FoundActor)
+	{
+		if (bHasPath)
+			return FECACommandResult::Error(FString::Printf(TEXT("No LevelSequenceActor found in the level for sequence: %s"), *SequencePath));
+		else
+			return FECACommandResult::Error(TEXT("No LevelSequenceActor found in the level"));
+	}
+
+	ULevelSequencePlayer* Player = FoundActor->GetSequencePlayer();
+	if (!Player)
+		return FECACommandResult::Error(TEXT("Failed to get sequence player"));
+
+	ULevelSequence* Seq = Cast<ULevelSequence>(FoundActor->GetSequence());
+	UMovieScene* MovieScene = Seq ? Seq->GetMovieScene() : nullptr;
+
+	FFrameRate TickResolution = MovieScene ? MovieScene->GetTickResolution() : FFrameRate(24000, 1);
+	FFrameRate DisplayRate = MovieScene ? MovieScene->GetDisplayRate() : FFrameRate(30, 1);
+
+	// Get current time from the player
+	FQualifiedFrameTime CurrentQualifiedTime = Player->GetCurrentTime();
+	double CurrentTimeSeconds = CurrentQualifiedTime.AsSeconds();
+	FFrameNumber CurrentFrame = CurrentQualifiedTime.ConvertTo(DisplayRate).FloorToFrame();
+
+	// Get total duration
+	double TotalDuration = 0.0;
+	if (MovieScene)
+	{
+		TRange<FFrameNumber> PlaybackRange = MovieScene->GetPlaybackRange();
+		if (PlaybackRange.HasLowerBound() && PlaybackRange.HasUpperBound())
+		{
+			FFrameNumber DurationTicks = PlaybackRange.GetUpperBoundValue() - PlaybackRange.GetLowerBoundValue();
+			TotalDuration = static_cast<double>(DurationTicks.Value) / TickResolution.AsDecimal();
+		}
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("sequence"), Seq ? Seq->GetPathName() : TEXT("unknown"));
+	Result->SetNumberField(TEXT("current_time"), CurrentTimeSeconds);
+	Result->SetNumberField(TEXT("current_frame"), CurrentFrame.Value);
+	Result->SetBoolField(TEXT("is_playing"), Player->IsPlaying());
+	Result->SetNumberField(TEXT("total_duration"), TotalDuration);
 
 	return FECACommandResult::Success(Result);
 }
