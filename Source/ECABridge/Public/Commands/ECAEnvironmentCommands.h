@@ -280,3 +280,97 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+// ─── generate_grid ─────────────────────────────────────────
+// Procedurally generate a grid of static mesh actors.
+class FECACommand_GenerateGrid : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("generate_grid"); }
+	virtual FString GetDescription() const override { return TEXT("Procedurally generate a grid of static mesh actors (for floors, walls, mazes)"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("mesh_path"), TEXT("string"), TEXT("Asset path to the static mesh (default: /Engine/BasicShapes/Cube)"), false, TEXT("/Engine/BasicShapes/Cube") },
+			{ TEXT("rows"), TEXT("number"), TEXT("Number of rows in the grid"), true },
+			{ TEXT("columns"), TEXT("number"), TEXT("Number of columns in the grid"), true },
+			{ TEXT("spacing"), TEXT("number"), TEXT("Distance between each actor center in world units (default: 200)"), false, TEXT("200") },
+			{ TEXT("origin"), TEXT("object"), TEXT("Grid origin as {x, y, z} (default: 0,0,0)"), false },
+			{ TEXT("scale"), TEXT("object"), TEXT("Scale for each actor as {x, y, z} (default: 1,1,1)"), false, TEXT("{x:1, y:1, z:1}") },
+			{ TEXT("material_path"), TEXT("string"), TEXT("Asset path to a material to apply to each mesh"), false },
+			{ TEXT("name_prefix"), TEXT("string"), TEXT("Prefix for actor labels (default: Grid)"), false, TEXT("Grid") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── generate_circle ───────────────────────────────────────
+// Spawn actors arranged in a circle.
+class FECACommand_GenerateCircle : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("generate_circle"); }
+	virtual FString GetDescription() const override { return TEXT("Spawn actors arranged in a circle (useful for arenas, stages, turrets)"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("mesh_path"), TEXT("string"), TEXT("Asset path to the static mesh (default: /Engine/BasicShapes/Cube)"), false, TEXT("/Engine/BasicShapes/Cube") },
+			{ TEXT("count"), TEXT("number"), TEXT("Number of actors to place around the circle"), true },
+			{ TEXT("radius"), TEXT("number"), TEXT("Circle radius in world units (default: 500)"), false, TEXT("500") },
+			{ TEXT("center"), TEXT("object"), TEXT("Circle center as {x, y, z} (default: 0,0,0)"), false },
+			{ TEXT("scale"), TEXT("object"), TEXT("Scale for each actor as {x, y, z} (default: 1,1,1)"), false, TEXT("{x:1, y:1, z:1}") },
+			{ TEXT("face_center"), TEXT("boolean"), TEXT("Rotate each actor to face the circle center (default: true)"), false, TEXT("true") },
+			{ TEXT("material_path"), TEXT("string"), TEXT("Asset path to a material to apply to each mesh"), false },
+			{ TEXT("name_prefix"), TEXT("string"), TEXT("Prefix for actor labels (default: Circle)"), false, TEXT("Circle") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── destroy_actors_by_pattern ─────────────────────────────
+// Delete multiple actors matching a name pattern.
+class FECACommand_DestroyActorsByPattern : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("destroy_actors_by_pattern"); }
+	virtual FString GetDescription() const override { return TEXT("Delete multiple actors matching a name pattern — useful for cleaning up procedurally generated content"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("name_pattern"), TEXT("string"), TEXT("Wildcard pattern to match actor labels (supports * wildcard)"), true },
+			{ TEXT("dry_run"), TEXT("boolean"), TEXT("If true, just report what would be deleted without actually deleting (default: false)"), false, TEXT("false") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── take_camera_screenshot ────────────────────────────────
+// Capture a screenshot from a specific camera actor's perspective.
+class FECACommand_TakeCameraScreenshot : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("take_camera_screenshot"); }
+	virtual FString GetDescription() const override { return TEXT("Capture a screenshot from a specific camera actor's perspective and save as PNG"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("camera_name"), TEXT("string"), TEXT("Name or label of the camera actor to capture from"), true },
+			{ TEXT("filename"), TEXT("string"), TEXT("Output filename (saved to Saved/Screenshots/)"), true },
+			{ TEXT("resolution_x"), TEXT("number"), TEXT("Horizontal resolution in pixels (default: 1920)"), false, TEXT("1920") },
+			{ TEXT("resolution_y"), TEXT("number"), TEXT("Vertical resolution in pixels (default: 1080)"), false, TEXT("1080") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};

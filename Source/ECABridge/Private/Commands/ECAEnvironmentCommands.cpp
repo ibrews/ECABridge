@@ -12,6 +12,7 @@
 #include "Components/SplineComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Camera/CameraActor.h"
+#include "Camera/CameraComponent.h"
 #include "Engine/Light.h"
 #include "GameFramework/WorldSettings.h"
 #include "Materials/MaterialInterface.h"
@@ -24,6 +25,11 @@
 #include "EngineUtils.h"
 #include "Editor.h"
 #include "Misc/PackageName.h"
+#include "Components/SceneCaptureComponent2D.h"
+#include "Engine/TextureRenderTarget2D.h"
+#include "ImageUtils.h"
+#include "Misc/FileHelper.h"
+#include "HAL/PlatformFileManager.h"
 
 // ─── REGISTER ───────────────────────────────────────────────
 
@@ -40,6 +46,10 @@ REGISTER_ECA_COMMAND(FECACommand_ApplyImpulse);
 REGISTER_ECA_COMMAND(FECACommand_SetActorVisibility);
 REGISTER_ECA_COMMAND(FECACommand_BatchSpawnActors);
 REGISTER_ECA_COMMAND(FECACommand_TeleportActor);
+REGISTER_ECA_COMMAND(FECACommand_GenerateGrid);
+REGISTER_ECA_COMMAND(FECACommand_GenerateCircle);
+REGISTER_ECA_COMMAND(FECACommand_DestroyActorsByPattern);
+REGISTER_ECA_COMMAND(FECACommand_TakeCameraScreenshot);
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -1301,6 +1311,486 @@ FECACommandResult FECACommand_TeleportActor::Execute(const TSharedPtr<FJsonObjec
 		Result->SetBoolField(TEXT("sweep_hit"), true);
 		Result->SetObjectField(TEXT("sweep_hit_location"), VectorToJson(SweepHitResult.Location));
 	}
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── generate_grid ─────────────────────────────────────────
+
+FECACommandResult FECACommand_GenerateGrid::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// Rows (required)
+	int32 Rows = 0;
+	if (!GetIntParam(Params, TEXT("rows"), Rows))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: rows"));
+	}
+	if (Rows <= 0)
+	{
+		return FECACommandResult::Error(TEXT("rows must be greater than 0"));
+	}
+
+	// Columns (required)
+	int32 Columns = 0;
+	if (!GetIntParam(Params, TEXT("columns"), Columns))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: columns"));
+	}
+	if (Columns <= 0)
+	{
+		return FECACommandResult::Error(TEXT("columns must be greater than 0"));
+	}
+
+	// Cap total count
+	if (Rows * Columns > 10000)
+	{
+		return FECACommandResult::Error(TEXT("Grid size exceeds maximum of 10000 actors (rows * columns)"));
+	}
+
+	// Mesh path (optional)
+	FString MeshPath = TEXT("/Engine/BasicShapes/Cube");
+	GetStringParam(Params, TEXT("mesh_path"), MeshPath, /*bRequired=*/false);
+
+	UStaticMesh* Mesh = EnvironmentCommandHelpers::LoadMeshByPath(MeshPath);
+	if (!Mesh)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not load static mesh at: %s"), *MeshPath));
+	}
+
+	// Spacing (optional)
+	double Spacing = 200.0;
+	GetFloatParam(Params, TEXT("spacing"), Spacing, /*bRequired=*/false);
+
+	// Origin (optional)
+	FVector Origin = FVector::ZeroVector;
+	GetVectorParam(Params, TEXT("origin"), Origin, /*bRequired=*/false);
+
+	// Scale (optional)
+	FVector Scale(1.0, 1.0, 1.0);
+	GetVectorParam(Params, TEXT("scale"), Scale, /*bRequired=*/false);
+
+	// Material (optional)
+	FString MaterialPath;
+	bool bHasMaterial = GetStringParam(Params, TEXT("material_path"), MaterialPath, /*bRequired=*/false) && !MaterialPath.IsEmpty();
+	UMaterialInterface* Material = nullptr;
+	if (bHasMaterial)
+	{
+		Material = EnvironmentCommandHelpers::LoadMaterialByPath(MaterialPath);
+		if (!Material)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("generate_grid: Could not load material at '%s', using default"), *MaterialPath);
+			bHasMaterial = false;
+		}
+	}
+
+	// Name prefix (optional)
+	FString NamePrefix = TEXT("Grid");
+	GetStringParam(Params, TEXT("name_prefix"), NamePrefix, /*bRequired=*/false);
+
+	// Spawn the grid
+	int32 SpawnedCount = 0;
+
+	for (int32 Row = 0; Row < Rows; ++Row)
+	{
+		for (int32 Col = 0; Col < Columns; ++Col)
+		{
+			FVector SpawnLocation = Origin + FVector(Col * Spacing, Row * Spacing, 0.0);
+
+			FActorSpawnParameters SpawnParams;
+			SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+			AStaticMeshActor* MeshActor = World->SpawnActor<AStaticMeshActor>(SpawnLocation, FRotator::ZeroRotator, SpawnParams);
+			if (!MeshActor)
+			{
+				continue;
+			}
+
+			MeshActor->SetActorLabel(FString::Printf(TEXT("%s_%d_%d"), *NamePrefix, Row, Col));
+			MeshActor->SetActorScale3D(Scale);
+
+			UStaticMeshComponent* MeshComp = MeshActor->GetStaticMeshComponent();
+			if (MeshComp)
+			{
+				MeshComp->SetStaticMesh(Mesh);
+
+				if (bHasMaterial && Material)
+				{
+					MeshComp->SetMaterial(0, Material);
+				}
+			}
+
+			++SpawnedCount;
+		}
+	}
+
+	// Notify editor
+	if (GEditor)
+	{
+		GEditor->BroadcastLevelActorListChanged();
+		GEditor->RedrawAllViewports();
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetNumberField(TEXT("spawned_count"), SpawnedCount);
+	Result->SetNumberField(TEXT("rows"), Rows);
+	Result->SetNumberField(TEXT("columns"), Columns);
+	Result->SetNumberField(TEXT("spacing"), Spacing);
+	Result->SetObjectField(TEXT("origin"), VectorToJson(Origin));
+	Result->SetObjectField(TEXT("scale"), VectorToJson(Scale));
+	Result->SetStringField(TEXT("mesh_path"), Mesh->GetPathName());
+	Result->SetStringField(TEXT("name_prefix"), NamePrefix);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── generate_circle ───────────────────────────────────────
+
+FECACommandResult FECACommand_GenerateCircle::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// Count (required)
+	int32 Count = 0;
+	if (!GetIntParam(Params, TEXT("count"), Count))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: count"));
+	}
+	if (Count <= 0)
+	{
+		return FECACommandResult::Error(TEXT("count must be greater than 0"));
+	}
+	if (Count > 1000)
+	{
+		return FECACommandResult::Error(TEXT("count exceeds maximum of 1000"));
+	}
+
+	// Mesh path (optional)
+	FString MeshPath = TEXT("/Engine/BasicShapes/Cube");
+	GetStringParam(Params, TEXT("mesh_path"), MeshPath, /*bRequired=*/false);
+
+	UStaticMesh* Mesh = EnvironmentCommandHelpers::LoadMeshByPath(MeshPath);
+	if (!Mesh)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not load static mesh at: %s"), *MeshPath));
+	}
+
+	// Radius (optional)
+	double Radius = 500.0;
+	GetFloatParam(Params, TEXT("radius"), Radius, /*bRequired=*/false);
+
+	// Center (optional)
+	FVector Center = FVector::ZeroVector;
+	GetVectorParam(Params, TEXT("center"), Center, /*bRequired=*/false);
+
+	// Scale (optional)
+	FVector Scale(1.0, 1.0, 1.0);
+	GetVectorParam(Params, TEXT("scale"), Scale, /*bRequired=*/false);
+
+	// Face center (optional, default true)
+	bool bFaceCenter = true;
+	GetBoolParam(Params, TEXT("face_center"), bFaceCenter, /*bRequired=*/false);
+
+	// Material (optional)
+	FString MaterialPath;
+	bool bHasMaterial = GetStringParam(Params, TEXT("material_path"), MaterialPath, /*bRequired=*/false) && !MaterialPath.IsEmpty();
+	UMaterialInterface* Material = nullptr;
+	if (bHasMaterial)
+	{
+		Material = EnvironmentCommandHelpers::LoadMaterialByPath(MaterialPath);
+		if (!Material)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("generate_circle: Could not load material at '%s', using default"), *MaterialPath);
+			bHasMaterial = false;
+		}
+	}
+
+	// Name prefix (optional)
+	FString NamePrefix = TEXT("Circle");
+	GetStringParam(Params, TEXT("name_prefix"), NamePrefix, /*bRequired=*/false);
+
+	// Spawn actors in a circle
+	int32 SpawnedCount = 0;
+	const double AngleStep = 360.0 / static_cast<double>(Count);
+
+	for (int32 i = 0; i < Count; ++i)
+	{
+		double AngleDeg = AngleStep * i;
+		double AngleRad = FMath::DegreesToRadians(AngleDeg);
+
+		FVector SpawnLocation = Center + FVector(
+			FMath::Cos(AngleRad) * Radius,
+			FMath::Sin(AngleRad) * Radius,
+			0.0
+		);
+
+		FRotator SpawnRotation = FRotator::ZeroRotator;
+		if (bFaceCenter)
+		{
+			// Face toward the center
+			FVector DirectionToCenter = (Center - SpawnLocation).GetSafeNormal();
+			SpawnRotation = DirectionToCenter.Rotation();
+		}
+
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+		AStaticMeshActor* MeshActor = World->SpawnActor<AStaticMeshActor>(SpawnLocation, SpawnRotation, SpawnParams);
+		if (!MeshActor)
+		{
+			continue;
+		}
+
+		MeshActor->SetActorLabel(FString::Printf(TEXT("%s_%d"), *NamePrefix, i));
+		MeshActor->SetActorScale3D(Scale);
+
+		UStaticMeshComponent* MeshComp = MeshActor->GetStaticMeshComponent();
+		if (MeshComp)
+		{
+			MeshComp->SetStaticMesh(Mesh);
+
+			if (bHasMaterial && Material)
+			{
+				MeshComp->SetMaterial(0, Material);
+			}
+		}
+
+		++SpawnedCount;
+	}
+
+	// Notify editor
+	if (GEditor)
+	{
+		GEditor->BroadcastLevelActorListChanged();
+		GEditor->RedrawAllViewports();
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetNumberField(TEXT("spawned_count"), SpawnedCount);
+	Result->SetNumberField(TEXT("count"), Count);
+	Result->SetNumberField(TEXT("radius"), Radius);
+	Result->SetObjectField(TEXT("center"), VectorToJson(Center));
+	Result->SetObjectField(TEXT("scale"), VectorToJson(Scale));
+	Result->SetBoolField(TEXT("face_center"), bFaceCenter);
+	Result->SetStringField(TEXT("mesh_path"), Mesh->GetPathName());
+	Result->SetStringField(TEXT("name_prefix"), NamePrefix);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── destroy_actors_by_pattern ─────────────────────────────
+
+FECACommandResult FECACommand_DestroyActorsByPattern::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// Name pattern (required)
+	FString NamePattern;
+	if (!GetStringParam(Params, TEXT("name_pattern"), NamePattern))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: name_pattern"));
+	}
+
+	// Dry run (optional, default false)
+	bool bDryRun = false;
+	GetBoolParam(Params, TEXT("dry_run"), bDryRun, /*bRequired=*/false);
+
+	// Find matching actors
+	TArray<AActor*> MatchingActors;
+	TArray<TSharedPtr<FJsonValue>> MatchedNames;
+
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (!Actor)
+		{
+			continue;
+		}
+
+		FString ActorLabel = Actor->GetActorLabel();
+		if (ActorLabel.MatchesWildcard(NamePattern, ESearchCase::IgnoreCase))
+		{
+			MatchingActors.Add(Actor);
+			MatchedNames.Add(MakeShared<FJsonValueString>(ActorLabel));
+		}
+	}
+
+	int32 DestroyedCount = 0;
+
+	if (!bDryRun)
+	{
+		for (AActor* Actor : MatchingActors)
+		{
+			if (World->DestroyActor(Actor))
+			{
+				++DestroyedCount;
+			}
+		}
+
+		// Notify editor
+		if (GEditor)
+		{
+			GEditor->BroadcastLevelActorListChanged();
+			GEditor->RedrawAllViewports();
+		}
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("name_pattern"), NamePattern);
+	Result->SetBoolField(TEXT("dry_run"), bDryRun);
+	Result->SetNumberField(TEXT("matched_count"), MatchingActors.Num());
+	Result->SetNumberField(TEXT("destroyed_count"), bDryRun ? 0 : DestroyedCount);
+	Result->SetArrayField(TEXT("matched_names"), MatchedNames);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── take_camera_screenshot ────────────────────────────────
+
+FECACommandResult FECACommand_TakeCameraScreenshot::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// Camera name (required)
+	FString CameraName;
+	if (!GetStringParam(Params, TEXT("camera_name"), CameraName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: camera_name"));
+	}
+
+	// Filename (required)
+	FString Filename;
+	if (!GetStringParam(Params, TEXT("filename"), Filename))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: filename"));
+	}
+
+	// Ensure .png extension
+	if (!Filename.EndsWith(TEXT(".png"), ESearchCase::IgnoreCase))
+	{
+		Filename += TEXT(".png");
+	}
+
+	// Resolution (optional)
+	int32 ResolutionX = 1920;
+	GetIntParam(Params, TEXT("resolution_x"), ResolutionX, /*bRequired=*/false);
+	int32 ResolutionY = 1080;
+	GetIntParam(Params, TEXT("resolution_y"), ResolutionY, /*bRequired=*/false);
+
+	if (ResolutionX <= 0 || ResolutionY <= 0)
+	{
+		return FECACommandResult::Error(TEXT("resolution_x and resolution_y must be greater than 0"));
+	}
+	if (ResolutionX > 7680 || ResolutionY > 4320)
+	{
+		return FECACommandResult::Error(TEXT("resolution exceeds maximum of 7680x4320"));
+	}
+
+	// Find the camera actor
+	AActor* CameraActor = FindActorByName(CameraName);
+	if (!CameraActor)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Camera actor not found: %s"), *CameraName));
+	}
+
+	ACameraActor* Camera = Cast<ACameraActor>(CameraActor);
+	if (!Camera)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor '%s' is not a CameraActor"), *CameraName));
+	}
+
+	// Get the camera transform
+	FVector CameraLocation = Camera->GetActorLocation();
+	FRotator CameraRotation = Camera->GetActorRotation();
+
+	// Create a scene capture component to render from the camera's perspective
+	USceneCaptureComponent2D* SceneCapture = NewObject<USceneCaptureComponent2D>(GetTransientPackage());
+	if (!SceneCapture)
+	{
+		return FECACommandResult::Error(TEXT("Failed to create SceneCaptureComponent2D"));
+	}
+
+	// Create the render target
+	UTextureRenderTarget2D* RenderTarget = NewObject<UTextureRenderTarget2D>(GetTransientPackage());
+	if (!RenderTarget)
+	{
+		return FECACommandResult::Error(TEXT("Failed to create render target"));
+	}
+
+	RenderTarget->InitCustomFormat(ResolutionX, ResolutionY, PF_B8G8R8A8, false);
+	RenderTarget->UpdateResourceImmediate(true);
+
+	// Configure the scene capture
+	SceneCapture->TextureTarget = RenderTarget;
+	SceneCapture->SetWorldLocationAndRotation(CameraLocation, CameraRotation);
+	SceneCapture->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+	SceneCapture->bCaptureEveryFrame = false;
+	SceneCapture->bCaptureOnMovement = false;
+
+	// Copy camera FOV settings if available
+	if (Camera->GetCameraComponent())
+	{
+		SceneCapture->FOVAngle = Camera->GetCameraComponent()->FieldOfView;
+	}
+
+	// Register and capture
+	SceneCapture->RegisterComponentWithWorld(World);
+	SceneCapture->CaptureScene();
+
+	// Build the output path
+	FString ScreenshotDir = FPaths::ProjectSavedDir() / TEXT("Screenshots");
+	IFileManager::Get().MakeDirectory(*ScreenshotDir, true);
+	FString FullPath = ScreenshotDir / Filename;
+
+	// Export the render target to PNG
+	FArchive* FileWriter = IFileManager::Get().CreateFileWriter(*FullPath);
+	if (!FileWriter)
+	{
+		SceneCapture->DestroyComponent();
+		return FECACommandResult::Error(FString::Printf(TEXT("Failed to create file writer for: %s"), *FullPath));
+	}
+
+	bool bExportSuccess = FImageUtils::ExportRenderTarget2DAsPNG(RenderTarget, *FileWriter);
+	FileWriter->Close();
+	delete FileWriter;
+
+	// Cleanup
+	SceneCapture->DestroyComponent();
+
+	if (!bExportSuccess)
+	{
+		return FECACommandResult::Error(TEXT("Failed to export render target as PNG"));
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("camera_name"), Camera->GetActorLabel());
+	Result->SetStringField(TEXT("filename"), Filename);
+	Result->SetStringField(TEXT("full_path"), FullPath);
+	Result->SetNumberField(TEXT("resolution_x"), ResolutionX);
+	Result->SetNumberField(TEXT("resolution_y"), ResolutionY);
+	Result->SetObjectField(TEXT("camera_location"), VectorToJson(CameraLocation));
+	Result->SetObjectField(TEXT("camera_rotation"), RotatorToJson(CameraRotation));
 
 	return FECACommandResult::Success(Result);
 }
