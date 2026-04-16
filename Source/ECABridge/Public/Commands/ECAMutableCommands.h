@@ -279,3 +279,24 @@ public:
 	}
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+// ─── create_metahuman ──────────────────────────────────────────
+// Creates a new MetaHuman Character asset using runtime class discovery.
+// Gracefully fails if the MetaHuman plugins are not enabled.
+class FECACommand_CreateMetaHuman : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("create_metahuman"); }
+	virtual FString GetDescription() const override { return TEXT("Create a new MetaHuman Character asset (requires MetaHuman plugin)"); }
+	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("package_path"), TEXT("string"), TEXT("Package directory (e.g. /Game/Characters)"), true },
+			{ TEXT("asset_name"), TEXT("string"), TEXT("Name for the new MetaHuman Character asset"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};

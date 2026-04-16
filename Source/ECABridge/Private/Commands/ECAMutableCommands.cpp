@@ -15,6 +15,8 @@
 #include "EdGraph/EdGraphNode.h"
 #include "EdGraph/EdGraphPin.h"
 #include "AssetRegistry/AssetRegistryModule.h"
+#include "AssetToolsModule.h"
+#include "Factories/Factory.h"
 #include "UObject/SavePackage.h"
 #include "UObject/UObjectIterator.h"
 
@@ -1250,6 +1252,62 @@ FECACommandResult FECACommand_SetCOInstanceParam::Execute(const TSharedPtr<FJson
 
 	Result->SetBoolField(TEXT("success"), true);
 	Result->SetStringField(TEXT("update_triggered"), TEXT("true"));
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── create_metahuman ──────────────────────────────────────────
+
+REGISTER_ECA_COMMAND(FECACommand_CreateMetaHuman);
+
+FECACommandResult FECACommand_CreateMetaHuman::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString PackagePath, AssetName;
+	if (!GetStringParam(Params, TEXT("package_path"), PackagePath))
+		return FECACommandResult::Error(TEXT("Missing required parameter: package_path"));
+	if (!GetStringParam(Params, TEXT("asset_name"), AssetName))
+		return FECACommandResult::Error(TEXT("Missing required parameter: asset_name"));
+
+	// Discover MetaHuman classes via reflection — no compile-time dependency on the plugin
+	UClass* MHCharClass = FindObject<UClass>(nullptr, TEXT("/Script/MetaHumanCharacter.MetaHumanCharacter"));
+	if (!MHCharClass)
+	{
+		return FECACommandResult::Error(
+			TEXT("MetaHuman Character class not found. The MetaHumanCharacter plugin is not enabled in this project. ")
+			TEXT("Enable it in Edit > Plugins > MetaHuman Character and restart the editor."));
+	}
+
+	UClass* MHFactoryClass = FindObject<UClass>(nullptr, TEXT("/Script/MetaHumanCharacterEditor.MetaHumanCharacterFactoryNew"));
+	if (!MHFactoryClass)
+	{
+		return FECACommandResult::Error(
+			TEXT("MetaHuman Character factory not found. The MetaHumanCharacterEditor plugin is not loaded. ")
+			TEXT("Ensure the MetaHumanCharacter plugin is enabled and the editor modules are available."));
+	}
+
+	// Create the factory instance
+	UFactory* Factory = NewObject<UFactory>(GetTransientPackage(), MHFactoryClass);
+	if (!Factory)
+	{
+		return FECACommandResult::Error(TEXT("Failed to create MetaHumanCharacterFactoryNew instance"));
+	}
+
+	// Use AssetTools to create the asset — this invokes the factory's FactoryCreateNew,
+	// which calls NewObject<UMetaHumanCharacter> and then InitializeMetaHumanCharacter
+	FAssetToolsModule& AssetToolsModule = FModuleManager::Get().LoadModuleChecked<FAssetToolsModule>("AssetTools");
+	UObject* NewAsset = AssetToolsModule.Get().CreateAsset(AssetName, PackagePath, MHCharClass, Factory);
+
+	if (!NewAsset)
+	{
+		return FECACommandResult::Error(FString::Printf(
+			TEXT("Failed to create MetaHuman Character '%s' at '%s'. Check the output log for details."),
+			*AssetName, *PackagePath));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("path"), NewAsset->GetPathName());
+	Result->SetStringField(TEXT("name"), NewAsset->GetName());
+	Result->SetStringField(TEXT("class"), NewAsset->GetClass()->GetName());
 
 	return FECACommandResult::Success(Result);
 }
