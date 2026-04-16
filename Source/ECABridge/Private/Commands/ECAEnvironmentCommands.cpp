@@ -53,6 +53,9 @@
 #include "IAssetViewport.h"
 #include "EditorViewportClient.h"
 #include "Engine/CollisionProfile.h"
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "AssetRegistry/IAssetRegistry.h"
+// Undo/Redo uses GEditor->Trans() which is in Editor.h (already included)
 
 // ─── REGISTER ───────────────────────────────────────────────
 
@@ -92,6 +95,11 @@ REGISTER_ECA_COMMAND(FECACommand_SetActorFolder);
 REGISTER_ECA_COMMAND(FECACommand_GroupActors);
 REGISTER_ECA_COMMAND(FECACommand_SetCollisionPreset);
 REGISTER_ECA_COMMAND(FECACommand_TakeScreenshotsSweep);
+REGISTER_ECA_COMMAND(FECACommand_ExecutePython);
+REGISTER_ECA_COMMAND(FECACommand_UndoLastAction);
+REGISTER_ECA_COMMAND(FECACommand_RedoLastAction);
+REGISTER_ECA_COMMAND(FECACommand_SearchAssets);
+REGISTER_ECA_COMMAND(FECACommand_GetActorCountByClass);
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -3910,6 +3918,331 @@ FECACommandResult FECACommand_TakeScreenshotsSweep::Execute(const TSharedPtr<FJs
 	Result->SetNumberField(TEXT("screenshots_taken"), FilePathsArray.Num());
 	Result->SetArrayField(TEXT("file_paths"), FilePathsArray);
 	Result->SetStringField(TEXT("screenshot_dir"), ScreenshotDir);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── execute_python ─────────────────────────────────────────
+
+FECACommandResult FECACommand_ExecutePython::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString Code;
+	FString FilePath;
+	bool bHasCode = GetStringParam(Params, TEXT("code"), Code, /*bRequired=*/false);
+	bool bHasFile = GetStringParam(Params, TEXT("file_path"), FilePath, /*bRequired=*/false);
+
+	if (!bHasCode && !bHasFile)
+	{
+		return FECACommandResult::Error(TEXT("Either 'code' or 'file_path' must be provided"));
+	}
+
+	// Check if PythonScriptPlugin is available
+	IModuleInterface* PythonModule = FModuleManager::Get().GetModule(TEXT("PythonScriptPlugin"));
+	if (!PythonModule)
+	{
+		return FECACommandResult::Error(TEXT("PythonScriptPlugin is not loaded. Enable the Python Editor Script Plugin in Edit > Plugins"));
+	}
+
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	FString CommandToExec;
+	if (bHasFile)
+	{
+		// Validate the file exists
+		if (!FPaths::FileExists(FilePath))
+		{
+			return FECACommandResult::Error(FString::Printf(TEXT("Python file not found: %s"), *FilePath));
+		}
+		// Use py command to execute a file
+		CommandToExec = FString::Printf(TEXT("py \"%s\""), *FilePath);
+	}
+	else
+	{
+		// Execute inline code via the py console command
+		CommandToExec = FString::Printf(TEXT("py %s"), *Code);
+	}
+
+	// Execute through the console command system which PythonScriptPlugin hooks into
+	GEngine->Exec(World, *CommandToExec);
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetBoolField(TEXT("executed"), true);
+	if (bHasFile)
+	{
+		Result->SetStringField(TEXT("file_path"), FilePath);
+	}
+	else
+	{
+		Result->SetStringField(TEXT("code"), Code);
+	}
+	Result->SetStringField(TEXT("note"), TEXT("Python output is written to the UE log (Output Log window), not returned directly"));
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── undo_last_action ───────────────────────────────────────
+
+FECACommandResult FECACommand_UndoLastAction::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	if (!GEditor)
+	{
+		return FECACommandResult::Error(TEXT("GEditor is not available"));
+	}
+
+	int32 Count = 1;
+	GetIntParam(Params, TEXT("count"), Count, /*bRequired=*/false);
+	if (Count < 1)
+	{
+		Count = 1;
+	}
+
+	int32 ActionsUndone = 0;
+	for (int32 i = 0; i < Count; ++i)
+	{
+		bool bResult = GEditor->UndoTransaction();
+		if (bResult)
+		{
+			++ActionsUndone;
+		}
+		else
+		{
+			// No more actions to undo
+			break;
+		}
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetNumberField(TEXT("actions_undone"), ActionsUndone);
+	Result->SetNumberField(TEXT("requested_count"), Count);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── redo_last_action ───────────────────────────────────────
+
+FECACommandResult FECACommand_RedoLastAction::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	if (!GEditor)
+	{
+		return FECACommandResult::Error(TEXT("GEditor is not available"));
+	}
+
+	int32 Count = 1;
+	GetIntParam(Params, TEXT("count"), Count, /*bRequired=*/false);
+	if (Count < 1)
+	{
+		Count = 1;
+	}
+
+	int32 ActionsRedone = 0;
+	for (int32 i = 0; i < Count; ++i)
+	{
+		bool bResult = GEditor->RedoTransaction();
+		if (bResult)
+		{
+			++ActionsRedone;
+		}
+		else
+		{
+			// No more actions to redo
+			break;
+		}
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetNumberField(TEXT("actions_redone"), ActionsRedone);
+	Result->SetNumberField(TEXT("requested_count"), Count);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── search_assets ──────────────────────────────────────────
+
+FECACommandResult FECACommand_SearchAssets::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString Query;
+	FString ClassFilter;
+	FString PathFilter;
+	int32 MaxResults = 50;
+
+	GetStringParam(Params, TEXT("query"), Query, /*bRequired=*/false);
+	GetStringParam(Params, TEXT("class_filter"), ClassFilter, /*bRequired=*/false);
+	GetStringParam(Params, TEXT("path_filter"), PathFilter, /*bRequired=*/false);
+	GetIntParam(Params, TEXT("max_results"), MaxResults, /*bRequired=*/false);
+
+	if (Query.IsEmpty() && ClassFilter.IsEmpty() && PathFilter.IsEmpty())
+	{
+		return FECACommandResult::Error(TEXT("At least one of 'query', 'class_filter', or 'path_filter' must be provided"));
+	}
+
+	if (MaxResults < 1) MaxResults = 1;
+	if (MaxResults > 10000) MaxResults = 10000;
+
+	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+	IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
+
+	FARFilter Filter;
+
+	// Class filter
+	if (!ClassFilter.IsEmpty())
+	{
+		// Try common short names -> full class paths
+		// Users may pass "StaticMesh", "Material", etc.
+		Filter.ClassPaths.Add(FTopLevelAssetPath(TEXT("/Script/Engine"), *ClassFilter));
+
+		// Also try CoreUObject and other common modules
+		Filter.ClassPaths.Add(FTopLevelAssetPath(TEXT("/Script/CoreUObject"), *ClassFilter));
+		Filter.ClassPaths.Add(FTopLevelAssetPath(TEXT("/Script/Niagara"), *ClassFilter));
+		Filter.ClassPaths.Add(FTopLevelAssetPath(TEXT("/Script/Paper2D"), *ClassFilter));
+	}
+
+	// Path filter
+	if (!PathFilter.IsEmpty())
+	{
+		Filter.PackagePaths.Add(FName(*PathFilter));
+		Filter.bRecursivePaths = true;
+	}
+
+	TArray<FAssetData> AssetDataList;
+	AssetRegistry.GetAssets(Filter, AssetDataList);
+
+	// If we have a name query, filter results by substring match
+	if (!Query.IsEmpty())
+	{
+		TArray<FAssetData> FilteredResults;
+		for (const FAssetData& AssetData : AssetDataList)
+		{
+			FString AssetName = AssetData.AssetName.ToString();
+			FString PackagePath = AssetData.PackageName.ToString();
+			if (AssetName.Contains(Query, ESearchCase::IgnoreCase) ||
+				PackagePath.Contains(Query, ESearchCase::IgnoreCase))
+			{
+				FilteredResults.Add(AssetData);
+			}
+		}
+		AssetDataList = MoveTemp(FilteredResults);
+	}
+
+	// If no class/path filter was set but we have a query, do a broad search
+	if (ClassFilter.IsEmpty() && PathFilter.IsEmpty() && !Query.IsEmpty())
+	{
+		AssetDataList.Empty();
+		FARFilter BroadFilter;
+		BroadFilter.PackagePaths.Add(FName(TEXT("/Game")));
+		BroadFilter.bRecursivePaths = true;
+		AssetRegistry.GetAssets(BroadFilter, AssetDataList);
+
+		TArray<FAssetData> FilteredResults;
+		for (const FAssetData& AssetData : AssetDataList)
+		{
+			FString AssetName = AssetData.AssetName.ToString();
+			FString PackagePath = AssetData.PackageName.ToString();
+			if (AssetName.Contains(Query, ESearchCase::IgnoreCase) ||
+				PackagePath.Contains(Query, ESearchCase::IgnoreCase))
+			{
+				FilteredResults.Add(AssetData);
+			}
+		}
+		AssetDataList = MoveTemp(FilteredResults);
+	}
+
+	// Clamp to max results
+	if (AssetDataList.Num() > MaxResults)
+	{
+		AssetDataList.SetNum(MaxResults);
+	}
+
+	// Build result
+	TArray<TSharedPtr<FJsonValue>> AssetsArray;
+	for (const FAssetData& AssetData : AssetDataList)
+	{
+		TSharedPtr<FJsonObject> AssetObj = MakeShared<FJsonObject>();
+		AssetObj->SetStringField(TEXT("name"), AssetData.AssetName.ToString());
+		AssetObj->SetStringField(TEXT("path"), AssetData.GetObjectPathString());
+		AssetObj->SetStringField(TEXT("class"), AssetData.AssetClassPath.GetAssetName().ToString());
+		AssetObj->SetStringField(TEXT("package_path"), AssetData.PackageName.ToString());
+		AssetsArray.Add(MakeShared<FJsonValueObject>(AssetObj));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetNumberField(TEXT("count"), AssetsArray.Num());
+	Result->SetArrayField(TEXT("assets"), AssetsArray);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── get_actor_count_by_class ───────────────────────────────
+
+FECACommandResult FECACommand_GetActorCountByClass::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	FString ClassFilter;
+	GetStringParam(Params, TEXT("class_filter"), ClassFilter, /*bRequired=*/false);
+
+	int32 TotalCount = 0;
+	TMap<FString, int32> ClassCounts;
+
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (!Actor)
+		{
+			continue;
+		}
+
+		FString ClassName = Actor->GetClass()->GetName();
+
+		// If a class filter is provided, only count matching actors
+		if (!ClassFilter.IsEmpty())
+		{
+			if (!ClassName.Equals(ClassFilter, ESearchCase::IgnoreCase) &&
+				!ClassName.Contains(ClassFilter, ESearchCase::IgnoreCase))
+			{
+				continue;
+			}
+		}
+
+		++TotalCount;
+		int32& Count = ClassCounts.FindOrAdd(ClassName, 0);
+		++Count;
+	}
+
+	// Sort by count descending
+	TArray<TPair<FString, int32>> SortedCounts;
+	for (const auto& Pair : ClassCounts)
+	{
+		SortedCounts.Add(TPair<FString, int32>(Pair.Key, Pair.Value));
+	}
+	SortedCounts.Sort([](const TPair<FString, int32>& A, const TPair<FString, int32>& B)
+	{
+		return A.Value > B.Value;
+	});
+
+	// Build breakdown object
+	TSharedPtr<FJsonObject> Breakdown = MakeShared<FJsonObject>();
+	for (const auto& Pair : SortedCounts)
+	{
+		Breakdown->SetNumberField(Pair.Key, Pair.Value);
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetNumberField(TEXT("total_count"), TotalCount);
+	Result->SetNumberField(TEXT("unique_classes"), ClassCounts.Num());
+	Result->SetObjectField(TEXT("breakdown"), Breakdown);
+
+	if (!ClassFilter.IsEmpty())
+	{
+		Result->SetStringField(TEXT("class_filter"), ClassFilter);
+	}
 
 	return FECACommandResult::Success(Result);
 }

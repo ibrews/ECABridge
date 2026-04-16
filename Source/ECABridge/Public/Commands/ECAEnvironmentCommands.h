@@ -772,3 +772,102 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+// ─── execute_python ─────────────────────────────────────────
+// Execute a Python script or code snippet in the UE5 editor's Python environment.
+class FECACommand_ExecutePython : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("execute_python"); }
+	virtual FString GetDescription() const override { return TEXT("Execute a Python script or code snippet in the UE5 editor's Python environment"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("code"), TEXT("string"), TEXT("Python code to execute"), false },
+			{ TEXT("file_path"), TEXT("string"), TEXT("Path to a .py file to execute instead of inline code"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── undo_last_action ───────────────────────────────────────
+// Undo the last editor action (wrapper around GEditor->UndoTransaction).
+class FECACommand_UndoLastAction : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("undo_last_action"); }
+	virtual FString GetDescription() const override { return TEXT("Undo the last editor action (wrapper around GEditor->UndoTransaction)"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("count"), TEXT("number"), TEXT("Number of actions to undo (default: 1)"), false, TEXT("1") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── redo_last_action ───────────────────────────────────────
+// Redo the last undone action.
+class FECACommand_RedoLastAction : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("redo_last_action"); }
+	virtual FString GetDescription() const override { return TEXT("Redo the last undone editor action"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("count"), TEXT("number"), TEXT("Number of actions to redo (default: 1)"), false, TEXT("1") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── search_assets ──────────────────────────────────────────
+// Search the asset registry for assets matching a query.
+class FECACommand_SearchAssets : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("search_assets"); }
+	virtual FString GetDescription() const override { return TEXT("Search the asset registry for assets matching a query by name, class, or path"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("query"), TEXT("string"), TEXT("Name substring to search for"), false },
+			{ TEXT("class_filter"), TEXT("string"), TEXT("Filter by asset class (e.g. StaticMesh, Material, AnimSequence, Blueprint)"), false },
+			{ TEXT("path_filter"), TEXT("string"), TEXT("Filter by package path prefix (e.g. /Game/Characters)"), false },
+			{ TEXT("max_results"), TEXT("number"), TEXT("Maximum number of results to return (default: 50)"), false, TEXT("50") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── get_actor_count_by_class ───────────────────────────────
+// Count actors of each class in the level.
+class FECACommand_GetActorCountByClass : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("get_actor_count_by_class"); }
+	virtual FString GetDescription() const override { return TEXT("Count actors of each class in the level — useful for understanding scene composition"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("class_filter"), TEXT("string"), TEXT("If provided, count only actors of this specific class (e.g. StaticMeshActor, PointLight)"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
