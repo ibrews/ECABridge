@@ -1,12 +1,13 @@
 # ECABridge — AI-Powered Unreal Engine 5 MCP Plugin
 
-350+ MCP tools for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent.
+355+ MCP tools for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent.
 
 ## Features
 
-- **350+ MCP tools** organized by category
+- **355+ MCP tools** organized by category
 - **12 Rosetta Stone commands** — full JSON dumps of assets, blueprints, levels, materials, Niagara, sequencer, widgets, animation, MetaSound, and DataTables
 - **6 workflow commands** — project overview, cross-blueprint search, asset validation, snapshot/diff, undo-batching, class hierarchy
+- **5 refactoring commands** — replace references, bulk rename, search-and-replace properties, world settings
 - **HTTP/SSE MCP server** on localhost:3000 (Streamable HTTP transport)
 - **UE 5.7 compatible** (built and tested against 5.7.4)
 - **No engine modifications** — drop-in plugin
@@ -240,6 +241,32 @@ batch_operation(
     {name: "add_actor_tag", arguments: {actor_name: "Spawner", tag: "EnemySpawn"}}
   ]
 )
+```
+
+**Swap all references to one asset with another (safe refactoring):**
+```
+replace_asset_references(old_asset_path="/Game/Materials/M_Old", new_asset_path="/Game/Materials/M_New", dry_run=true)
+```
+
+**Bulk rename assets with find/replace:**
+```
+bulk_rename_assets(path_filter="/Game/Textures/", find="T_Old", replace="T_New", dry_run=true)
+```
+
+**Change a property on every actor of a class at once:**
+```
+search_and_replace_property(class_filter="PointLight", property_name="Intensity", find_value="5000", replace_value="3000")
+```
+
+**Read or change world settings:**
+```
+get_world_settings()
+set_world_settings(property="KillZ", value="-10000")
+```
+
+**Understand a class hierarchy before working with it:**
+```
+get_class_hierarchy(class_name="Character", include_functions=true)
 ```
 
 ## Requirements

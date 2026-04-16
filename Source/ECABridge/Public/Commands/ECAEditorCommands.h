@@ -245,3 +245,39 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+/**
+ * Get world settings: game mode, gravity, kill Z, default pawn, etc.
+ */
+class FECACommand_GetWorldSettings : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("get_world_settings"); }
+	virtual FString GetDescription() const override { return TEXT("Get world settings for the current level: game mode, default pawn class, gravity, kill Z, world bounds, streaming distances, and other level-wide configuration."); }
+	virtual FString GetCategory() const override { return TEXT("Editor"); }
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Set world settings properties.
+ */
+class FECACommand_SetWorldSettings : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_world_settings"); }
+	virtual FString GetDescription() const override { return TEXT("Set world settings properties: game mode override, default pawn class, kill Z, gravity, etc. Uses reflection — any editable AWorldSettings UPROPERTY can be set."); }
+	virtual FString GetCategory() const override { return TEXT("Editor"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("property"), TEXT("string"), TEXT("Property name (e.g., DefaultGameMode, KillZ, bEnableWorldBoundsChecks, GlobalGravityZ)"), true },
+			{ TEXT("value"), TEXT("any"), TEXT("Value to set"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// Note: get_performance_stats is in ECAEnvironmentCommands

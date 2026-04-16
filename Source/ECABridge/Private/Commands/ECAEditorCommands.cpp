@@ -27,6 +27,14 @@
 #include "Framework/Application/SlateApplication.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "AssetRegistry/AssetRegistryModule.h"
+#include "GameFramework/WorldSettings.h"
+#include "GameFramework/GameModeBase.h"
+#include "GameFramework/DefaultPawn.h"
+#include "Components/PrimitiveComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
+#include "Engine/Texture2D.h"
+#include "UObject/UnrealType.h"
 
 // Register all editor commands
 REGISTER_ECA_COMMAND(FECACommand_FocusViewport)
@@ -43,6 +51,8 @@ REGISTER_ECA_COMMAND(FECACommand_PlayInEditor)
 REGISTER_ECA_COMMAND(FECACommand_StopPlayInEditor)
 REGISTER_ECA_COMMAND(FECACommand_GetPlayState)
 REGISTER_ECA_COMMAND(FECACommand_GetProjectOverview)
+REGISTER_ECA_COMMAND(FECACommand_GetWorldSettings)
+REGISTER_ECA_COMMAND(FECACommand_SetWorldSettings)
 
 //------------------------------------------------------------------------------
 // FocusViewport
@@ -905,3 +915,184 @@ FECACommandResult FECACommand_GetProjectOverview::Execute(const TSharedPtr<FJson
 
 	return FECACommandResult::Success(Result);
 }
+
+//------------------------------------------------------------------------------
+// GetWorldSettings
+//------------------------------------------------------------------------------
+
+FECACommandResult FECACommand_GetWorldSettings::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	AWorldSettings* WorldSettings = World->GetWorldSettings();
+	if (!WorldSettings)
+	{
+		return FECACommandResult::Error(TEXT("No world settings found"));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+
+	// DefaultGameMode
+	if (WorldSettings->DefaultGameMode)
+	{
+		Result->SetStringField(TEXT("DefaultGameMode"), WorldSettings->DefaultGameMode->GetPathName());
+	}
+	else
+	{
+		Result->SetStringField(TEXT("DefaultGameMode"), TEXT("None"));
+	}
+
+	// KillZ
+	Result->SetNumberField(TEXT("KillZ"), WorldSettings->KillZ);
+
+	// bEnableWorldBoundsChecks
+	Result->SetBoolField(TEXT("bEnableWorldBoundsChecks"), WorldSettings->bEnableWorldBoundsChecks);
+
+	// WorldToMeters
+	Result->SetNumberField(TEXT("WorldToMeters"), WorldSettings->WorldToMeters);
+
+	// GlobalGravityZ (from World)
+	Result->SetNumberField(TEXT("GlobalGravityZ"), World->GetGravityZ());
+
+	// bGlobalGravitySet
+	Result->SetBoolField(TEXT("bGlobalGravitySet"), WorldSettings->bGlobalGravitySet);
+
+	// Iterate all CPF_Edit properties on AWorldSettings and export non-default values
+	TSharedPtr<FJsonObject> AdditionalProps = MakeShared<FJsonObject>();
+	UClass* SettingsClass = WorldSettings->GetClass();
+	UObject* DefaultObj = SettingsClass->GetDefaultObject();
+
+	for (TFieldIterator<FProperty> PropIt(SettingsClass); PropIt; ++PropIt)
+	{
+		FProperty* Prop = *PropIt;
+		if (!Prop->HasAnyPropertyFlags(CPF_Edit))
+		{
+			continue;
+		}
+
+		// Skip properties we already explicitly serialized
+		FString PropName = Prop->GetName();
+		if (PropName == TEXT("DefaultGameMode") ||
+			PropName == TEXT("KillZ") ||
+			PropName == TEXT("bEnableWorldBoundsChecks") ||
+			PropName == TEXT("WorldToMeters") ||
+			PropName == TEXT("bGlobalGravitySet"))
+		{
+			continue;
+		}
+
+		// Compare against default; export only if different
+		const void* ValuePtr = Prop->ContainerPtrToValuePtr<void>(WorldSettings);
+		const void* DefaultPtr = Prop->ContainerPtrToValuePtr<void>(DefaultObj);
+
+		if (!Prop->Identical(ValuePtr, DefaultPtr))
+		{
+			FString ValueStr;
+			Prop->ExportTextItem_Direct(ValueStr, ValuePtr, DefaultPtr, WorldSettings, PPF_None);
+			AdditionalProps->SetStringField(PropName, ValueStr);
+		}
+	}
+
+	if (AdditionalProps->Values.Num() > 0)
+	{
+		Result->SetObjectField(TEXT("additional_properties"), AdditionalProps);
+	}
+
+	return FECACommandResult::Success(Result);
+}
+
+//------------------------------------------------------------------------------
+// SetWorldSettings
+//------------------------------------------------------------------------------
+
+FECACommandResult FECACommand_SetWorldSettings::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString PropertyName;
+	if (!GetStringParam(Params, TEXT("property"), PropertyName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: property"));
+	}
+
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	AWorldSettings* WorldSettings = World->GetWorldSettings();
+	if (!WorldSettings)
+	{
+		return FECACommandResult::Error(TEXT("No world settings found"));
+	}
+
+	// Find the property by name on AWorldSettings
+	UClass* SettingsClass = WorldSettings->GetClass();
+	FProperty* Prop = SettingsClass->FindPropertyByName(FName(*PropertyName));
+	if (!Prop)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Property '%s' not found on AWorldSettings"), *PropertyName));
+	}
+
+	// Get the value as a string from the params
+	FString ValueStr;
+	if (Params->HasField(TEXT("value")))
+	{
+		TSharedPtr<FJsonValue> JsonVal = Params->TryGetField(TEXT("value"));
+		if (JsonVal.IsValid())
+		{
+			if (JsonVal->Type == EJson::String)
+			{
+				ValueStr = JsonVal->AsString();
+			}
+			else if (JsonVal->Type == EJson::Number)
+			{
+				ValueStr = FString::SanitizeFloat(JsonVal->AsNumber());
+			}
+			else if (JsonVal->Type == EJson::Boolean)
+			{
+				ValueStr = JsonVal->AsBool() ? TEXT("True") : TEXT("False");
+			}
+			else
+			{
+				return FECACommandResult::Error(TEXT("Unsupported value type. Use string, number, or boolean."));
+			}
+		}
+	}
+	else
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: value"));
+	}
+
+	// Export the old value
+	void* ValuePtr = Prop->ContainerPtrToValuePtr<void>(WorldSettings);
+	FString OldValueStr;
+	Prop->ExportTextItem_Direct(OldValueStr, ValuePtr, nullptr, WorldSettings, PPF_None);
+
+	// Set the new value via ImportText
+	const TCHAR* ImportResult = Prop->ImportText_Direct(*ValueStr, ValuePtr, WorldSettings, PPF_None);
+	if (!ImportResult)
+	{
+		return FECACommandResult::Error(FString::Printf(
+			TEXT("Failed to set property '%s' to value '%s'. The value may be invalid for this property type."),
+			*PropertyName, *ValueStr));
+	}
+
+	// Export the new value to confirm
+	FString NewValueStr;
+	Prop->ExportTextItem_Direct(NewValueStr, ValuePtr, nullptr, WorldSettings, PPF_None);
+
+	// Mark the level dirty
+	World->MarkPackageDirty();
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("property"), PropertyName);
+	Result->SetStringField(TEXT("old_value"), OldValueStr);
+	Result->SetStringField(TEXT("new_value"), NewValueStr);
+	return FECACommandResult::Success(Result);
+}
+
+// Note: get_performance_stats is in ECAEnvironmentCommands
