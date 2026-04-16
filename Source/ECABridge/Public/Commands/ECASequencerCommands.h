@@ -129,3 +129,50 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+// ─── set_camera_properties ────────────────────────────────────
+// Set camera-specific properties (FOV, focal length, aperture, focus distance, sensor width).
+class FECACommand_SetCameraProperties : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_camera_properties"); }
+	virtual FString GetDescription() const override { return TEXT("Set camera-specific properties like FOV, focal length, aperture, focus distance, and sensor width"); }
+	virtual FString GetCategory() const override { return TEXT("Sequencer"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("camera_name"), TEXT("string"), TEXT("Name/label of the CineCameraActor or CameraActor in the level"), true },
+			{ TEXT("fov"), TEXT("number"), TEXT("Field of view in degrees"), false },
+			{ TEXT("focal_length"), TEXT("number"), TEXT("Focal length in mm (CineCameraActor only)"), false },
+			{ TEXT("aperture"), TEXT("number"), TEXT("Aperture f-stop value (CineCameraActor only)"), false },
+			{ TEXT("focus_distance"), TEXT("number"), TEXT("Manual focus distance in cm (CineCameraActor only)"), false },
+			{ TEXT("sensor_width"), TEXT("number"), TEXT("Sensor width in mm (CineCameraActor only)"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── add_sequence_float_key ───────────────────────────────────
+// Add a keyframe for any float track on a bound actor (useful for animating FOV, intensity, etc.).
+class FECACommand_AddSequenceFloatKey : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("add_sequence_float_key"); }
+	virtual FString GetDescription() const override { return TEXT("Add a keyframe for any float track on a bound actor (e.g. FOV, intensity)"); }
+	virtual FString GetCategory() const override { return TEXT("Sequencer"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("sequence_path"), TEXT("string"), TEXT("Asset path of the Level Sequence"), true },
+			{ TEXT("actor_name"), TEXT("string"), TEXT("Name/label of the bound actor"), true },
+			{ TEXT("property_path"), TEXT("string"), TEXT("Property path to animate (e.g. CurrentFocalLength, FieldOfView)"), true },
+			{ TEXT("time"), TEXT("number"), TEXT("Key time in seconds"), true },
+			{ TEXT("value"), TEXT("number"), TEXT("Float value for the keyframe"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};

@@ -22,6 +22,13 @@
 #include "Channels/MovieSceneChannelProxy.h"
 
 #include "CineCameraActor.h"
+#include "CineCameraComponent.h"
+#include "Camera/CameraActor.h"
+#include "Camera/CameraComponent.h"
+
+#include "Tracks/MovieSceneFloatTrack.h"
+#include "Sections/MovieSceneFloatSection.h"
+#include "Channels/MovieSceneFloatChannel.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "UObject/SavePackage.h"
@@ -86,6 +93,8 @@ REGISTER_ECA_COMMAND(FECACommand_AddSequenceTransformKey);
 REGISTER_ECA_COMMAND(FECACommand_AddSequenceCamera);
 REGISTER_ECA_COMMAND(FECACommand_PlaySequence);
 REGISTER_ECA_COMMAND(FECACommand_GetSequenceInfo);
+REGISTER_ECA_COMMAND(FECACommand_SetCameraProperties);
+REGISTER_ECA_COMMAND(FECACommand_AddSequenceFloatKey);
 
 // ─── create_level_sequence ─────────────────────────────────────
 
@@ -583,6 +592,215 @@ FECACommandResult FECACommand_GetSequenceInfo::Execute(const TSharedPtr<FJsonObj
 	Result->SetNumberField(TEXT("possessable_count"), MovieScene->GetPossessableCount());
 	Result->SetNumberField(TEXT("spawnable_count"), MovieScene->GetSpawnableCount());
 	Result->SetNumberField(TEXT("binding_count"), Bindings.Num());
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── set_camera_properties ────────────────────────────────────
+
+FECACommandResult FECACommand_SetCameraProperties::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString CameraName;
+	if (!GetStringParam(Params, TEXT("camera_name"), CameraName))
+		return FECACommandResult::Error(TEXT("Missing required parameter: camera_name"));
+
+	// At least one optional property must be provided
+	double FOV = 0.0, FocalLength = 0.0, Aperture = 0.0, FocusDistance = 0.0, SensorWidth = 0.0;
+	bool bHasFOV = GetFloatParam(Params, TEXT("fov"), FOV, false);
+	bool bHasFocalLength = GetFloatParam(Params, TEXT("focal_length"), FocalLength, false);
+	bool bHasAperture = GetFloatParam(Params, TEXT("aperture"), Aperture, false);
+	bool bHasFocusDistance = GetFloatParam(Params, TEXT("focus_distance"), FocusDistance, false);
+	bool bHasSensorWidth = GetFloatParam(Params, TEXT("sensor_width"), SensorWidth, false);
+
+	if (!bHasFOV && !bHasFocalLength && !bHasAperture && !bHasFocusDistance && !bHasSensorWidth)
+		return FECACommandResult::Error(TEXT("At least one camera property must be specified (fov, focal_length, aperture, focus_distance, sensor_width)"));
+
+	// Find the camera actor in the level
+	AActor* Actor = FindActorByName(CameraName);
+	if (!Actor)
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor '%s' not found in the level"), *CameraName));
+
+	// Try as CineCameraActor first (has full lens settings)
+	ACineCameraActor* CineCamera = Cast<ACineCameraActor>(Actor);
+	ACameraActor* CameraActor = Cast<ACameraActor>(Actor);
+
+	if (!CineCamera && !CameraActor)
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor '%s' is not a CameraActor or CineCameraActor (class: %s)"), *CameraName, *Actor->GetClass()->GetName()));
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("camera_name"), CameraName);
+
+	if (CineCamera)
+	{
+		UCineCameraComponent* CineComp = CineCamera->GetCineCameraComponent();
+		if (!CineComp)
+			return FECACommandResult::Error(TEXT("CineCameraActor has no CineCameraComponent"));
+
+		if (bHasFOV)
+		{
+			CineComp->SetFieldOfView(static_cast<float>(FOV));
+			Result->SetNumberField(TEXT("fov"), FOV);
+		}
+		if (bHasFocalLength)
+		{
+			CineComp->CurrentFocalLength = static_cast<float>(FocalLength);
+			Result->SetNumberField(TEXT("focal_length"), FocalLength);
+		}
+		if (bHasAperture)
+		{
+			CineComp->CurrentAperture = static_cast<float>(Aperture);
+			Result->SetNumberField(TEXT("aperture"), Aperture);
+		}
+		if (bHasFocusDistance)
+		{
+			CineComp->FocusSettings.ManualFocusDistance = static_cast<float>(FocusDistance);
+			Result->SetNumberField(TEXT("focus_distance"), FocusDistance);
+		}
+		if (bHasSensorWidth)
+		{
+			CineComp->Filmback.SensorWidth = static_cast<float>(SensorWidth);
+			Result->SetNumberField(TEXT("sensor_width"), SensorWidth);
+		}
+
+		Result->SetStringField(TEXT("camera_type"), TEXT("CineCameraActor"));
+	}
+	else
+	{
+		// Regular CameraActor - only FOV is applicable
+		UCameraComponent* CamComp = CameraActor->GetCameraComponent();
+		if (!CamComp)
+			return FECACommandResult::Error(TEXT("CameraActor has no CameraComponent"));
+
+		if (bHasFOV)
+		{
+			CamComp->SetFieldOfView(static_cast<float>(FOV));
+			Result->SetNumberField(TEXT("fov"), FOV);
+		}
+
+		if (bHasFocalLength || bHasAperture || bHasFocusDistance || bHasSensorWidth)
+		{
+			Result->SetStringField(TEXT("warning"), TEXT("focal_length, aperture, focus_distance, and sensor_width only apply to CineCameraActor; those properties were ignored"));
+		}
+
+		Result->SetStringField(TEXT("camera_type"), TEXT("CameraActor"));
+	}
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── add_sequence_float_key ───────────────────────────────────
+
+FECACommandResult FECACommand_AddSequenceFloatKey::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SequencePath, ActorName, PropertyPath;
+	double Time = 0.0, Value = 0.0;
+
+	if (!GetStringParam(Params, TEXT("sequence_path"), SequencePath))
+		return FECACommandResult::Error(TEXT("Missing required parameter: sequence_path"));
+	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+	if (!GetStringParam(Params, TEXT("property_path"), PropertyPath))
+		return FECACommandResult::Error(TEXT("Missing required parameter: property_path"));
+	if (!GetFloatParam(Params, TEXT("time"), Time))
+		return FECACommandResult::Error(TEXT("Missing required parameter: time"));
+	if (!GetFloatParam(Params, TEXT("value"), Value))
+		return FECACommandResult::Error(TEXT("Missing required parameter: value"));
+
+	ULevelSequence* Seq = SequencerCommandHelpers::LoadSequence(SequencePath);
+	if (!Seq)
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not load Level Sequence at: %s"), *SequencePath));
+
+	UMovieScene* MovieScene = Seq->GetMovieScene();
+	if (!MovieScene)
+		return FECACommandResult::Error(TEXT("Level Sequence has no MovieScene"));
+
+	// Find the binding for this actor
+	FGuid BindingGuid;
+	if (!SequencerCommandHelpers::FindActorBinding(Seq, MovieScene, ActorName, BindingGuid))
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor '%s' is not bound in the sequence. Use add_sequence_actor_binding first."), *ActorName));
+
+	// Look for an existing float track with a matching property path
+	UMovieSceneFloatTrack* FloatTrack = nullptr;
+	const FMovieSceneBinding* Binding = MovieScene->FindBinding(BindingGuid);
+	if (!Binding)
+		return FECACommandResult::Error(FString::Printf(TEXT("No binding found for actor '%s'"), *ActorName));
+
+	for (UMovieSceneTrack* Track : Binding->GetTracks())
+	{
+		UMovieSceneFloatTrack* Candidate = Cast<UMovieSceneFloatTrack>(Track);
+		if (Candidate)
+		{
+			FName TrackPropertyName = Candidate->GetPropertyName();
+			if (TrackPropertyName.ToString().Equals(PropertyPath, ESearchCase::IgnoreCase))
+			{
+				FloatTrack = Candidate;
+				break;
+			}
+		}
+	}
+
+	// If no existing track, create one
+	if (!FloatTrack)
+	{
+		FloatTrack = MovieScene->AddTrack<UMovieSceneFloatTrack>(BindingGuid);
+		if (!FloatTrack)
+			return FECACommandResult::Error(TEXT("Failed to create float track"));
+
+		FloatTrack->SetPropertyNameAndPath(FName(*PropertyPath), PropertyPath);
+	}
+
+	// Get or create a section on the track
+	UMovieSceneFloatSection* FloatSection = nullptr;
+	const TArray<UMovieSceneSection*>& Sections = FloatTrack->GetAllSections();
+	if (Sections.Num() > 0)
+	{
+		FloatSection = Cast<UMovieSceneFloatSection>(Sections[0]);
+	}
+
+	if (!FloatSection)
+	{
+		UMovieSceneSection* NewSection = FloatTrack->CreateNewSection();
+		FloatSection = Cast<UMovieSceneFloatSection>(NewSection);
+		if (!FloatSection)
+			return FECACommandResult::Error(TEXT("Failed to create float section"));
+
+		FloatTrack->AddSection(*FloatSection);
+		FloatSection->SetRange(MovieScene->GetPlaybackRange());
+	}
+
+	// Convert time in seconds to FFrameNumber
+	FFrameRate TickResolution = MovieScene->GetTickResolution();
+	FFrameNumber FrameNumber = (Time * TickResolution).FloorToFrame();
+
+	// Expand section range if needed
+	TRange<FFrameNumber> SectionRange = FloatSection->GetRange();
+	if (!SectionRange.Contains(FrameNumber))
+	{
+		if (SectionRange.HasLowerBound() && FrameNumber < SectionRange.GetLowerBoundValue())
+		{
+			FloatSection->SetRange(TRange<FFrameNumber>(FrameNumber, SectionRange.GetUpperBound()));
+		}
+		else if (SectionRange.HasUpperBound() && FrameNumber >= SectionRange.GetUpperBoundValue())
+		{
+			FloatSection->SetRange(TRange<FFrameNumber>(SectionRange.GetLowerBound(), TRangeBound<FFrameNumber>::Exclusive(FrameNumber + 1)));
+		}
+	}
+
+	// Access the float channel and add the key
+	TArrayView<FMovieSceneFloatChannel*> FloatChannels = FloatSection->GetChannelProxy().GetChannels<FMovieSceneFloatChannel>();
+	if (FloatChannels.Num() < 1)
+		return FECACommandResult::Error(TEXT("Float section has no float channels"));
+
+	FloatChannels[0]->AddLinearKey(FrameNumber, static_cast<float>(Value));
+
+	Seq->MarkPackageDirty();
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), ActorName);
+	Result->SetStringField(TEXT("property_path"), PropertyPath);
+	Result->SetNumberField(TEXT("time_seconds"), Time);
+	Result->SetNumberField(TEXT("frame_number"), FrameNumber.Value);
+	Result->SetNumberField(TEXT("value"), Value);
 
 	return FECACommandResult::Success(Result);
 }
