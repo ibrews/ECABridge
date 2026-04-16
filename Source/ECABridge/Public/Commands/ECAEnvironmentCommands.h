@@ -1161,3 +1161,91 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+// ─── spawn_blueprint_at ───────────────────────────────────────
+// Spawn a Blueprint actor at a specific location.
+class FECACommand_SpawnBlueprintAt : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("spawn_blueprint_at"); }
+	virtual FString GetDescription() const override { return TEXT("Spawn a Blueprint actor at a specific location — simpler wrapper than spawn_blueprint_actor"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Asset path to the Blueprint (e.g. /Game/Blueprints/BP_MyActor)"), true },
+			{ TEXT("location"), TEXT("object"), TEXT("Spawn location as {x, y, z}"), true },
+			{ TEXT("rotation"), TEXT("object"), TEXT("Spawn rotation as {pitch, yaw, roll}"), false },
+			{ TEXT("scale"), TEXT("object"), TEXT("Scale as {x, y, z} (default: 1,1,1)"), false, TEXT("{x:1, y:1, z:1}") },
+			{ TEXT("name"), TEXT("string"), TEXT("Actor label in the editor"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── copy_actor_transform ─────────────────────────────────────
+// Copy one actor's transform to another.
+class FECACommand_CopyActorTransform : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("copy_actor_transform"); }
+	virtual FString GetDescription() const override { return TEXT("Copy one actor's transform to another — useful for snapping actors to the same position"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("source_actor"), TEXT("string"), TEXT("Name or label of the actor to copy transform from"), true },
+			{ TEXT("target_actor"), TEXT("string"), TEXT("Name or label of the actor to apply transform to"), true },
+			{ TEXT("copy_location"), TEXT("boolean"), TEXT("Whether to copy location (default: true)"), false, TEXT("true") },
+			{ TEXT("copy_rotation"), TEXT("boolean"), TEXT("Whether to copy rotation (default: true)"), false, TEXT("true") },
+			{ TEXT("copy_scale"), TEXT("boolean"), TEXT("Whether to copy scale (default: false)"), false, TEXT("false") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── get_all_asset_paths ──────────────────────────────────────
+// List all asset paths in a specific directory.
+class FECACommand_GetAllAssetPaths : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("get_all_asset_paths"); }
+	virtual FString GetDescription() const override { return TEXT("List all asset paths in a specific directory — content browser equivalent"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("directory_path"), TEXT("string"), TEXT("Content directory path to enumerate (e.g. /Game/Characters)"), true },
+			{ TEXT("recursive"), TEXT("boolean"), TEXT("Whether to search subdirectories recursively (default: true)"), false, TEXT("true") },
+			{ TEXT("class_filter"), TEXT("string"), TEXT("Filter by asset class name (e.g. StaticMesh, Material, Blueprint)"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── set_actor_color ──────────────────────────────────────────
+// Quickly set the color of an actor by creating and applying a dynamic material instance.
+class FECACommand_SetActorColor : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_actor_color"); }
+	virtual FString GetDescription() const override { return TEXT("Quickly set the color of an actor by creating and applying a dynamic material instance"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("actor_name"), TEXT("string"), TEXT("Name or label of the target actor"), true },
+			{ TEXT("color"), TEXT("object"), TEXT("Color as {r, g, b} with values 0-1 or 0-255 (auto-detected)"), true },
+			{ TEXT("opacity"), TEXT("number"), TEXT("Opacity from 0.0 (transparent) to 1.0 (opaque) — default: 1.0"), false, TEXT("1.0") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};

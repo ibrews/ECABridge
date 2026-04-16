@@ -14,6 +14,8 @@
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "Engine/SkeletalMesh.h"
+#include "Materials/Material.h"
+#include "Engine/Blueprint.h"
 #include "Engine/Light.h"
 #include "GameFramework/WorldSettings.h"
 #include "Materials/MaterialInterface.h"
@@ -64,6 +66,7 @@
 #include "Exporters/FbxExportOption.h"
 #include "UnrealEdGlobals.h"
 #include "Editor/UnrealEdEngine.h"
+#include "Materials/MaterialInstanceDynamic.h"
 // Landscape API requires complex setup — using simplified plane-based terrain instead
 // #include "Landscape.h"
 // #include "LandscapeProxy.h"
@@ -126,6 +129,10 @@ REGISTER_ECA_COMMAND(FECACommand_ScatterActorsOnSurface);
 REGISTER_ECA_COMMAND(FECACommand_ParentActorTo);
 REGISTER_ECA_COMMAND(FECACommand_DetachActor);
 REGISTER_ECA_COMMAND(FECACommand_ListActorChildren);
+REGISTER_ECA_COMMAND(FECACommand_SpawnBlueprintAt);
+REGISTER_ECA_COMMAND(FECACommand_CopyActorTransform);
+REGISTER_ECA_COMMAND(FECACommand_GetAllAssetPaths);
+REGISTER_ECA_COMMAND(FECACommand_SetActorColor);
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -5499,6 +5506,375 @@ FECACommandResult FECACommand_ListActorChildren::Execute(const TSharedPtr<FJsonO
 	Result->SetStringField(TEXT("actor_name"), Actor->GetActorLabel());
 	Result->SetNumberField(TEXT("child_count"), AttachedActors.Num());
 	Result->SetArrayField(TEXT("children"), ChildrenArray);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── spawn_blueprint_at ───────────────────────────────────────
+
+FECACommandResult FECACommand_SpawnBlueprintAt::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// Blueprint path (required)
+	FString BlueprintPath;
+	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+	}
+
+	// Location (required)
+	FVector Location;
+	if (!GetVectorParam(Params, TEXT("location"), Location))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: location"));
+	}
+
+	// Load the Blueprint asset
+	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
+	if (!Blueprint)
+	{
+		// Try appending sub-object syntax if not already present
+		FString FullPath = BlueprintPath;
+		if (!FullPath.Contains(TEXT(".")))
+		{
+			FString AssetName = FPackageName::GetShortName(FullPath);
+			FullPath = FullPath + TEXT(".") + AssetName;
+		}
+		Blueprint = LoadBlueprintByPath(FullPath);
+	}
+
+	if (!Blueprint)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not load Blueprint at: %s"), *BlueprintPath));
+	}
+
+	UClass* GeneratedClass = Blueprint->GeneratedClass;
+	if (!GeneratedClass)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Blueprint has no GeneratedClass: %s"), *BlueprintPath));
+	}
+
+	// Rotation (optional)
+	FRotator Rotation = FRotator::ZeroRotator;
+	GetRotatorParam(Params, TEXT("rotation"), Rotation, /*bRequired=*/false);
+
+	// Scale (optional, default 1,1,1)
+	FVector Scale(1.0, 1.0, 1.0);
+	GetVectorParam(Params, TEXT("scale"), Scale, /*bRequired=*/false);
+
+	// Spawn the actor
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	AActor* SpawnedActor = World->SpawnActor(GeneratedClass, &Location, &Rotation, SpawnParams);
+	if (!SpawnedActor)
+	{
+		return FECACommandResult::Error(TEXT("Failed to spawn Blueprint actor"));
+	}
+
+	// Apply scale
+	SpawnedActor->SetActorScale3D(Scale);
+
+	// Name (optional)
+	FString Name;
+	if (GetStringParam(Params, TEXT("name"), Name, /*bRequired=*/false) && !Name.IsEmpty())
+	{
+		SpawnedActor->SetActorLabel(Name);
+	}
+
+	SpawnedActor->MarkPackageDirty();
+
+	// Notify editor
+	if (GEditor)
+	{
+		GEditor->BroadcastLevelActorListChanged();
+		GEditor->RedrawAllViewports();
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), SpawnedActor->GetActorLabel());
+	Result->SetStringField(TEXT("actor_class"), SpawnedActor->GetClass()->GetName());
+	Result->SetStringField(TEXT("blueprint_path"), FString(Blueprint->GetPathName()));
+	Result->SetObjectField(TEXT("location"), VectorToJson(SpawnedActor->GetActorLocation()));
+	Result->SetObjectField(TEXT("rotation"), RotatorToJson(SpawnedActor->GetActorRotation()));
+	Result->SetObjectField(TEXT("scale"), VectorToJson(SpawnedActor->GetActorScale3D()));
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── copy_actor_transform ─────────────────────────────────────
+
+FECACommandResult FECACommand_CopyActorTransform::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	// Source actor (required)
+	FString SourceName;
+	if (!GetStringParam(Params, TEXT("source_actor"), SourceName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: source_actor"));
+	}
+
+	AActor* SourceActor = FindActorByName(SourceName);
+	if (!SourceActor)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Source actor not found: %s"), *SourceName));
+	}
+
+	// Target actor (required)
+	FString TargetName;
+	if (!GetStringParam(Params, TEXT("target_actor"), TargetName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: target_actor"));
+	}
+
+	AActor* TargetActor = FindActorByName(TargetName);
+	if (!TargetActor)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Target actor not found: %s"), *TargetName));
+	}
+
+	// Options (optional, defaults: location=true, rotation=true, scale=false)
+	bool bCopyLocation = true;
+	bool bCopyRotation = true;
+	bool bCopyScale = false;
+	GetBoolParam(Params, TEXT("copy_location"), bCopyLocation, /*bRequired=*/false);
+	GetBoolParam(Params, TEXT("copy_rotation"), bCopyRotation, /*bRequired=*/false);
+	GetBoolParam(Params, TEXT("copy_scale"), bCopyScale, /*bRequired=*/false);
+
+	// Apply transform components
+	if (bCopyLocation)
+	{
+		TargetActor->SetActorLocation(SourceActor->GetActorLocation());
+	}
+
+	if (bCopyRotation)
+	{
+		TargetActor->SetActorRotation(SourceActor->GetActorRotation());
+	}
+
+	if (bCopyScale)
+	{
+		TargetActor->SetActorScale3D(SourceActor->GetActorScale3D());
+	}
+
+	TargetActor->MarkPackageDirty();
+
+	// Refresh viewports
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("source_actor"), SourceActor->GetActorLabel());
+	Result->SetStringField(TEXT("target_actor"), TargetActor->GetActorLabel());
+	Result->SetBoolField(TEXT("copied_location"), bCopyLocation);
+	Result->SetBoolField(TEXT("copied_rotation"), bCopyRotation);
+	Result->SetBoolField(TEXT("copied_scale"), bCopyScale);
+	Result->SetObjectField(TEXT("target_location"), VectorToJson(TargetActor->GetActorLocation()));
+	Result->SetObjectField(TEXT("target_rotation"), RotatorToJson(TargetActor->GetActorRotation()));
+	Result->SetObjectField(TEXT("target_scale"), VectorToJson(TargetActor->GetActorScale3D()));
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── get_all_asset_paths ──────────────────────────────────────
+
+FECACommandResult FECACommand_GetAllAssetPaths::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	// Directory path (required)
+	FString DirectoryPath;
+	if (!GetStringParam(Params, TEXT("directory_path"), DirectoryPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: directory_path"));
+	}
+
+	// Recursive (optional, default true)
+	bool bRecursive = true;
+	GetBoolParam(Params, TEXT("recursive"), bRecursive, /*bRequired=*/false);
+
+	// Class filter (optional)
+	FString ClassFilter;
+	GetStringParam(Params, TEXT("class_filter"), ClassFilter, /*bRequired=*/false);
+
+	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+	IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
+
+	FARFilter Filter;
+	Filter.PackagePaths.Add(FName(*DirectoryPath));
+	Filter.bRecursivePaths = bRecursive;
+
+	// Apply class filter if provided
+	if (!ClassFilter.IsEmpty())
+	{
+		// Try common engine module paths for the class
+		Filter.ClassPaths.Add(FTopLevelAssetPath(TEXT("/Script/Engine"), *ClassFilter));
+		Filter.ClassPaths.Add(FTopLevelAssetPath(TEXT("/Script/CoreUObject"), *ClassFilter));
+		Filter.ClassPaths.Add(FTopLevelAssetPath(TEXT("/Script/Niagara"), *ClassFilter));
+		Filter.ClassPaths.Add(FTopLevelAssetPath(TEXT("/Script/Paper2D"), *ClassFilter));
+	}
+
+	TArray<FAssetData> AssetDataList;
+	AssetRegistry.GetAssets(Filter, AssetDataList);
+
+	// Build result
+	TArray<TSharedPtr<FJsonValue>> AssetsArray;
+	for (const FAssetData& AssetData : AssetDataList)
+	{
+		TSharedPtr<FJsonObject> AssetObj = MakeShared<FJsonObject>();
+		AssetObj->SetStringField(TEXT("name"), AssetData.AssetName.ToString());
+		AssetObj->SetStringField(TEXT("path"), AssetData.GetObjectPathString());
+		AssetObj->SetStringField(TEXT("package_path"), AssetData.PackageName.ToString());
+		AssetObj->SetStringField(TEXT("class"), AssetData.AssetClassPath.GetAssetName().ToString());
+
+		AssetsArray.Add(MakeShared<FJsonValueObject>(AssetObj));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("directory_path"), DirectoryPath);
+	Result->SetBoolField(TEXT("recursive"), bRecursive);
+	if (!ClassFilter.IsEmpty())
+	{
+		Result->SetStringField(TEXT("class_filter"), ClassFilter);
+	}
+	Result->SetNumberField(TEXT("asset_count"), AssetDataList.Num());
+	Result->SetArrayField(TEXT("assets"), AssetsArray);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── set_actor_color ──────────────────────────────────────────
+
+FECACommandResult FECACommand_SetActorColor::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	// Actor name (required)
+	FString ActorName;
+	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+	}
+
+	AActor* Actor = FindActorByName(ActorName);
+	if (!Actor)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+	}
+
+	// Color (required)
+	const TSharedPtr<FJsonObject>* ColorObj = nullptr;
+	if (!GetObjectParam(Params, TEXT("color"), ColorObj))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: color"));
+	}
+
+	double R = 1.0, G = 1.0, B = 1.0;
+	(*ColorObj)->TryGetNumberField(TEXT("r"), R);
+	(*ColorObj)->TryGetNumberField(TEXT("g"), G);
+	(*ColorObj)->TryGetNumberField(TEXT("b"), B);
+
+	// Auto-detect 0-255 vs 0-1 range: if any channel > 1.0, assume 0-255 range
+	if (R > 1.0 || G > 1.0 || B > 1.0)
+	{
+		R = FMath::Clamp(R / 255.0, 0.0, 1.0);
+		G = FMath::Clamp(G / 255.0, 0.0, 1.0);
+		B = FMath::Clamp(B / 255.0, 0.0, 1.0);
+	}
+	else
+	{
+		R = FMath::Clamp(R, 0.0, 1.0);
+		G = FMath::Clamp(G, 0.0, 1.0);
+		B = FMath::Clamp(B, 0.0, 1.0);
+	}
+
+	// Opacity (optional, default 1.0)
+	double Opacity = 1.0;
+	GetFloatParam(Params, TEXT("opacity"), Opacity, /*bRequired=*/false);
+	Opacity = FMath::Clamp(Opacity, 0.0, 1.0);
+
+	FLinearColor LinearColor(static_cast<float>(R), static_cast<float>(G), static_cast<float>(B), static_cast<float>(Opacity));
+
+	// Find mesh components and apply dynamic material instances
+	int32 MaterialsApplied = 0;
+	TArray<UMeshComponent*> MeshComponents;
+	Actor->GetComponents<UMeshComponent>(MeshComponents);
+
+	if (MeshComponents.Num() == 0)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor '%s' has no mesh components to apply a color to"), *ActorName));
+	}
+
+	for (UMeshComponent* MeshComp : MeshComponents)
+	{
+		if (!MeshComp) continue;
+
+		int32 NumMaterials = MeshComp->GetNumMaterials();
+		for (int32 i = 0; i < NumMaterials; ++i)
+		{
+			UMaterialInterface* ExistingMaterial = MeshComp->GetMaterial(i);
+
+			// Create a dynamic material instance from the existing material (or engine default)
+			UMaterialInstanceDynamic* DynMat = nullptr;
+			if (ExistingMaterial)
+			{
+				DynMat = UMaterialInstanceDynamic::Create(ExistingMaterial, MeshComp);
+			}
+			else
+			{
+				// Fall back to engine default material
+				// Use a simple opaque material as fallback
+				UMaterialInterface* DefaultMat = LoadObject<UMaterial>(nullptr, TEXT("/Engine/EngineMaterials/DefaultMaterial"));
+				if (DefaultMat)
+				{
+					DynMat = UMaterialInstanceDynamic::Create(DefaultMat, MeshComp);
+				}
+			}
+
+			if (DynMat)
+			{
+				// Try common parameter names for base color
+				DynMat->SetVectorParameterValue(FName(TEXT("BaseColor")), LinearColor);
+				DynMat->SetVectorParameterValue(FName(TEXT("Base Color")), LinearColor);
+				DynMat->SetVectorParameterValue(FName(TEXT("Color")), LinearColor);
+				DynMat->SetVectorParameterValue(FName(TEXT("color")), LinearColor);
+
+				// Set opacity if material supports it
+				if (Opacity < 1.0)
+				{
+					DynMat->SetScalarParameterValue(FName(TEXT("Opacity")), static_cast<float>(Opacity));
+					DynMat->SetScalarParameterValue(FName(TEXT("opacity")), static_cast<float>(Opacity));
+				}
+
+				MeshComp->SetMaterial(i, DynMat);
+				MaterialsApplied++;
+			}
+		}
+	}
+
+	Actor->MarkPackageDirty();
+
+	// Refresh viewports
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), Actor->GetActorLabel());
+
+	TSharedPtr<FJsonObject> ColorResult = MakeShared<FJsonObject>();
+	ColorResult->SetNumberField(TEXT("r"), R);
+	ColorResult->SetNumberField(TEXT("g"), G);
+	ColorResult->SetNumberField(TEXT("b"), B);
+	Result->SetObjectField(TEXT("color"), ColorResult);
+	Result->SetNumberField(TEXT("opacity"), Opacity);
+	Result->SetNumberField(TEXT("materials_applied"), MaterialsApplied);
 
 	return FECACommandResult::Success(Result);
 }
