@@ -147,6 +147,61 @@ set_co_instance_param(actor_name="CharacterActor", param_name="Head Accessories"
 create_level_sequence → add_sequence_camera → add_sequence_transform_key → play_sequence
 ```
 
+## Things To Try
+
+Once the editor is running with ECABridge loaded, point your AI agent at it and try these:
+
+**See your whole level as JSON for the first time:**
+```
+dump_level(max_actors=200)
+```
+
+**Reverse-engineer any Blueprint without opening the editor:**
+```
+dump_blueprint_graph(blueprint_path="/Game/Blueprints/BP_PlayerCharacter")
+```
+
+**Understand a material's full node graph:**
+```
+dump_material_graph(material_path="/Game/Materials/M_Landscape")
+```
+
+**Find every asset of a type and then deep-dive one:**
+```
+find_assets(class_filter="NiagaraSystem", path_filter="/Game/Effects/")
+dump_niagara_system(system_path="/Game/Effects/NS_Explosion")
+```
+
+**Check what would break before you change something:**
+```
+get_asset_references(asset_path="/Game/Textures/T_BaseColor", direction="referencers", depth=2)
+```
+
+**Read back a cinematic you built, keyframes and all:**
+```
+dump_level_sequence(sequence_path="/Game/Cinematics/Intro", include_keyframes=true)
+```
+
+**Inspect a UI widget tree hierarchy:**
+```
+dump_widget_tree(widget_path="/Game/UI/WBP_HUD")
+```
+
+**See an Animation Blueprint's state machine structure:**
+```
+dump_animation_blueprint(anim_bp_path="/Game/Characters/ABP_Mannequin")
+```
+
+**Dump a DataTable — schema and all rows at once:**
+```
+dump_datatable(asset_path="/Game/Data/DT_WeaponStats")
+```
+
+**Serialize any asset you can't otherwise read:**
+```
+dump_asset(asset_path="/Game/SomeOpaqueAsset", include_thumbnail=true)
+```
+
 ## Requirements
 
 - Unreal Engine 5.7+
