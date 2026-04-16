@@ -689,3 +689,86 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+// ─── set_actor_folder ────────────────────────────────────
+// Organize actors in the World Outliner by placing them in folders.
+class FECACommand_SetActorFolder : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_actor_folder"); }
+	virtual FString GetDescription() const override { return TEXT("Organize actors in the World Outliner by placing them in folders"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("actor_name"), TEXT("string"), TEXT("Name or label of the target actor"), true },
+			{ TEXT("folder_path"), TEXT("string"), TEXT("Outliner folder path (e.g. 'Environment/Walls' or 'Characters')"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── group_actors ────────────────────────────────────────
+// Move multiple actors into the same outliner folder.
+class FECACommand_GroupActors : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("group_actors"); }
+	virtual FString GetDescription() const override { return TEXT("Move multiple actors into the same World Outliner folder"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("actor_names"), TEXT("array"), TEXT("Array of actor name/label strings to move into the folder"), true },
+			{ TEXT("folder_path"), TEXT("string"), TEXT("Outliner folder path (e.g. 'Environment/Walls' or 'Characters')"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── set_collision_preset ────────────────────────────────
+// Set collision profile on an actor's root component.
+class FECACommand_SetCollisionPreset : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_collision_preset"); }
+	virtual FString GetDescription() const override { return TEXT("Set collision profile on an actor's root primitive component"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("actor_name"), TEXT("string"), TEXT("Name or label of the target actor"), true },
+			{ TEXT("preset_name"), TEXT("string"), TEXT("Collision profile name (e.g. BlockAll, OverlapAll, NoCollision, BlockAllDynamic, OverlapAllDynamic, Pawn, Spectator, CharacterMesh, PhysicsActor, Vehicle)"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── take_screenshots_sweep ─────────────────────────────
+// Take multiple screenshots orbiting around a target — turntable renders, arch-vis sweeps.
+class FECACommand_TakeScreenshotsSweep : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("take_screenshots_sweep"); }
+	virtual FString GetDescription() const override { return TEXT("Take multiple screenshots orbiting around a target location — useful for turntable renders and architectural visualization sweeps"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("target_location"), TEXT("object"), TEXT("World location to look at as {x, y, z}"), true },
+			{ TEXT("radius"), TEXT("number"), TEXT("Orbit distance from the target (default: 300)"), false, TEXT("300") },
+			{ TEXT("count"), TEXT("number"), TEXT("Number of screenshots around the orbit (default: 8)"), false, TEXT("8") },
+			{ TEXT("height"), TEXT("number"), TEXT("Camera height above the target (default: 150)"), false, TEXT("150") },
+			{ TEXT("filename_prefix"), TEXT("string"), TEXT("Filename prefix for screenshots (default: sweep)"), false, TEXT("sweep") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};

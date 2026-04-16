@@ -49,6 +49,10 @@
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/GameModeBase.h"
 #include "GameFramework/PlayerStart.h"
+#include "LevelEditor.h"
+#include "IAssetViewport.h"
+#include "EditorViewportClient.h"
+#include "Engine/CollisionProfile.h"
 
 // ─── REGISTER ───────────────────────────────────────────────
 
@@ -84,6 +88,10 @@ REGISTER_ECA_COMMAND(FECACommand_SetTimeDilation);
 REGISTER_ECA_COMMAND(FECACommand_MeasureDistance);
 REGISTER_ECA_COMMAND(FECACommand_RandomizeTransforms);
 REGISTER_ECA_COMMAND(FECACommand_GetWorldInfo);
+REGISTER_ECA_COMMAND(FECACommand_SetActorFolder);
+REGISTER_ECA_COMMAND(FECACommand_GroupActors);
+REGISTER_ECA_COMMAND(FECACommand_SetCollisionPreset);
+REGISTER_ECA_COMMAND(FECACommand_TakeScreenshotsSweep);
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -3596,6 +3604,312 @@ FECACommandResult FECACommand_GetWorldInfo::Execute(const TSharedPtr<FJsonObject
 			break; // Just the first one
 		}
 	}
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── set_actor_folder ──────────────────────────────────────
+
+FECACommandResult FECACommand_SetActorFolder::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// Actor name (required)
+	FString ActorName;
+	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+	}
+
+	// Folder path (required)
+	FString FolderPath;
+	if (!GetStringParam(Params, TEXT("folder_path"), FolderPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: folder_path"));
+	}
+
+	AActor* Actor = FindActorByName(ActorName);
+	if (!Actor)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+	}
+
+	Actor->SetFolderPath(FName(*FolderPath));
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), Actor->GetActorLabel());
+	Result->SetStringField(TEXT("folder_path"), FolderPath);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── group_actors ──────────────────────────────────────────
+
+FECACommandResult FECACommand_GroupActors::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// Actor names (required)
+	const TArray<TSharedPtr<FJsonValue>>* ActorNamesArray = nullptr;
+	if (!GetArrayParam(Params, TEXT("actor_names"), ActorNamesArray) || !ActorNamesArray)
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_names"));
+	}
+
+	// Folder path (required)
+	FString FolderPath;
+	if (!GetStringParam(Params, TEXT("folder_path"), FolderPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: folder_path"));
+	}
+
+	TArray<TSharedPtr<FJsonValue>> SuccessArray;
+	TArray<TSharedPtr<FJsonValue>> FailedArray;
+
+	for (const TSharedPtr<FJsonValue>& Value : *ActorNamesArray)
+	{
+		if (!Value.IsValid() || Value->Type != EJson::String)
+		{
+			continue;
+		}
+
+		FString Name = Value->AsString();
+		AActor* Actor = FindActorByName(Name);
+		if (Actor)
+		{
+			Actor->SetFolderPath(FName(*FolderPath));
+			SuccessArray.Add(MakeShared<FJsonValueString>(Actor->GetActorLabel()));
+		}
+		else
+		{
+			FailedArray.Add(MakeShared<FJsonValueString>(Name));
+		}
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("folder_path"), FolderPath);
+	Result->SetNumberField(TEXT("moved_count"), SuccessArray.Num());
+	Result->SetArrayField(TEXT("moved_actors"), SuccessArray);
+	if (FailedArray.Num() > 0)
+	{
+		Result->SetArrayField(TEXT("not_found"), FailedArray);
+	}
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── set_collision_preset ──────────────────────────────────
+
+FECACommandResult FECACommand_SetCollisionPreset::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// Actor name (required)
+	FString ActorName;
+	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+	}
+
+	// Preset name (required)
+	FString PresetName;
+	if (!GetStringParam(Params, TEXT("preset_name"), PresetName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: preset_name"));
+	}
+
+	AActor* Actor = FindActorByName(ActorName);
+	if (!Actor)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+	}
+
+	// Get root component and cast to primitive
+	UPrimitiveComponent* PrimComp = Cast<UPrimitiveComponent>(Actor->GetRootComponent());
+	if (!PrimComp)
+	{
+		// Try to find any primitive component on the actor
+		PrimComp = Actor->FindComponentByClass<UPrimitiveComponent>();
+	}
+
+	if (!PrimComp)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor '%s' has no UPrimitiveComponent to set collision on"), *ActorName));
+	}
+
+	// Validate the profile name exists
+	FCollisionResponseTemplate Template;
+	if (!UCollisionProfile::Get()->GetProfileTemplate(FName(*PresetName), Template))
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Unknown collision preset: %s"), *PresetName));
+	}
+
+	PrimComp->SetCollisionProfileName(FName(*PresetName));
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), Actor->GetActorLabel());
+	Result->SetStringField(TEXT("component_name"), PrimComp->GetName());
+	Result->SetStringField(TEXT("preset_name"), PresetName);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── take_screenshots_sweep ────────────────────────────────
+
+FECACommandResult FECACommand_TakeScreenshotsSweep::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// Target location (required)
+	FVector TargetLocation;
+	if (!GetVectorParam(Params, TEXT("target_location"), TargetLocation))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: target_location"));
+	}
+
+	// Radius (optional, default 300)
+	double Radius = 300.0;
+	GetFloatParam(Params, TEXT("radius"), Radius, /*bRequired=*/false);
+
+	// Count (optional, default 8)
+	int32 Count = 8;
+	GetIntParam(Params, TEXT("count"), Count, /*bRequired=*/false);
+	if (Count < 1 || Count > 360)
+	{
+		return FECACommandResult::Error(TEXT("count must be between 1 and 360"));
+	}
+
+	// Height (optional, default 150)
+	double Height = 150.0;
+	GetFloatParam(Params, TEXT("height"), Height, /*bRequired=*/false);
+
+	// Filename prefix (optional, default "sweep")
+	FString FilenamePrefix = TEXT("sweep");
+	GetStringParam(Params, TEXT("filename_prefix"), FilenamePrefix, /*bRequired=*/false);
+
+	// Get the editor viewport client for positioning the camera
+	FLevelEditorModule& LevelEditorModule = FModuleManager::GetModuleChecked<FLevelEditorModule>(TEXT("LevelEditor"));
+	TSharedPtr<IAssetViewport> ActiveViewport = LevelEditorModule.GetFirstActiveViewport();
+	if (!ActiveViewport.IsValid() || !ActiveViewport->GetActiveViewport())
+	{
+		return FECACommandResult::Error(TEXT("No active editor viewport found. Make sure a Level Editor viewport is open."));
+	}
+	FEditorViewportClient* ViewportClient = static_cast<FEditorViewportClient*>(ActiveViewport->GetActiveViewport()->GetClient());
+	if (!ViewportClient)
+	{
+		return FECACommandResult::Error(TEXT("Could not get editor viewport client"));
+	}
+
+	// Save original camera position to restore after sweep
+	FVector OriginalLocation = ViewportClient->GetViewLocation();
+	FRotator OriginalRotation = ViewportClient->GetViewRotation();
+
+	// Prepare screenshot output directory
+	FString ScreenshotDir = FPaths::ProjectSavedDir() / TEXT("Screenshots");
+	IFileManager::Get().MakeDirectory(*ScreenshotDir, true);
+
+	// Resolution for the scene capture
+	int32 ResolutionX = 1920;
+	int32 ResolutionY = 1080;
+
+	TArray<TSharedPtr<FJsonValue>> FilePathsArray;
+	double AngleStep = 360.0 / static_cast<double>(Count);
+
+	for (int32 i = 0; i < Count; ++i)
+	{
+		double AngleDeg = AngleStep * i;
+		double AngleRad = FMath::DegreesToRadians(AngleDeg);
+
+		// Compute camera position on the orbit circle
+		FVector CameraPos;
+		CameraPos.X = TargetLocation.X + Radius * FMath::Cos(AngleRad);
+		CameraPos.Y = TargetLocation.Y + Radius * FMath::Sin(AngleRad);
+		CameraPos.Z = TargetLocation.Z + Height;
+
+		// Compute rotation looking at the target
+		FVector LookDir = (TargetLocation - CameraPos).GetSafeNormal();
+		FRotator CameraRot = LookDir.Rotation();
+
+		// Move the viewport camera
+		ViewportClient->SetViewLocation(CameraPos);
+		ViewportClient->SetViewRotation(CameraRot);
+
+		// Create scene capture to take the screenshot
+		USceneCaptureComponent2D* SceneCapture = NewObject<USceneCaptureComponent2D>(GetTransientPackage());
+		if (!SceneCapture)
+		{
+			continue;
+		}
+
+		UTextureRenderTarget2D* RenderTarget = NewObject<UTextureRenderTarget2D>(GetTransientPackage());
+		if (!RenderTarget)
+		{
+			continue;
+		}
+
+		RenderTarget->InitCustomFormat(ResolutionX, ResolutionY, PF_B8G8R8A8, false);
+		RenderTarget->UpdateResourceImmediate(true);
+
+		SceneCapture->TextureTarget = RenderTarget;
+		SceneCapture->SetWorldLocationAndRotation(CameraPos, CameraRot);
+		SceneCapture->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+		SceneCapture->bCaptureEveryFrame = false;
+		SceneCapture->bCaptureOnMovement = false;
+		SceneCapture->FOVAngle = ViewportClient->ViewFOV;
+
+		SceneCapture->RegisterComponentWithWorld(World);
+		SceneCapture->CaptureScene();
+
+		// Build filename with angle suffix
+		FString Filename = FString::Printf(TEXT("%s_%03d_deg_%03.0f.png"), *FilenamePrefix, i, AngleDeg);
+		FString FullPath = ScreenshotDir / Filename;
+
+		// Export to PNG
+		FArchive* FileWriter = IFileManager::Get().CreateFileWriter(*FullPath);
+		if (FileWriter)
+		{
+			bool bExportSuccess = FImageUtils::ExportRenderTarget2DAsPNG(RenderTarget, *FileWriter);
+			FileWriter->Close();
+			delete FileWriter;
+
+			if (bExportSuccess)
+			{
+				FilePathsArray.Add(MakeShared<FJsonValueString>(FullPath));
+			}
+		}
+
+		// Cleanup
+		SceneCapture->DestroyComponent();
+	}
+
+	// Restore original camera position
+	ViewportClient->SetViewLocation(OriginalLocation);
+	ViewportClient->SetViewRotation(OriginalRotation);
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetObjectField(TEXT("target_location"), VectorToJson(TargetLocation));
+	Result->SetNumberField(TEXT("radius"), Radius);
+	Result->SetNumberField(TEXT("height"), Height);
+	Result->SetNumberField(TEXT("count"), Count);
+	Result->SetNumberField(TEXT("screenshots_taken"), FilePathsArray.Num());
+	Result->SetArrayField(TEXT("file_paths"), FilePathsArray);
+	Result->SetStringField(TEXT("screenshot_dir"), ScreenshotDir);
 
 	return FECACommandResult::Success(Result);
 }
