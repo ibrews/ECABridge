@@ -970,3 +970,84 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+// ─── create_new_level ──────────────────────────────────────
+// Create and open a new empty level.
+class FECACommand_CreateNewLevel : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("create_new_level"); }
+	virtual FString GetDescription() const override { return TEXT("Create and open a new empty level with optional template (empty, default with floor/skylight, or time-of-day)"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("level_name"), TEXT("string"), TEXT("Name for the new level (default: Untitled)"), false, TEXT("Untitled") },
+			{ TEXT("template"), TEXT("string"), TEXT("Level template: empty, default (floor + skylight), or timeofday (default: empty)"), false, TEXT("empty") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── duplicate_level ───────────────────────────────────────
+// Save the current level to a new path (save-as functionality).
+class FECACommand_DuplicateLevel : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("duplicate_level"); }
+	virtual FString GetDescription() const override { return TEXT("Save the current level to a new path (save-as / duplicate functionality)"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("new_path"), TEXT("string"), TEXT("New level path (e.g. /Game/Levels/MyLevel_v2)"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── set_render_settings ───────────────────────────────────
+// Configure commonly-used rendering quality settings via console commands.
+class FECACommand_SetRenderSettings : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_render_settings"); }
+	virtual FString GetDescription() const override { return TEXT("Configure rendering quality settings: anti-aliasing method, shadow quality, view distance, and screen percentage"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("anti_aliasing"), TEXT("string"), TEXT("Anti-aliasing method: none, fxaa, taa, or msaa"), false },
+			{ TEXT("shadow_quality"), TEXT("number"), TEXT("Shadow quality level 0-4 (0=lowest, 4=highest)"), false },
+			{ TEXT("view_distance"), TEXT("number"), TEXT("View distance scale factor (e.g. 1.0 = default)"), false },
+			{ TEXT("screen_percentage"), TEXT("number"), TEXT("Screen percentage 50-200 (100 = native resolution)"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── export_actor_as_fbx ───────────────────────────────────
+// Export a static mesh actor as an FBX file.
+class FECACommand_ExportActorAsFbx : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("export_actor_as_fbx"); }
+	virtual FString GetDescription() const override { return TEXT("Export a static mesh actor as an FBX file to disk"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("actor_name"), TEXT("string"), TEXT("Name or label of the actor to export"), true },
+			{ TEXT("output_path"), TEXT("string"), TEXT("Full file path for the .fbx output (e.g. C:/Export/MyMesh.fbx)"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};

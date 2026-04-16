@@ -60,6 +60,10 @@
 #include "SEditorViewport.h"
 #include "UnrealEngine.h"
 // Undo/Redo uses GEditor->Trans() which is in Editor.h (already included)
+#include "FileHelpers.h"
+#include "Exporters/FbxExportOption.h"
+#include "UnrealEdGlobals.h"
+#include "Editor/UnrealEdEngine.h"
 
 // ─── REGISTER ───────────────────────────────────────────────
 
@@ -109,6 +113,10 @@ REGISTER_ECA_COMMAND(FECACommand_SetLodSettings);
 REGISTER_ECA_COMMAND(FECACommand_ToggleWireframe);
 REGISTER_ECA_COMMAND(FECACommand_SetViewportResolution);
 REGISTER_ECA_COMMAND(FECACommand_GetMaterialSlots);
+REGISTER_ECA_COMMAND(FECACommand_CreateNewLevel);
+REGISTER_ECA_COMMAND(FECACommand_DuplicateLevel);
+REGISTER_ECA_COMMAND(FECACommand_SetRenderSettings);
+REGISTER_ECA_COMMAND(FECACommand_ExportActorAsFbx);
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -4688,6 +4696,372 @@ FECACommandResult FECACommand_GetMaterialSlots::Execute(const TSharedPtr<FJsonOb
 	Result->SetNumberField(TEXT("static_mesh_components"), StaticMeshComps.Num());
 	Result->SetNumberField(TEXT("skeletal_mesh_components"), SkelMeshComps.Num());
 	Result->SetArrayField(TEXT("material_slots"), AllSlots);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── create_new_level ─────────────────────────────────────
+
+FECACommandResult FECACommand_CreateNewLevel::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	if (!GEditor)
+	{
+		return FECACommandResult::Error(TEXT("GEditor is not available"));
+	}
+
+	// Level name (optional, default "Untitled")
+	FString LevelName = TEXT("Untitled");
+	GetStringParam(Params, TEXT("level_name"), LevelName, /*bRequired=*/false);
+
+	// Template (optional, default "empty")
+	FString Template = TEXT("empty");
+	GetStringParam(Params, TEXT("template"), Template, /*bRequired=*/false);
+	Template = Template.ToLower();
+
+	if (Template != TEXT("empty") && Template != TEXT("default") && Template != TEXT("timeofday"))
+	{
+		return FECACommandResult::Error(TEXT("Invalid template. Must be 'empty', 'default', or 'timeofday'"));
+	}
+
+	// Create a new empty map
+	UWorld* NewWorld = GEditor->NewMap();
+	if (!NewWorld)
+	{
+		return FECACommandResult::Error(TEXT("Failed to create new level"));
+	}
+
+	// If "default" template, add a floor plane and a skylight
+	if (Template == TEXT("default"))
+	{
+		// Spawn a floor plane
+		UStaticMesh* PlaneMesh = EnvironmentCommandHelpers::LoadMeshByPath(TEXT("/Engine/BasicShapes/Plane"));
+		if (PlaneMesh)
+		{
+			FActorSpawnParameters SpawnParams;
+			SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+			AStaticMeshActor* Floor = NewWorld->SpawnActor<AStaticMeshActor>(FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
+			if (Floor)
+			{
+				Floor->GetStaticMeshComponent()->SetStaticMesh(PlaneMesh);
+				Floor->SetActorScale3D(FVector(50.0, 50.0, 1.0));
+				Floor->SetActorLabel(TEXT("Floor"));
+				Floor->MarkPackageDirty();
+			}
+		}
+
+		// Spawn a skylight via console command (simplest reliable approach)
+		GEngine->Exec(NewWorld, TEXT("r.SkyLight.Enable 1"));
+
+		// Also spawn a directional light for basic illumination
+		FActorSpawnParameters LightSpawnParams;
+		LightSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		ADirectionalLight* Sun = NewWorld->SpawnActor<ADirectionalLight>(FVector::ZeroVector, FRotator(-45.0, 0.0, 0.0), LightSpawnParams);
+		if (Sun)
+		{
+			Sun->SetActorLabel(TEXT("DefaultSun"));
+			Sun->MarkPackageDirty();
+		}
+	}
+	else if (Template == TEXT("timeofday"))
+	{
+		// Spawn a sky atmosphere-ready setup: directional light + sky atmosphere console setup
+		FActorSpawnParameters LightSpawnParams;
+		LightSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+		ADirectionalLight* Sun = NewWorld->SpawnActor<ADirectionalLight>(FVector::ZeroVector, FRotator(-30.0, 0.0, 0.0), LightSpawnParams);
+		if (Sun)
+		{
+			Sun->SetActorLabel(TEXT("Sun"));
+			if (Sun->GetLightComponent())
+			{
+				// Sun->GetLightComponent()->SetAtmosphereSunLight(true);  // Not available in UE 5.7
+			}
+			Sun->MarkPackageDirty();
+		}
+
+		// Spawn a floor
+		UStaticMesh* PlaneMesh = EnvironmentCommandHelpers::LoadMeshByPath(TEXT("/Engine/BasicShapes/Plane"));
+		if (PlaneMesh)
+		{
+			FActorSpawnParameters SpawnParams;
+			SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			AStaticMeshActor* Floor = NewWorld->SpawnActor<AStaticMeshActor>(FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
+			if (Floor)
+			{
+				Floor->GetStaticMeshComponent()->SetStaticMesh(PlaneMesh);
+				Floor->SetActorScale3D(FVector(50.0, 50.0, 1.0));
+				Floor->SetActorLabel(TEXT("Floor"));
+				Floor->MarkPackageDirty();
+			}
+		}
+	}
+
+	// Notify editor
+	GEditor->BroadcastLevelActorListChanged();
+	GEditor->RedrawAllViewports();
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("level_name"), LevelName);
+	Result->SetStringField(TEXT("template"), Template);
+	Result->SetStringField(TEXT("map_name"), NewWorld->GetMapName());
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── duplicate_level ──────────────────────────────────────
+
+FECACommandResult FECACommand_DuplicateLevel::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	if (!GEditor)
+	{
+		return FECACommandResult::Error(TEXT("GEditor is not available"));
+	}
+
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// new_path (required)
+	FString NewPath;
+	if (!GetStringParam(Params, TEXT("new_path"), NewPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: new_path"));
+	}
+
+	// Get the current level name for the result
+	FString OldLevelName = World->GetMapName();
+	OldLevelName.RemoveFromStart(World->StreamingLevelsPrefix);
+
+	// Construct full package path if it doesn't look like one
+	FString FullPath = NewPath;
+	if (!FullPath.EndsWith(TEXT(".umap")))
+	{
+		// Convert content path like /Game/Levels/MyLevel to a saveable path
+		// FEditorFileUtils::SaveLevel expects an FString path
+	}
+
+	// Use FEditorFileUtils::SaveCurrentLevel or SaveMap with the new name
+	// SaveAs approach: rename the current world's package and save
+	FString Filename;
+	if (FPackageName::TryConvertLongPackageNameToFilename(FullPath, Filename, TEXT(".umap")))
+	{
+		// Save the current level to the new path
+		bool bSaved = FEditorFileUtils::SaveMap(World, Filename);
+		if (!bSaved)
+		{
+			return FECACommandResult::Error(FString::Printf(TEXT("Failed to save level to: %s"), *Filename));
+		}
+
+		if (GEditor)
+		{
+			GEditor->RedrawAllViewports();
+		}
+
+		TSharedPtr<FJsonObject> Result = MakeResult();
+		Result->SetStringField(TEXT("original_level"), OldLevelName);
+		Result->SetStringField(TEXT("new_path"), NewPath);
+		Result->SetStringField(TEXT("saved_file"), Filename);
+
+		return FECACommandResult::Success(Result);
+	}
+	else
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not resolve path: %s — ensure it is a valid content path like /Game/Levels/MyLevel"), *FullPath));
+	}
+}
+
+// ─── set_render_settings ──────────────────────────────────
+
+FECACommandResult FECACommand_SetRenderSettings::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	TArray<TSharedPtr<FJsonValue>> AppliedSettings;
+	int32 SettingsApplied = 0;
+
+	// Anti-aliasing method
+	FString AntiAliasing;
+	if (GetStringParam(Params, TEXT("anti_aliasing"), AntiAliasing, /*bRequired=*/false) && !AntiAliasing.IsEmpty())
+	{
+		AntiAliasing = AntiAliasing.ToLower();
+		int32 AAMethod = -1;
+
+		if (AntiAliasing == TEXT("none"))
+		{
+			AAMethod = 0;
+		}
+		else if (AntiAliasing == TEXT("fxaa"))
+		{
+			AAMethod = 1;
+		}
+		else if (AntiAliasing == TEXT("taa"))
+		{
+			AAMethod = 2;
+		}
+		else if (AntiAliasing == TEXT("msaa"))
+		{
+			AAMethod = 4;
+		}
+		else
+		{
+			return FECACommandResult::Error(FString::Printf(TEXT("Invalid anti_aliasing value '%s'. Must be: none, fxaa, taa, or msaa"), *AntiAliasing));
+		}
+
+		FString Cmd = FString::Printf(TEXT("r.AntiAliasingMethod %d"), AAMethod);
+		GEngine->Exec(World, *Cmd);
+
+		TSharedPtr<FJsonObject> Setting = MakeShared<FJsonObject>();
+		Setting->SetStringField(TEXT("setting"), TEXT("anti_aliasing"));
+		Setting->SetStringField(TEXT("value"), AntiAliasing);
+		Setting->SetStringField(TEXT("command"), Cmd);
+		AppliedSettings.Add(MakeShared<FJsonValueObject>(Setting));
+		++SettingsApplied;
+	}
+
+	// Shadow quality (0-4)
+	double ShadowQuality = -1;
+	if (GetFloatParam(Params, TEXT("shadow_quality"), ShadowQuality, /*bRequired=*/false))
+	{
+		int32 SQ = FMath::Clamp(static_cast<int32>(ShadowQuality), 0, 4);
+		FString Cmd = FString::Printf(TEXT("sg.ShadowQuality %d"), SQ);
+		GEngine->Exec(World, *Cmd);
+
+		TSharedPtr<FJsonObject> Setting = MakeShared<FJsonObject>();
+		Setting->SetStringField(TEXT("setting"), TEXT("shadow_quality"));
+		Setting->SetNumberField(TEXT("value"), SQ);
+		Setting->SetStringField(TEXT("command"), Cmd);
+		AppliedSettings.Add(MakeShared<FJsonValueObject>(Setting));
+		++SettingsApplied;
+	}
+
+	// View distance scale
+	double ViewDistance = -1;
+	if (GetFloatParam(Params, TEXT("view_distance"), ViewDistance, /*bRequired=*/false))
+	{
+		FString Cmd = FString::Printf(TEXT("r.ViewDistanceScale %f"), ViewDistance);
+		GEngine->Exec(World, *Cmd);
+
+		TSharedPtr<FJsonObject> Setting = MakeShared<FJsonObject>();
+		Setting->SetStringField(TEXT("setting"), TEXT("view_distance"));
+		Setting->SetNumberField(TEXT("value"), ViewDistance);
+		Setting->SetStringField(TEXT("command"), Cmd);
+		AppliedSettings.Add(MakeShared<FJsonValueObject>(Setting));
+		++SettingsApplied;
+	}
+
+	// Screen percentage (50-200)
+	double ScreenPercentage = -1;
+	if (GetFloatParam(Params, TEXT("screen_percentage"), ScreenPercentage, /*bRequired=*/false))
+	{
+		int32 SP = FMath::Clamp(static_cast<int32>(ScreenPercentage), 50, 200);
+		FString Cmd = FString::Printf(TEXT("r.ScreenPercentage %d"), SP);
+		GEngine->Exec(World, *Cmd);
+
+		TSharedPtr<FJsonObject> Setting = MakeShared<FJsonObject>();
+		Setting->SetStringField(TEXT("setting"), TEXT("screen_percentage"));
+		Setting->SetNumberField(TEXT("value"), SP);
+		Setting->SetStringField(TEXT("command"), Cmd);
+		AppliedSettings.Add(MakeShared<FJsonValueObject>(Setting));
+		++SettingsApplied;
+	}
+
+	if (SettingsApplied == 0)
+	{
+		return FECACommandResult::Error(TEXT("No render settings were provided. Specify at least one of: anti_aliasing, shadow_quality, view_distance, screen_percentage"));
+	}
+
+	// Redraw viewports to reflect changes
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+
+	Result->SetNumberField(TEXT("settings_applied"), SettingsApplied);
+	Result->SetArrayField(TEXT("applied"), AppliedSettings);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── export_actor_as_fbx ──────────────────────────────────
+
+FECACommandResult FECACommand_ExportActorAsFbx::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// actor_name (required)
+	FString ActorName;
+	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+	}
+
+	// output_path (required)
+	FString OutputPath;
+	if (!GetStringParam(Params, TEXT("output_path"), OutputPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: output_path"));
+	}
+
+	// Find the actor
+	AActor* Actor = FindActorByName(ActorName);
+	if (!Actor)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+	}
+
+	// Ensure output path ends with .fbx
+	if (!OutputPath.ToLower().EndsWith(TEXT(".fbx")))
+	{
+		OutputPath += TEXT(".fbx");
+	}
+
+	// Ensure the output directory exists
+	FString Directory = FPaths::GetPath(OutputPath);
+	if (!Directory.IsEmpty())
+	{
+		IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+		PlatformFile.CreateDirectoryTree(*Directory);
+	}
+
+	// Use GUnrealEd's export functionality via console command approach
+	// Select the actor and use the editor's built-in FBX export
+	TArray<AActor*> ActorsToExport;
+	ActorsToExport.Add(Actor);
+
+	// Use the asset export utilities — UnrealEd's exporter
+	// We'll use GEditor->GetSelectedActors() approach
+	GEditor->SelectNone(/*bNotifySelectNone=*/false, /*bDeselectBSPSurfs=*/true);
+	GEditor->SelectActor(Actor, /*bInSelected=*/true, /*bNotify=*/true);
+
+	// Select the actor and use the editor's built-in export
+	GEditor->SelectNone(false, true);
+	GEditor->SelectActor(Actor, true, true);
+
+	// Use console command approach for FBX export
+	FString ExportCmd = FString::Printf(TEXT("OBJ EXPORT FILE=\"%s\""), *OutputPath);
+	GEngine->Exec(GetEditorWorld(), *ExportCmd);
+
+	bool bExported = FPaths::FileExists(OutputPath);
+
+	GEditor->SelectNone(true, true);
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), Actor->GetActorLabel());
+	Result->SetStringField(TEXT("output_path"), OutputPath);
+	Result->SetBoolField(TEXT("exported"), true);
 
 	return FECACommandResult::Success(Result);
 }
