@@ -41,6 +41,11 @@
 #include "ImageUtils.h"
 #include "Misc/FileHelper.h"
 #include "HAL/PlatformFileManager.h"
+#include "Sound/AmbientSound.h"
+#include "Sound/SoundBase.h"
+#include "Engine/TriggerBox.h"
+#include "Components/BoxComponent.h"
+#include "Engine/World.h"
 
 // ─── REGISTER ───────────────────────────────────────────────
 
@@ -65,6 +70,10 @@ REGISTER_ECA_COMMAND(FECACommand_SpawnDecal);
 REGISTER_ECA_COMMAND(FECACommand_SpawnTextRender);
 REGISTER_ECA_COMMAND(FECACommand_DescribeActor);
 REGISTER_ECA_COMMAND(FECACommand_CloneActorArray);
+REGISTER_ECA_COMMAND(FECACommand_SpawnAudioSource);
+REGISTER_ECA_COMMAND(FECACommand_SpawnTriggerBox);
+REGISTER_ECA_COMMAND(FECACommand_AlignActors);
+REGISTER_ECA_COMMAND(FECACommand_DistributeActors);
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -2356,6 +2365,513 @@ FECACommandResult FECACommand_CloneActorArray::Execute(const TSharedPtr<FJsonObj
 		Result->SetObjectField(TEXT("rotation_increment"), RotatorToJson(RotationIncrement));
 	}
 	Result->SetArrayField(TEXT("cloned_actors"), ClonedActors);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── spawn_audio_source ──────────────────────────────────
+
+FECACommandResult FECACommand_SpawnAudioSource::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// Sound path (required)
+	FString SoundPath;
+	if (!GetStringParam(Params, TEXT("sound_path"), SoundPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: sound_path"));
+	}
+
+	// Load the sound asset
+	USoundBase* Sound = LoadObject<USoundBase>(nullptr, *SoundPath);
+	if (!Sound)
+	{
+		// Try appending the asset name as sub-object
+		FString FullPath = SoundPath;
+		if (!FullPath.Contains(TEXT(".")))
+		{
+			FString AssetName = FPackageName::GetShortName(FullPath);
+			FullPath = FullPath + TEXT(".") + AssetName;
+		}
+		Sound = LoadObject<USoundBase>(nullptr, *FullPath);
+	}
+	if (!Sound)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not load sound asset at: %s"), *SoundPath));
+	}
+
+	// Location (required)
+	FVector Location;
+	if (!GetVectorParam(Params, TEXT("location"), Location))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: location"));
+	}
+
+	// Auto play (optional, default true)
+	bool bAutoPlay = true;
+	GetBoolParam(Params, TEXT("auto_play"), bAutoPlay, /*bRequired=*/false);
+
+	// Volume (optional, default 1.0)
+	double Volume = 1.0;
+	GetFloatParam(Params, TEXT("volume"), Volume, /*bRequired=*/false);
+
+	// Attenuation radius (optional)
+	double AttenuationRadius = 0.0;
+	bool bHasAttenuation = GetFloatParam(Params, TEXT("attenuation_radius"), AttenuationRadius, /*bRequired=*/false);
+
+	// Spawn the ambient sound actor
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	AAmbientSound* SoundActor = World->SpawnActor<AAmbientSound>(Location, FRotator::ZeroRotator, SpawnParams);
+	if (!SoundActor)
+	{
+		return FECACommandResult::Error(TEXT("Failed to spawn AAmbientSound actor"));
+	}
+
+	// Name (optional)
+	FString Name;
+	if (GetStringParam(Params, TEXT("name"), Name, /*bRequired=*/false) && !Name.IsEmpty())
+	{
+		SoundActor->SetActorLabel(Name);
+	}
+
+	// Configure audio component
+	UAudioComponent* AudioComp = SoundActor->GetAudioComponent();
+	if (AudioComp)
+	{
+		AudioComp->SetSound(Sound);
+		AudioComp->SetVolumeMultiplier(static_cast<float>(Volume));
+		AudioComp->bAutoActivate = bAutoPlay;
+
+		if (bHasAttenuation)
+		{
+			AudioComp->bOverrideAttenuation = true;
+			AudioComp->AttenuationOverrides.bAttenuate = true;
+			AudioComp->AttenuationOverrides.FalloffDistance = static_cast<float>(AttenuationRadius);
+		}
+
+		if (bAutoPlay)
+		{
+			AudioComp->Play();
+		}
+	}
+
+	SoundActor->MarkPackageDirty();
+
+	// Notify editor
+	if (GEditor)
+	{
+		GEditor->BroadcastLevelActorListChanged();
+		GEditor->RedrawAllViewports();
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), SoundActor->GetActorLabel());
+	Result->SetStringField(TEXT("sound_path"), Sound->GetPathName());
+	Result->SetObjectField(TEXT("location"), VectorToJson(Location));
+	Result->SetBoolField(TEXT("auto_play"), bAutoPlay);
+	Result->SetNumberField(TEXT("volume"), Volume);
+	if (bHasAttenuation)
+	{
+		Result->SetNumberField(TEXT("attenuation_radius"), AttenuationRadius);
+	}
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── spawn_trigger_box ───────────────────────────────────
+
+FECACommandResult FECACommand_SpawnTriggerBox::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// Location (required)
+	FVector Location;
+	if (!GetVectorParam(Params, TEXT("location"), Location))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: location"));
+	}
+
+	// Extent (optional, default 100x100x100)
+	FVector Extent(100.0, 100.0, 100.0);
+	GetVectorParam(Params, TEXT("extent"), Extent, /*bRequired=*/false);
+
+	// Spawn the trigger box
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	ATriggerBox* TriggerBox = World->SpawnActor<ATriggerBox>(Location, FRotator::ZeroRotator, SpawnParams);
+	if (!TriggerBox)
+	{
+		return FECACommandResult::Error(TEXT("Failed to spawn ATriggerBox actor"));
+	}
+
+	// Name (optional)
+	FString Name;
+	if (GetStringParam(Params, TEXT("name"), Name, /*bRequired=*/false) && !Name.IsEmpty())
+	{
+		TriggerBox->SetActorLabel(Name);
+	}
+
+	// Configure the box extent
+	UShapeComponent* ShapeComp = Cast<UShapeComponent>(TriggerBox->GetCollisionComponent());
+	UBoxComponent* BoxComp = Cast<UBoxComponent>(ShapeComp);
+	if (BoxComp)
+	{
+		BoxComp->SetBoxExtent(Extent);
+	}
+
+	TriggerBox->MarkPackageDirty();
+
+	// Notify editor
+	if (GEditor)
+	{
+		GEditor->BroadcastLevelActorListChanged();
+		GEditor->RedrawAllViewports();
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), TriggerBox->GetActorLabel());
+	Result->SetObjectField(TEXT("location"), VectorToJson(Location));
+	Result->SetObjectField(TEXT("extent"), VectorToJson(Extent));
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── align_actors ────────────────────────────────────────
+
+FECACommandResult FECACommand_AlignActors::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// Actor names (required)
+	const TArray<TSharedPtr<FJsonValue>>* ActorNamesArray = nullptr;
+	if (!GetArrayParam(Params, TEXT("actor_names"), ActorNamesArray))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_names"));
+	}
+
+	if (ActorNamesArray->Num() < 2)
+	{
+		return FECACommandResult::Error(TEXT("align_actors requires at least 2 actor names"));
+	}
+
+	// Align axis (required)
+	FString AlignAxis;
+	if (!GetStringParam(Params, TEXT("align_axis"), AlignAxis))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: align_axis"));
+	}
+	AlignAxis = AlignAxis.ToLower();
+
+	if (AlignAxis != TEXT("x") && AlignAxis != TEXT("y") && AlignAxis != TEXT("z") && AlignAxis != TEXT("ground"))
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Invalid align_axis '%s' — must be x, y, z, or ground"), *AlignAxis));
+	}
+
+	// Resolve all actors
+	TArray<AActor*> Actors;
+	TArray<FString> NotFound;
+
+	for (const TSharedPtr<FJsonValue>& NameVal : *ActorNamesArray)
+	{
+		FString ActorName = NameVal->AsString();
+		AActor* Actor = FindActorByName(ActorName);
+		if (Actor)
+		{
+			Actors.Add(Actor);
+		}
+		else
+		{
+			NotFound.Add(ActorName);
+		}
+	}
+
+	if (Actors.Num() == 0)
+	{
+		return FECACommandResult::Error(TEXT("None of the specified actors were found"));
+	}
+
+	// Target value (optional — defaults to average)
+	double TargetValue = 0.0;
+	bool bHasTargetValue = GetFloatParam(Params, TEXT("target_value"), TargetValue, /*bRequired=*/false);
+
+	if (!bHasTargetValue && AlignAxis != TEXT("ground"))
+	{
+		// Compute average along the chosen axis
+		double Sum = 0.0;
+		for (AActor* Actor : Actors)
+		{
+			FVector Loc = Actor->GetActorLocation();
+			if (AlignAxis == TEXT("x")) Sum += Loc.X;
+			else if (AlignAxis == TEXT("y")) Sum += Loc.Y;
+			else if (AlignAxis == TEXT("z")) Sum += Loc.Z;
+		}
+		TargetValue = Sum / static_cast<double>(Actors.Num());
+	}
+
+	// Apply alignment
+	int32 AlignedCount = 0;
+	TArray<TSharedPtr<FJsonValue>> AlignedActors;
+
+	for (AActor* Actor : Actors)
+	{
+		FVector Loc = Actor->GetActorLocation();
+
+		if (AlignAxis == TEXT("x"))
+		{
+			Loc.X = TargetValue;
+		}
+		else if (AlignAxis == TEXT("y"))
+		{
+			Loc.Y = TargetValue;
+		}
+		else if (AlignAxis == TEXT("z"))
+		{
+			Loc.Z = TargetValue;
+		}
+		else if (AlignAxis == TEXT("ground"))
+		{
+			// Trace downward to find the ground
+			FHitResult Hit;
+			FVector TraceStart = FVector(Loc.X, Loc.Y, Loc.Z + 10000.0);
+			FVector TraceEnd = FVector(Loc.X, Loc.Y, Loc.Z - 100000.0);
+
+			FCollisionQueryParams QueryParams;
+			QueryParams.AddIgnoredActor(Actor);
+
+			if (World->LineTraceSingleByChannel(Hit, TraceStart, TraceEnd, ECC_WorldStatic, QueryParams))
+			{
+				Loc.Z = Hit.ImpactPoint.Z;
+			}
+			else if (bHasTargetValue)
+			{
+				Loc.Z = TargetValue;
+			}
+			// else: leave as-is if no ground found and no target_value
+		}
+
+		Actor->SetActorLocation(Loc);
+		Actor->MarkPackageDirty();
+		++AlignedCount;
+
+		TSharedPtr<FJsonObject> ActorInfo = MakeShared<FJsonObject>();
+		ActorInfo->SetStringField(TEXT("name"), Actor->GetActorLabel());
+		ActorInfo->SetObjectField(TEXT("location"), VectorToJson(Loc));
+		AlignedActors.Add(MakeShared<FJsonValueObject>(ActorInfo));
+	}
+
+	// Refresh viewports
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("align_axis"), AlignAxis);
+	if (AlignAxis != TEXT("ground"))
+	{
+		Result->SetNumberField(TEXT("target_value"), TargetValue);
+	}
+	Result->SetNumberField(TEXT("aligned_count"), AlignedCount);
+	Result->SetArrayField(TEXT("actors"), AlignedActors);
+
+	if (NotFound.Num() > 0)
+	{
+		TArray<TSharedPtr<FJsonValue>> NotFoundArray;
+		for (const FString& NF : NotFound)
+		{
+			NotFoundArray.Add(MakeShared<FJsonValueString>(NF));
+		}
+		Result->SetArrayField(TEXT("not_found"), NotFoundArray);
+	}
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── distribute_actors ───────────────────────────────────
+
+FECACommandResult FECACommand_DistributeActors::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// Actor names (required)
+	const TArray<TSharedPtr<FJsonValue>>* ActorNamesArray = nullptr;
+	if (!GetArrayParam(Params, TEXT("actor_names"), ActorNamesArray))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_names"));
+	}
+
+	if (ActorNamesArray->Num() < 2)
+	{
+		return FECACommandResult::Error(TEXT("distribute_actors requires at least 2 actor names"));
+	}
+
+	// Resolve all actors (preserving order)
+	TArray<AActor*> Actors;
+	TArray<FString> NotFound;
+
+	for (const TSharedPtr<FJsonValue>& NameVal : *ActorNamesArray)
+	{
+		FString ActorName = NameVal->AsString();
+		AActor* Actor = FindActorByName(ActorName);
+		if (Actor)
+		{
+			Actors.Add(Actor);
+		}
+		else
+		{
+			NotFound.Add(ActorName);
+		}
+	}
+
+	if (Actors.Num() < 2)
+	{
+		return FECACommandResult::Error(TEXT("Need at least 2 found actors to distribute"));
+	}
+
+	// Check which mode: start/end locations OR axis-based
+	FVector StartLocation;
+	FVector EndLocation;
+	bool bHasStartEnd = GetVectorParam(Params, TEXT("start_location"), StartLocation, /*bRequired=*/false)
+		&& GetVectorParam(Params, TEXT("end_location"), EndLocation, /*bRequired=*/false);
+
+	FString Axis;
+	bool bHasAxis = GetStringParam(Params, TEXT("axis"), Axis, /*bRequired=*/false) && !Axis.IsEmpty();
+	if (bHasAxis)
+	{
+		Axis = Axis.ToLower();
+	}
+
+	if (!bHasStartEnd && !bHasAxis)
+	{
+		return FECACommandResult::Error(TEXT("Must provide either start_location + end_location, or axis"));
+	}
+
+	if (bHasAxis && Axis != TEXT("x") && Axis != TEXT("y") && Axis != TEXT("z"))
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Invalid axis '%s' — must be x, y, or z"), *Axis));
+	}
+
+	int32 Count = Actors.Num();
+	TArray<TSharedPtr<FJsonValue>> DistributedActors;
+
+	if (bHasStartEnd)
+	{
+		// Distribute evenly between start and end
+		for (int32 i = 0; i < Count; ++i)
+		{
+			double Alpha = (Count > 1) ? (static_cast<double>(i) / static_cast<double>(Count - 1)) : 0.0;
+			FVector NewLocation = FMath::Lerp(StartLocation, EndLocation, Alpha);
+
+			Actors[i]->SetActorLocation(NewLocation);
+			Actors[i]->MarkPackageDirty();
+
+			TSharedPtr<FJsonObject> ActorInfo = MakeShared<FJsonObject>();
+			ActorInfo->SetStringField(TEXT("name"), Actors[i]->GetActorLabel());
+			ActorInfo->SetObjectField(TEXT("location"), VectorToJson(NewLocation));
+			DistributedActors.Add(MakeShared<FJsonValueObject>(ActorInfo));
+		}
+	}
+	else
+	{
+		// Axis-based distribution: sort by axis, redistribute evenly along that axis
+		// First, find min and max along the axis
+		double MinVal = TNumericLimits<double>::Max();
+		double MaxVal = TNumericLimits<double>::Lowest();
+
+		for (AActor* Actor : Actors)
+		{
+			FVector Loc = Actor->GetActorLocation();
+			double Val = 0.0;
+			if (Axis == TEXT("x")) Val = Loc.X;
+			else if (Axis == TEXT("y")) Val = Loc.Y;
+			else if (Axis == TEXT("z")) Val = Loc.Z;
+
+			MinVal = FMath::Min(MinVal, Val);
+			MaxVal = FMath::Max(MaxVal, Val);
+		}
+
+		// Sort actors by their current position along the axis
+		Actors.Sort([&Axis](const AActor& A, const AActor& B) -> bool
+		{
+			FVector LocA = A.GetActorLocation();
+			FVector LocB = B.GetActorLocation();
+			if (Axis == TEXT("x")) return LocA.X < LocB.X;
+			if (Axis == TEXT("y")) return LocA.Y < LocB.Y;
+			return LocA.Z < LocB.Z;
+		});
+
+		// Distribute evenly between min and max
+		for (int32 i = 0; i < Count; ++i)
+		{
+			double Alpha = (Count > 1) ? (static_cast<double>(i) / static_cast<double>(Count - 1)) : 0.0;
+			double NewVal = FMath::Lerp(MinVal, MaxVal, Alpha);
+
+			FVector Loc = Actors[i]->GetActorLocation();
+			if (Axis == TEXT("x")) Loc.X = NewVal;
+			else if (Axis == TEXT("y")) Loc.Y = NewVal;
+			else if (Axis == TEXT("z")) Loc.Z = NewVal;
+
+			Actors[i]->SetActorLocation(Loc);
+			Actors[i]->MarkPackageDirty();
+
+			TSharedPtr<FJsonObject> ActorInfo = MakeShared<FJsonObject>();
+			ActorInfo->SetStringField(TEXT("name"), Actors[i]->GetActorLabel());
+			ActorInfo->SetObjectField(TEXT("location"), VectorToJson(Loc));
+			DistributedActors.Add(MakeShared<FJsonValueObject>(ActorInfo));
+		}
+	}
+
+	// Refresh viewports
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetNumberField(TEXT("distributed_count"), Count);
+	if (bHasStartEnd)
+	{
+		Result->SetObjectField(TEXT("start_location"), VectorToJson(StartLocation));
+		Result->SetObjectField(TEXT("end_location"), VectorToJson(EndLocation));
+	}
+	if (bHasAxis)
+	{
+		Result->SetStringField(TEXT("axis"), Axis);
+	}
+	Result->SetArrayField(TEXT("actors"), DistributedActors);
+
+	if (NotFound.Num() > 0)
+	{
+		TArray<TSharedPtr<FJsonValue>> NotFoundArray;
+		for (const FString& NF : NotFound)
+		{
+			NotFoundArray.Add(MakeShared<FJsonValueString>(NF));
+		}
+		Result->SetArrayField(TEXT("not_found"), NotFoundArray);
+	}
 
 	return FECACommandResult::Success(Result);
 }

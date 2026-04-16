@@ -462,3 +462,91 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+// ─── spawn_audio_source ──────────────────────────────────
+// Spawn an ambient sound actor at a location.
+class FECACommand_SpawnAudioSource : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("spawn_audio_source"); }
+	virtual FString GetDescription() const override { return TEXT("Spawn an ambient sound actor at a location with configurable volume and attenuation"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("sound_path"), TEXT("string"), TEXT("Asset path to a USoundBase/USoundWave/USoundCue asset"), true },
+			{ TEXT("location"), TEXT("object"), TEXT("Spawn location as {x, y, z}"), true },
+			{ TEXT("name"), TEXT("string"), TEXT("Actor label in the editor"), false },
+			{ TEXT("auto_play"), TEXT("boolean"), TEXT("Whether the sound should auto-play (default: true)"), false, TEXT("true") },
+			{ TEXT("volume"), TEXT("number"), TEXT("Volume multiplier (default: 1.0)"), false, TEXT("1.0") },
+			{ TEXT("attenuation_radius"), TEXT("number"), TEXT("Inner/outer attenuation radius in cm (optional)"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── spawn_trigger_box ───────────────────────────────────
+// Spawn a trigger box volume.
+class FECACommand_SpawnTriggerBox : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("spawn_trigger_box"); }
+	virtual FString GetDescription() const override { return TEXT("Spawn a trigger box volume at a location with configurable extent"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("location"), TEXT("object"), TEXT("Spawn location as {x, y, z}"), true },
+			{ TEXT("extent"), TEXT("object"), TEXT("Half-size of the box as {x, y, z} (default: {x:100, y:100, z:100})"), false, TEXT("{x:100, y:100, z:100}") },
+			{ TEXT("name"), TEXT("string"), TEXT("Actor label in the editor"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── align_actors ────────────────────────────────────────
+// Align multiple actors to a common position/axis.
+class FECACommand_AlignActors : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("align_actors"); }
+	virtual FString GetDescription() const override { return TEXT("Align multiple actors to a common position along an axis, or snap them to the ground"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("actor_names"), TEXT("array"), TEXT("Array of actor name/label strings to align"), true },
+			{ TEXT("align_axis"), TEXT("string"), TEXT("Axis to align on: x, y, z, or ground"), true },
+			{ TEXT("target_value"), TEXT("number"), TEXT("Specific coordinate value to align to (defaults to average of all actors)"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── distribute_actors ───────────────────────────────────
+// Distribute actors evenly between two points or along an axis.
+class FECACommand_DistributeActors : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("distribute_actors"); }
+	virtual FString GetDescription() const override { return TEXT("Distribute actors evenly between two points or along a specified axis"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("actor_names"), TEXT("array"), TEXT("Array of actor name/label strings to distribute"), true },
+			{ TEXT("start_location"), TEXT("object"), TEXT("Start point as {x, y, z} — used with end_location for full repositioning"), false },
+			{ TEXT("end_location"), TEXT("object"), TEXT("End point as {x, y, z} — used with start_location for full repositioning"), false },
+			{ TEXT("axis"), TEXT("string"), TEXT("Distribute along this axis (x, y, or z) using existing positions — alternative to start/end"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
