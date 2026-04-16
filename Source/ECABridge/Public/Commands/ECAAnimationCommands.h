@@ -104,3 +104,27 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+// ─── create_animation_sequence ───────────────────────────────
+// Create a new UAnimSequence asset with programmatic bone keyframes.
+class FECACommand_CreateAnimationSequence : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("create_animation_sequence"); }
+	virtual FString GetDescription() const override { return TEXT("Create a new UAnimSequence asset with programmatic bone keyframes"); }
+	virtual FString GetCategory() const override { return TEXT("Animation"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("package_path"), TEXT("string"), TEXT("Package path for the new asset (e.g. /Game/Animations)"), true },
+			{ TEXT("asset_name"), TEXT("string"), TEXT("Name for the new animation asset (e.g. Anim_Wave)"), true },
+			{ TEXT("skeleton_path"), TEXT("string"), TEXT("Asset path to the USkeleton (from get_skeleton_info)"), true },
+			{ TEXT("frame_count"), TEXT("number"), TEXT("Total number of frames in the animation"), true },
+			{ TEXT("frame_rate"), TEXT("number"), TEXT("Frames per second (default 30)"), false, TEXT("30") },
+			{ TEXT("bone_tracks"), TEXT("array"), TEXT("Array of bone track objects, each with: bone_name (string), keys (array of {frame, location?, rotation?, scale?})"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
