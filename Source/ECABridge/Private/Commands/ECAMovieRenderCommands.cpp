@@ -192,9 +192,21 @@ FECACommandResult FECACommand_RenderSequence::Execute(const TSharedPtr<FJsonObje
 	}
 	else if (OutputFormat == TEXT("exr"))
 	{
-		// EXR requires OpenEXR/Imath library — use PNG as fallback
-		// To enable EXR, add openexrRTTI module dependency and #include "MoviePipelineEXROutput.h"
 		Config->FindOrAddSettingByClass(UMoviePipelineImageSequenceOutput_PNG::StaticClass());
+	}
+	else if (OutputFormat == TEXT("mp4") || OutputFormat == TEXT("video"))
+	{
+		// Use runtime class discovery for MP4 encoder (in MovieRenderPipelineMP4Encoder module)
+		UClass* MP4OutputClass = FindObject<UClass>(nullptr, TEXT("/Script/MovieRenderPipelineMP4Encoder.MoviePipelineMP4EncoderOutput"));
+		if (MP4OutputClass)
+		{
+			Config->FindOrAddSettingByClass(MP4OutputClass);
+		}
+		else
+		{
+			// MP4 encoder not available — fall back to PNG frames
+			Config->FindOrAddSettingByClass(UMoviePipelineImageSequenceOutput_PNG::StaticClass());
+		}
 	}
 
 	// --- Start the render using the PIE executor ---

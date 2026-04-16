@@ -636,7 +636,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_asset_thumbnails"); }
 	virtual FString GetDescription() const override { return TEXT("Get thumbnails for multiple assets at once. IMPORTANT: For visual asset cataloging, get thumbnails, then analyze_image() each one to describe visually, then set_asset_association() to register descriptions for semantic search. Much more efficient than single-asset calls."); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
-	
+
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
@@ -645,6 +645,84 @@ public:
 			{ TEXT("size"), TEXT("number"), TEXT("Thumbnail size in pixels (default 256, max 1024)"), false, TEXT("256") }
 		};
 	}
-	
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ============================================================================
+// Rosetta Stone: Deep introspection commands
+// ============================================================================
+
+/**
+ * Dump full asset state to JSON in a single call.
+ * Combines list_asset_properties + get_asset_property + metadata into one response.
+ * Makes any .uasset fully legible to an LLM without round-trips.
+ */
+class FECACommand_DumpAsset : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("dump_asset"); }
+	virtual FString GetDescription() const override { return TEXT("Serialize a complete asset to JSON: all UPROPERTYs (with values), sub-objects, asset references, and metadata. Single-call alternative to list_asset_properties + get_asset_property."); }
+	virtual FString GetCategory() const override { return TEXT("Asset"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("asset_path"), TEXT("string"), TEXT("Content path to the asset (e.g., /Game/Characters/Hero)"), true },
+			{ TEXT("depth"), TEXT("number"), TEXT("Sub-object recursion depth (default 2, max 5)"), false, TEXT("2") },
+			{ TEXT("include_defaults"), TEXT("boolean"), TEXT("Include properties at engine default values (default false — only shows changed properties)"), false, TEXT("false") },
+			{ TEXT("include_thumbnail"), TEXT("boolean"), TEXT("Include base64 PNG thumbnail in response (default false)"), false, TEXT("false") },
+			{ TEXT("sections"), TEXT("array"), TEXT("Filter response sections: properties, references, metadata, sub_objects. Default: all"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Search the asset registry for assets by class, path, name wildcard.
+ * General-purpose asset discovery — find what exists before introspecting.
+ */
+class FECACommand_FindAssets : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("find_assets"); }
+	virtual FString GetDescription() const override { return TEXT("Search the asset registry by class, path, or name. Returns matching assets with optional metadata. Use to discover assets before introspecting with dump_asset."); }
+	virtual FString GetCategory() const override { return TEXT("Asset"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("class_filter"), TEXT("string"), TEXT("Asset class name (e.g., StaticMesh, Material, Blueprint, Texture2D, SoundWave, NiagaraSystem)"), false },
+			{ TEXT("path_filter"), TEXT("string"), TEXT("Content path prefix (e.g., /Game/Characters/)"), false, TEXT("/Game/") },
+			{ TEXT("name_filter"), TEXT("string"), TEXT("Wildcard name match (e.g., *Hero*, SM_*)"), false },
+			{ TEXT("recursive"), TEXT("boolean"), TEXT("Search subdirectories"), false, TEXT("true") },
+			{ TEXT("max_results"), TEXT("number"), TEXT("Maximum results to return (default 100)"), false, TEXT("100") },
+			{ TEXT("include_metadata"), TEXT("boolean"), TEXT("Include disk size and class per result"), false, TEXT("false") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Get asset dependency graph — what an asset references and what references it.
+ */
+class FECACommand_GetAssetReferences : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("get_asset_references"); }
+	virtual FString GetDescription() const override { return TEXT("Get asset dependency graph: what this asset references (dependencies) and what references it (referencers). Essential for understanding 'what breaks if I change this?'"); }
+	virtual FString GetCategory() const override { return TEXT("Asset"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("asset_path"), TEXT("string"), TEXT("Content path to the asset"), true },
+			{ TEXT("direction"), TEXT("string"), TEXT("dependencies, referencers, or both (default: both)"), false, TEXT("both") },
+			{ TEXT("depth"), TEXT("number"), TEXT("Recursion depth for transitive references (default 1, max 3)"), false, TEXT("1") }
+		};
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
