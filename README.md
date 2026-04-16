@@ -21,12 +21,12 @@
 | **MetaSound** | 15+ | Create sources, add/connect nodes, set inputs, preview |
 | **MVVM** | 7 | ViewModel binding, text/visibility/image bindings |
 | **Widget/UMG** | 15+ | Create widgets, add text/buttons/images, bind events |
-| **Mutable/CO** | 15 | Character customization: create/edit CO graphs, compile, runtime params, spawn actors, MetaHuman creation |
-| **Sequencer** | 6 | Create sequences, bind actors, keyframe transforms, spawn cameras, play |
-| **Animation** | 6 | Play/stop animations, list compatible anims, set AnimBP, skeleton info, **create animations programmatically** |
+| **Mutable/CO** | 16 | Character customization: create/edit CO graphs, compile, runtime params, spawn actors, MetaHuman creation |
+| **Sequencer** | 8 | Create sequences, bind actors, keyframe transforms, spawn cameras, camera properties (FOV/aperture), float key animation |
+| **Animation** | 6 | Play/stop animations, list compatible anims, set AnimBP, skeleton info, **create animations programmatically from bone keyframes** |
 | **Lighting** | 4 | Set light properties, get light info, one-command 3-point rig, post-process settings |
 | **Movie Render Queue** | 2 | Render sequences to PNG/JPG with configurable resolution, check render progress |
-| **Environment/PCG** | 17 | Generate grids/circles, walls, fog, sky, splines, gravity, batch spawn, batch set property, destroy by pattern, physics, impulse, visibility, teleport, scene stats, camera screenshots |
+| **Environment/PCG** | 28+ | Generate grids/circles, walls, fog, sky, splines, gravity, batch spawn/set/destroy, physics simulation, impulse, visibility, teleport, scene stats, camera screenshots, decals, 3D text, describe actor, clone arrays, audio, triggers, align/distribute, scene snapshots, time dilation, measurements, scatter |
 | **AI/Navigation** | 4 | Build navmesh, find paths, move actors, navmesh info |
 | **Data Table** | 4 | Schema, rows, CRUD |
 | **Editor** | 10+ | Viewport control, screenshots, PIE, console commands, save/open levels |
