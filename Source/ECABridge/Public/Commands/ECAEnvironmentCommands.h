@@ -374,3 +374,91 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+// ─── spawn_decal ──────────────────────────────────────────
+// Spawn a decal actor that projects a material onto nearby surfaces.
+class FECACommand_SpawnDecal : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("spawn_decal"); }
+	virtual FString GetDescription() const override { return TEXT("Spawn a decal actor that projects a material onto nearby surfaces"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("material_path"), TEXT("string"), TEXT("Asset path to the decal material"), true },
+			{ TEXT("location"), TEXT("object"), TEXT("Spawn location as {x, y, z}"), true },
+			{ TEXT("rotation"), TEXT("object"), TEXT("Spawn rotation as {pitch, yaw, roll} (default: points down, i.e. {-90,0,0})"), false },
+			{ TEXT("size"), TEXT("object"), TEXT("Decal extent as {x, y, z} (default: {128, 256, 256})"), false, TEXT("{x:128, y:256, z:256}") },
+			{ TEXT("name"), TEXT("string"), TEXT("Actor label in the editor"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── spawn_text_render ────────────────────────────────────
+// Spawn 3D text in the scene.
+class FECACommand_SpawnTextRender : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("spawn_text_render"); }
+	virtual FString GetDescription() const override { return TEXT("Spawn 3D text in the scene using a TextRenderActor"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("text"), TEXT("string"), TEXT("The text string to render in 3D"), true },
+			{ TEXT("location"), TEXT("object"), TEXT("Spawn location as {x, y, z}"), true },
+			{ TEXT("rotation"), TEXT("object"), TEXT("Spawn rotation as {pitch, yaw, roll}"), false },
+			{ TEXT("color"), TEXT("object"), TEXT("Text color as {r, g, b} with values 0-255 (default: white)"), false },
+			{ TEXT("size"), TEXT("number"), TEXT("World size of the text (default: 100)"), false, TEXT("100") },
+			{ TEXT("name"), TEXT("string"), TEXT("Actor label in the editor"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── describe_actor ───────────────────────────────────────
+// Give a comprehensive description of any actor: class, components, properties.
+class FECACommand_DescribeActor : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("describe_actor"); }
+	virtual FString GetDescription() const override { return TEXT("Give a comprehensive description of any actor: class, all components with their types and key properties, materials, meshes, lights, etc."); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("actor_name"), TEXT("string"), TEXT("Name or label of the target actor"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── clone_actor_array ────────────────────────────────────
+// Clone an actor N times in a line/grid with optional transforms.
+class FECACommand_CloneActorArray : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("clone_actor_array"); }
+	virtual FString GetDescription() const override { return TEXT("Clone an actor N times in a line or grid with configurable spacing and rotation increment"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("source_actor"), TEXT("string"), TEXT("Name or label of the actor to clone"), true },
+			{ TEXT("count"), TEXT("number"), TEXT("Number of clones to create"), true },
+			{ TEXT("spacing"), TEXT("object"), TEXT("Offset between each clone as {x, y, z} (default: {x:200, y:0, z:0})"), false, TEXT("{x:200, y:0, z:0}") },
+			{ TEXT("rotation_increment"), TEXT("object"), TEXT("Rotation added to each successive clone as {pitch, yaw, roll}"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};

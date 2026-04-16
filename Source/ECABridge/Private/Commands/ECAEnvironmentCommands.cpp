@@ -22,6 +22,17 @@
 #include "NiagaraComponent.h"
 #include "NiagaraSystem.h"
 
+#include "Engine/DecalActor.h"
+#include "Components/DecalComponent.h"
+#include "Engine/TextRenderActor.h"
+#include "Components/TextRenderComponent.h"
+#include "Components/LightComponent.h"
+#include "Components/PointLightComponent.h"
+#include "Components/SpotLightComponent.h"
+#include "Components/RectLightComponent.h"
+#include "Components/SkyLightComponent.h"
+#include "Components/AudioComponent.h"
+#include "Components/ShapeComponent.h"
 #include "EngineUtils.h"
 #include "Editor.h"
 #include "Misc/PackageName.h"
@@ -50,6 +61,10 @@ REGISTER_ECA_COMMAND(FECACommand_GenerateGrid);
 REGISTER_ECA_COMMAND(FECACommand_GenerateCircle);
 REGISTER_ECA_COMMAND(FECACommand_DestroyActorsByPattern);
 REGISTER_ECA_COMMAND(FECACommand_TakeCameraScreenshot);
+REGISTER_ECA_COMMAND(FECACommand_SpawnDecal);
+REGISTER_ECA_COMMAND(FECACommand_SpawnTextRender);
+REGISTER_ECA_COMMAND(FECACommand_DescribeActor);
+REGISTER_ECA_COMMAND(FECACommand_CloneActorArray);
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -1791,6 +1806,556 @@ FECACommandResult FECACommand_TakeCameraScreenshot::Execute(const TSharedPtr<FJs
 	Result->SetNumberField(TEXT("resolution_y"), ResolutionY);
 	Result->SetObjectField(TEXT("camera_location"), VectorToJson(CameraLocation));
 	Result->SetObjectField(TEXT("camera_rotation"), RotatorToJson(CameraRotation));
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── spawn_decal ──────────────────────────────────────────
+
+FECACommandResult FECACommand_SpawnDecal::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// Material path (required)
+	FString MaterialPath;
+	if (!GetStringParam(Params, TEXT("material_path"), MaterialPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: material_path"));
+	}
+
+	UMaterialInterface* Material = EnvironmentCommandHelpers::LoadMaterialByPath(MaterialPath);
+	if (!Material)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not load material at: %s"), *MaterialPath));
+	}
+
+	// Location (required)
+	FVector Location;
+	if (!GetVectorParam(Params, TEXT("location"), Location))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: location"));
+	}
+
+	// Rotation (optional — default points down: pitch -90)
+	FRotator Rotation(-90.0, 0.0, 0.0);
+	GetRotatorParam(Params, TEXT("rotation"), Rotation, /*bRequired=*/false);
+
+	// Size / decal extent (optional — default {128, 256, 256})
+	FVector Size(128.0, 256.0, 256.0);
+	GetVectorParam(Params, TEXT("size"), Size, /*bRequired=*/false);
+
+	// Spawn the decal actor
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	ADecalActor* DecalActor = World->SpawnActor<ADecalActor>(Location, Rotation, SpawnParams);
+	if (!DecalActor)
+	{
+		return FECACommandResult::Error(TEXT("Failed to spawn DecalActor"));
+	}
+
+	// Name
+	FString Name;
+	if (GetStringParam(Params, TEXT("name"), Name, /*bRequired=*/false) && !Name.IsEmpty())
+	{
+		DecalActor->SetActorLabel(Name);
+	}
+
+	// Configure the decal component
+	UDecalComponent* DecalComp = DecalActor->GetDecal();
+	if (DecalComp)
+	{
+		DecalComp->SetDecalMaterial(Material);
+		DecalComp->DecalSize = Size;
+		DecalComp->MarkRenderStateDirty();
+	}
+
+	DecalActor->MarkPackageDirty();
+
+	// Notify editor
+	if (GEditor)
+	{
+		GEditor->BroadcastLevelActorListChanged();
+		GEditor->RedrawAllViewports();
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), DecalActor->GetActorLabel());
+	Result->SetStringField(TEXT("material_path"), Material->GetPathName());
+	Result->SetObjectField(TEXT("location"), VectorToJson(Location));
+	Result->SetObjectField(TEXT("rotation"), RotatorToJson(Rotation));
+	Result->SetObjectField(TEXT("size"), VectorToJson(Size));
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── spawn_text_render ────────────────────────────────────
+
+FECACommandResult FECACommand_SpawnTextRender::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// Text (required)
+	FString Text;
+	if (!GetStringParam(Params, TEXT("text"), Text))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: text"));
+	}
+
+	// Location (required)
+	FVector Location;
+	if (!GetVectorParam(Params, TEXT("location"), Location))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: location"));
+	}
+
+	// Rotation (optional)
+	FRotator Rotation = FRotator::ZeroRotator;
+	GetRotatorParam(Params, TEXT("rotation"), Rotation, /*bRequired=*/false);
+
+	// Size (optional, default 100)
+	double Size = 100.0;
+	GetFloatParam(Params, TEXT("size"), Size, /*bRequired=*/false);
+
+	// Spawn the text render actor
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	ATextRenderActor* TextActor = World->SpawnActor<ATextRenderActor>(Location, Rotation, SpawnParams);
+	if (!TextActor)
+	{
+		return FECACommandResult::Error(TEXT("Failed to spawn TextRenderActor"));
+	}
+
+	// Name
+	FString Name;
+	if (GetStringParam(Params, TEXT("name"), Name, /*bRequired=*/false) && !Name.IsEmpty())
+	{
+		TextActor->SetActorLabel(Name);
+	}
+
+	// Configure the text render component
+	UTextRenderComponent* TextComp = TextActor->GetTextRender();
+	if (TextComp)
+	{
+		TextComp->SetText(FText::FromString(Text));
+		TextComp->SetWorldSize(static_cast<float>(Size));
+		TextComp->SetHorizontalAlignment(EHorizTextAligment::EHTA_Center);
+		TextComp->SetVerticalAlignment(EVerticalTextAligment::EVRTA_TextCenter);
+
+		// Color (optional — default white)
+		FColor TextColor = FColor::White;
+		const TSharedPtr<FJsonObject>* ColorObj = nullptr;
+		if (GetObjectParam(Params, TEXT("color"), ColorObj, /*bRequired=*/false))
+		{
+			double R = 255.0, G = 255.0, B = 255.0;
+			(*ColorObj)->TryGetNumberField(TEXT("r"), R);
+			(*ColorObj)->TryGetNumberField(TEXT("g"), G);
+			(*ColorObj)->TryGetNumberField(TEXT("b"), B);
+			TextColor = FColor(
+				static_cast<uint8>(FMath::Clamp(R, 0.0, 255.0)),
+				static_cast<uint8>(FMath::Clamp(G, 0.0, 255.0)),
+				static_cast<uint8>(FMath::Clamp(B, 0.0, 255.0)),
+				255
+			);
+		}
+		TextComp->SetTextRenderColor(TextColor);
+	}
+
+	TextActor->MarkPackageDirty();
+
+	// Notify editor
+	if (GEditor)
+	{
+		GEditor->BroadcastLevelActorListChanged();
+		GEditor->RedrawAllViewports();
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), TextActor->GetActorLabel());
+	Result->SetStringField(TEXT("text"), Text);
+	Result->SetObjectField(TEXT("location"), VectorToJson(Location));
+	Result->SetObjectField(TEXT("rotation"), RotatorToJson(Rotation));
+	Result->SetNumberField(TEXT("size"), Size);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── describe_actor ───────────────────────────────────────
+
+FECACommandResult FECACommand_DescribeActor::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	// Actor name (required)
+	FString ActorName;
+	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+	}
+
+	AActor* Actor = FindActorByName(ActorName);
+	if (!Actor)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), Actor->GetActorLabel());
+	Result->SetStringField(TEXT("actor_class"), Actor->GetClass()->GetName());
+	Result->SetStringField(TEXT("actor_path_name"), Actor->GetPathName());
+	Result->SetObjectField(TEXT("location"), VectorToJson(Actor->GetActorLocation()));
+	Result->SetObjectField(TEXT("rotation"), RotatorToJson(Actor->GetActorRotation()));
+	Result->SetObjectField(TEXT("scale"), VectorToJson(Actor->GetActorScale3D()));
+	Result->SetBoolField(TEXT("hidden"), Actor->IsHidden());
+	Result->SetBoolField(TEXT("is_editor_only"), Actor->bIsEditorOnlyActor);
+
+	// Mobility
+	USceneComponent* RootComp = Actor->GetRootComponent();
+	if (RootComp)
+	{
+		FString MobilityStr;
+		switch (RootComp->Mobility)
+		{
+		case EComponentMobility::Static: MobilityStr = TEXT("Static"); break;
+		case EComponentMobility::Stationary: MobilityStr = TEXT("Stationary"); break;
+		case EComponentMobility::Movable: MobilityStr = TEXT("Movable"); break;
+		default: MobilityStr = TEXT("Unknown"); break;
+		}
+		Result->SetStringField(TEXT("mobility"), MobilityStr);
+	}
+
+	// Tags
+	if (Actor->Tags.Num() > 0)
+	{
+		TArray<TSharedPtr<FJsonValue>> TagArray;
+		for (const FName& Tag : Actor->Tags)
+		{
+			TagArray.Add(MakeShared<FJsonValueString>(Tag.ToString()));
+		}
+		Result->SetArrayField(TEXT("tags"), TagArray);
+	}
+
+	// Iterate all components
+	TArray<TSharedPtr<FJsonValue>> ComponentsArray;
+	TArray<UActorComponent*> AllComponents;
+	Actor->GetComponents(AllComponents);
+
+	for (UActorComponent* Comp : AllComponents)
+	{
+		if (!Comp)
+		{
+			continue;
+		}
+
+		TSharedPtr<FJsonObject> CompInfo = MakeShared<FJsonObject>();
+		CompInfo->SetStringField(TEXT("name"), Comp->GetName());
+		CompInfo->SetStringField(TEXT("class"), Comp->GetClass()->GetName());
+
+		// Scene component properties
+		USceneComponent* SceneComp = Cast<USceneComponent>(Comp);
+		if (SceneComp)
+		{
+			CompInfo->SetObjectField(TEXT("relative_location"), VectorToJson(SceneComp->GetRelativeLocation()));
+			CompInfo->SetObjectField(TEXT("relative_rotation"), RotatorToJson(SceneComp->GetRelativeRotation()));
+			CompInfo->SetObjectField(TEXT("relative_scale"), VectorToJson(SceneComp->GetRelativeScale3D()));
+			CompInfo->SetBoolField(TEXT("visible"), SceneComp->IsVisible());
+		}
+
+		// Static mesh component
+		UStaticMeshComponent* SMC = Cast<UStaticMeshComponent>(Comp);
+		if (SMC)
+		{
+			UStaticMesh* Mesh = SMC->GetStaticMesh();
+			CompInfo->SetStringField(TEXT("static_mesh"), Mesh ? Mesh->GetPathName() : TEXT("None"));
+
+			if (Mesh && Mesh->GetRenderData() && Mesh->GetRenderData()->LODResources.Num() > 0)
+			{
+				CompInfo->SetNumberField(TEXT("triangle_count"), Mesh->GetRenderData()->LODResources[0].GetNumTriangles());
+				CompInfo->SetNumberField(TEXT("vertex_count"), Mesh->GetRenderData()->LODResources[0].GetNumVertices());
+				CompInfo->SetNumberField(TEXT("lod_count"), Mesh->GetRenderData()->LODResources.Num());
+			}
+
+			CompInfo->SetBoolField(TEXT("simulate_physics"), SMC->IsSimulatingPhysics());
+			CompInfo->SetBoolField(TEXT("collision_enabled"), SMC->GetCollisionEnabled() != ECollisionEnabled::NoCollision);
+
+			// Materials
+			TArray<TSharedPtr<FJsonValue>> MaterialsArray;
+			for (int32 MatIdx = 0; MatIdx < SMC->GetNumMaterials(); ++MatIdx)
+			{
+				UMaterialInterface* Mat = SMC->GetMaterial(MatIdx);
+				TSharedPtr<FJsonObject> MatInfo = MakeShared<FJsonObject>();
+				MatInfo->SetNumberField(TEXT("slot"), MatIdx);
+				MatInfo->SetStringField(TEXT("material"), Mat ? Mat->GetPathName() : TEXT("None"));
+				MaterialsArray.Add(MakeShared<FJsonValueObject>(MatInfo));
+			}
+			if (MaterialsArray.Num() > 0)
+			{
+				CompInfo->SetArrayField(TEXT("materials"), MaterialsArray);
+			}
+		}
+
+		// Light component
+		ULightComponent* LightComp = Cast<ULightComponent>(Comp);
+		if (LightComp)
+		{
+			CompInfo->SetNumberField(TEXT("intensity"), LightComp->Intensity);
+			FLinearColor LightColor = LightComp->GetLightColor();
+			TSharedPtr<FJsonObject> ColorObj = MakeShared<FJsonObject>();
+			ColorObj->SetNumberField(TEXT("r"), FMath::RoundToInt(LightColor.R * 255.0f));
+			ColorObj->SetNumberField(TEXT("g"), FMath::RoundToInt(LightColor.G * 255.0f));
+			ColorObj->SetNumberField(TEXT("b"), FMath::RoundToInt(LightColor.B * 255.0f));
+			CompInfo->SetObjectField(TEXT("light_color"), ColorObj);
+			CompInfo->SetBoolField(TEXT("casts_shadows"), LightComp->CastShadows);
+
+			// Point light specifics
+			UPointLightComponent* PointLight = Cast<UPointLightComponent>(Comp);
+			if (PointLight)
+			{
+				CompInfo->SetNumberField(TEXT("attenuation_radius"), PointLight->AttenuationRadius);
+			}
+
+			// Spot light specifics
+			USpotLightComponent* SpotLight = Cast<USpotLightComponent>(Comp);
+			if (SpotLight)
+			{
+				CompInfo->SetNumberField(TEXT("inner_cone_angle"), SpotLight->InnerConeAngle);
+				CompInfo->SetNumberField(TEXT("outer_cone_angle"), SpotLight->OuterConeAngle);
+			}
+
+			// Directional light specifics
+			UDirectionalLightComponent* DirLight = Cast<UDirectionalLightComponent>(Comp);
+			if (DirLight)
+			{
+				CompInfo->SetStringField(TEXT("light_type"), TEXT("Directional"));
+			}
+		}
+
+		// Decal component
+		UDecalComponent* DecalComp = Cast<UDecalComponent>(Comp);
+		if (DecalComp)
+		{
+			UMaterialInterface* DecalMat = DecalComp->GetDecalMaterial();
+			CompInfo->SetStringField(TEXT("decal_material"), DecalMat ? DecalMat->GetPathName() : TEXT("None"));
+			CompInfo->SetObjectField(TEXT("decal_size"), VectorToJson(DecalComp->DecalSize));
+		}
+
+		// Text render component
+		UTextRenderComponent* TextComp = Cast<UTextRenderComponent>(Comp);
+		if (TextComp)
+		{
+			CompInfo->SetStringField(TEXT("text"), TextComp->Text.ToString());
+			CompInfo->SetNumberField(TEXT("world_size"), TextComp->WorldSize);
+		}
+
+		// Camera component
+		UCameraComponent* CamComp = Cast<UCameraComponent>(Comp);
+		if (CamComp)
+		{
+			CompInfo->SetNumberField(TEXT("field_of_view"), CamComp->FieldOfView);
+			CompInfo->SetNumberField(TEXT("aspect_ratio"), CamComp->AspectRatio);
+		}
+
+		// Audio component
+		UAudioComponent* AudioComp = Cast<UAudioComponent>(Comp);
+		if (AudioComp)
+		{
+			CompInfo->SetBoolField(TEXT("is_playing"), AudioComp->IsPlaying());
+			CompInfo->SetNumberField(TEXT("volume_multiplier"), AudioComp->VolumeMultiplier);
+			CompInfo->SetNumberField(TEXT("pitch_multiplier"), AudioComp->PitchMultiplier);
+		}
+
+		// Spline component
+		USplineComponent* SplineComp = Cast<USplineComponent>(Comp);
+		if (SplineComp)
+		{
+			CompInfo->SetNumberField(TEXT("spline_length"), SplineComp->GetSplineLength());
+			CompInfo->SetNumberField(TEXT("num_spline_points"), SplineComp->GetNumberOfSplinePoints());
+			CompInfo->SetBoolField(TEXT("closed_loop"), SplineComp->IsClosedLoop());
+		}
+
+		// Primitive component physics info
+		UPrimitiveComponent* PrimComp = Cast<UPrimitiveComponent>(Comp);
+		if (PrimComp && !SMC) // Avoid duplication with SMC which already reports physics
+		{
+			CompInfo->SetBoolField(TEXT("simulate_physics"), PrimComp->IsSimulatingPhysics());
+			CompInfo->SetBoolField(TEXT("collision_enabled"), PrimComp->GetCollisionEnabled() != ECollisionEnabled::NoCollision);
+		}
+
+		ComponentsArray.Add(MakeShared<FJsonValueObject>(CompInfo));
+	}
+
+	Result->SetNumberField(TEXT("component_count"), ComponentsArray.Num());
+	Result->SetArrayField(TEXT("components"), ComponentsArray);
+
+	// Child actors
+	TArray<AActor*> ChildActors;
+	Actor->GetAttachedActors(ChildActors);
+	if (ChildActors.Num() > 0)
+	{
+		TArray<TSharedPtr<FJsonValue>> ChildArray;
+		for (AActor* Child : ChildActors)
+		{
+			if (Child)
+			{
+				TSharedPtr<FJsonObject> ChildInfo = MakeShared<FJsonObject>();
+				ChildInfo->SetStringField(TEXT("name"), Child->GetActorLabel());
+				ChildInfo->SetStringField(TEXT("class"), Child->GetClass()->GetName());
+				ChildArray.Add(MakeShared<FJsonValueObject>(ChildInfo));
+			}
+		}
+		Result->SetArrayField(TEXT("attached_actors"), ChildArray);
+	}
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── clone_actor_array ────────────────────────────────────
+
+FECACommandResult FECACommand_CloneActorArray::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// Source actor (required)
+	FString SourceActorName;
+	if (!GetStringParam(Params, TEXT("source_actor"), SourceActorName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: source_actor"));
+	}
+
+	AActor* SourceActor = FindActorByName(SourceActorName);
+	if (!SourceActor)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Source actor not found: %s"), *SourceActorName));
+	}
+
+	// Count (required)
+	int32 Count = 0;
+	if (!GetIntParam(Params, TEXT("count"), Count))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: count"));
+	}
+	if (Count <= 0)
+	{
+		return FECACommandResult::Error(TEXT("count must be greater than 0"));
+	}
+	if (Count > 1000)
+	{
+		return FECACommandResult::Error(TEXT("count exceeds maximum of 1000"));
+	}
+
+	// Spacing (optional — default {200, 0, 0})
+	FVector Spacing(200.0, 0.0, 0.0);
+	GetVectorParam(Params, TEXT("spacing"), Spacing, /*bRequired=*/false);
+
+	// Rotation increment (optional)
+	FRotator RotationIncrement = FRotator::ZeroRotator;
+	bool bHasRotationIncrement = GetRotatorParam(Params, TEXT("rotation_increment"), RotationIncrement, /*bRequired=*/false);
+
+	FVector SourceLocation = SourceActor->GetActorLocation();
+	FRotator SourceRotation = SourceActor->GetActorRotation();
+	FString SourceLabel = SourceActor->GetActorLabel();
+
+	TArray<TSharedPtr<FJsonValue>> ClonedActors;
+
+	for (int32 i = 0; i < Count; ++i)
+	{
+		int32 CloneIndex = i + 1; // 1-based for labeling (clone 1, clone 2, ...)
+		FVector CloneLocation = SourceLocation + (Spacing * static_cast<double>(CloneIndex));
+		FRotator CloneRotation = SourceRotation;
+		if (bHasRotationIncrement)
+		{
+			CloneRotation.Pitch += RotationIncrement.Pitch * CloneIndex;
+			CloneRotation.Yaw += RotationIncrement.Yaw * CloneIndex;
+			CloneRotation.Roll += RotationIncrement.Roll * CloneIndex;
+		}
+
+		// Duplicate the actor using editor utilities
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		SpawnParams.Template = SourceActor;
+
+		AActor* ClonedActor = World->SpawnActor(SourceActor->GetClass(), &CloneLocation, &CloneRotation, SpawnParams);
+		if (!ClonedActor)
+		{
+			continue;
+		}
+
+		// Set label
+		FString CloneLabel = FString::Printf(TEXT("%s_Clone_%d"), *SourceLabel, CloneIndex);
+		ClonedActor->SetActorLabel(CloneLabel);
+
+		// Copy scale from source
+		ClonedActor->SetActorScale3D(SourceActor->GetActorScale3D());
+
+		// Copy static mesh and materials if applicable
+		AStaticMeshActor* SourceSMA = Cast<AStaticMeshActor>(SourceActor);
+		AStaticMeshActor* ClonedSMA = Cast<AStaticMeshActor>(ClonedActor);
+		if (SourceSMA && ClonedSMA)
+		{
+			UStaticMeshComponent* SourceMeshComp = SourceSMA->GetStaticMeshComponent();
+			UStaticMeshComponent* ClonedMeshComp = ClonedSMA->GetStaticMeshComponent();
+			if (SourceMeshComp && ClonedMeshComp)
+			{
+				UStaticMesh* Mesh = SourceMeshComp->GetStaticMesh();
+				if (Mesh)
+				{
+					ClonedMeshComp->SetStaticMesh(Mesh);
+				}
+
+				// Copy materials
+				for (int32 MatIdx = 0; MatIdx < SourceMeshComp->GetNumMaterials(); ++MatIdx)
+				{
+					UMaterialInterface* Mat = SourceMeshComp->GetMaterial(MatIdx);
+					if (Mat)
+					{
+						ClonedMeshComp->SetMaterial(MatIdx, Mat);
+					}
+				}
+			}
+		}
+
+		ClonedActor->MarkPackageDirty();
+
+		TSharedPtr<FJsonObject> CloneInfo = MakeShared<FJsonObject>();
+		CloneInfo->SetStringField(TEXT("name"), ClonedActor->GetActorLabel());
+		CloneInfo->SetObjectField(TEXT("location"), VectorToJson(ClonedActor->GetActorLocation()));
+		CloneInfo->SetObjectField(TEXT("rotation"), RotatorToJson(ClonedActor->GetActorRotation()));
+		ClonedActors.Add(MakeShared<FJsonValueObject>(CloneInfo));
+	}
+
+	// Notify editor
+	if (GEditor)
+	{
+		GEditor->BroadcastLevelActorListChanged();
+		GEditor->RedrawAllViewports();
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("source_actor"), SourceActor->GetActorLabel());
+	Result->SetStringField(TEXT("source_class"), SourceActor->GetClass()->GetName());
+	Result->SetNumberField(TEXT("requested_count"), Count);
+	Result->SetNumberField(TEXT("cloned_count"), ClonedActors.Num());
+	Result->SetObjectField(TEXT("spacing"), VectorToJson(Spacing));
+	if (bHasRotationIncrement)
+	{
+		Result->SetObjectField(TEXT("rotation_increment"), RotatorToJson(RotationIncrement));
+	}
+	Result->SetArrayField(TEXT("cloned_actors"), ClonedActors);
 
 	return FECACommandResult::Success(Result);
 }
