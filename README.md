@@ -149,7 +149,7 @@ set_co_instance_param(actor_name="CharacterActor", param_name="Head Accessories"
 create_level_sequence → add_sequence_camera → add_sequence_transform_key → play_sequence
 ```
 
-## Things To Try
+## Things to Try
 
 Once the editor is running with ECABridge loaded, point your AI agent at it and try these:
 
