@@ -13,6 +13,7 @@
 #include "Components/PrimitiveComponent.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
+#include "Engine/SkeletalMesh.h"
 #include "Engine/Light.h"
 #include "GameFramework/WorldSettings.h"
 #include "Materials/MaterialInterface.h"
@@ -55,6 +56,9 @@
 #include "Engine/CollisionProfile.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "SEditorViewport.h"
+#include "UnrealEngine.h"
 // Undo/Redo uses GEditor->Trans() which is in Editor.h (already included)
 
 // ─── REGISTER ───────────────────────────────────────────────
@@ -100,6 +104,11 @@ REGISTER_ECA_COMMAND(FECACommand_UndoLastAction);
 REGISTER_ECA_COMMAND(FECACommand_RedoLastAction);
 REGISTER_ECA_COMMAND(FECACommand_SearchAssets);
 REGISTER_ECA_COMMAND(FECACommand_GetActorCountByClass);
+REGISTER_ECA_COMMAND(FECACommand_ReplaceMaterialOnActors);
+REGISTER_ECA_COMMAND(FECACommand_SetLodSettings);
+REGISTER_ECA_COMMAND(FECACommand_ToggleWireframe);
+REGISTER_ECA_COMMAND(FECACommand_SetViewportResolution);
+REGISTER_ECA_COMMAND(FECACommand_GetMaterialSlots);
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -4243,6 +4252,442 @@ FECACommandResult FECACommand_GetActorCountByClass::Execute(const TSharedPtr<FJs
 	{
 		Result->SetStringField(TEXT("class_filter"), ClassFilter);
 	}
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── replace_material_on_actors ─────────────────────────────
+
+FECACommandResult FECACommand_ReplaceMaterialOnActors::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// Old material path (required)
+	FString OldMaterialPath;
+	if (!GetStringParam(Params, TEXT("old_material_path"), OldMaterialPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: old_material_path"));
+	}
+
+	// New material path (required)
+	FString NewMaterialPath;
+	if (!GetStringParam(Params, TEXT("new_material_path"), NewMaterialPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: new_material_path"));
+	}
+
+	// Actor filter (optional)
+	FString ActorFilter;
+	GetStringParam(Params, TEXT("actor_filter"), ActorFilter, /*bRequired=*/false);
+
+	// Load old material for comparison
+	UMaterialInterface* OldMaterial = EnvironmentCommandHelpers::LoadMaterialByPath(OldMaterialPath);
+	if (!OldMaterial)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not load old material at: %s"), *OldMaterialPath));
+	}
+
+	// Load new material
+	UMaterialInterface* NewMaterial = EnvironmentCommandHelpers::LoadMaterialByPath(NewMaterialPath);
+	if (!NewMaterial)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not load new material at: %s"), *NewMaterialPath));
+	}
+
+	int32 ReplacementCount = 0;
+	TArray<TSharedPtr<FJsonValue>> AffectedActorNames;
+	TSet<FString> AffectedActorSet; // avoid duplicates in the list
+
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (!Actor)
+		{
+			continue;
+		}
+
+		// Apply actor filter if specified
+		if (!ActorFilter.IsEmpty())
+		{
+			FString ActorLabel = Actor->GetActorLabel();
+			if (!ActorLabel.MatchesWildcard(ActorFilter, ESearchCase::IgnoreCase))
+			{
+				continue;
+			}
+		}
+
+		bool bActorAffected = false;
+
+		// Check all StaticMeshComponents
+		TArray<UStaticMeshComponent*> StaticMeshComps;
+		Actor->GetComponents<UStaticMeshComponent>(StaticMeshComps);
+		for (UStaticMeshComponent* MeshComp : StaticMeshComps)
+		{
+			if (!MeshComp)
+			{
+				continue;
+			}
+			for (int32 MatIdx = 0; MatIdx < MeshComp->GetNumMaterials(); ++MatIdx)
+			{
+				UMaterialInterface* CurrentMat = MeshComp->GetMaterial(MatIdx);
+				if (CurrentMat && CurrentMat == OldMaterial)
+				{
+					MeshComp->SetMaterial(MatIdx, NewMaterial);
+					++ReplacementCount;
+					bActorAffected = true;
+				}
+			}
+		}
+
+		// Check all SkeletalMeshComponents
+		TArray<USkeletalMeshComponent*> SkelMeshComps;
+		Actor->GetComponents<USkeletalMeshComponent>(SkelMeshComps);
+		for (USkeletalMeshComponent* SkelComp : SkelMeshComps)
+		{
+			if (!SkelComp)
+			{
+				continue;
+			}
+			for (int32 MatIdx = 0; MatIdx < SkelComp->GetNumMaterials(); ++MatIdx)
+			{
+				UMaterialInterface* CurrentMat = SkelComp->GetMaterial(MatIdx);
+				if (CurrentMat && CurrentMat == OldMaterial)
+				{
+					SkelComp->SetMaterial(MatIdx, NewMaterial);
+					++ReplacementCount;
+					bActorAffected = true;
+				}
+			}
+		}
+
+		if (bActorAffected)
+		{
+			FString Label = Actor->GetActorLabel();
+			if (!AffectedActorSet.Contains(Label))
+			{
+				AffectedActorSet.Add(Label);
+				AffectedActorNames.Add(MakeShared<FJsonValueString>(Label));
+			}
+			Actor->MarkPackageDirty();
+		}
+	}
+
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetNumberField(TEXT("replacements_made"), ReplacementCount);
+	Result->SetNumberField(TEXT("affected_actor_count"), AffectedActorNames.Num());
+	Result->SetArrayField(TEXT("affected_actors"), AffectedActorNames);
+	Result->SetStringField(TEXT("old_material"), OldMaterialPath);
+	Result->SetStringField(TEXT("new_material"), NewMaterialPath);
+	if (!ActorFilter.IsEmpty())
+	{
+		Result->SetStringField(TEXT("actor_filter"), ActorFilter);
+	}
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── set_lod_settings ───────────────────────────────────────
+
+FECACommandResult FECACommand_SetLodSettings::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	// Actor name (required)
+	FString ActorName;
+	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+	}
+
+	// Forced LOD (required)
+	int32 ForcedLod = 0;
+	if (!GetIntParam(Params, TEXT("forced_lod"), ForcedLod))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: forced_lod"));
+	}
+
+	AActor* Actor = FindActorByName(ActorName);
+	if (!Actor)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not find actor: %s"), *ActorName));
+	}
+
+	// Find all static mesh components and set forced LOD
+	TArray<UStaticMeshComponent*> MeshComps;
+	Actor->GetComponents<UStaticMeshComponent>(MeshComps);
+
+	if (MeshComps.Num() == 0)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor '%s' has no StaticMeshComponents"), *ActorName));
+	}
+
+	int32 ComponentsAffected = 0;
+	for (UStaticMeshComponent* MeshComp : MeshComps)
+	{
+		if (!MeshComp)
+		{
+			continue;
+		}
+
+		// ForcedLodModel: 0 means no forcing, 1 means LOD 0, 2 means LOD 1, etc.
+		// We map user-facing -1 (disable) to 0, and user-facing 0+ to value+1
+		if (ForcedLod < 0)
+		{
+			MeshComp->ForcedLodModel = 0; // disable forcing
+		}
+		else
+		{
+			MeshComp->ForcedLodModel = ForcedLod + 1; // offset by 1 per UE convention
+		}
+
+		MeshComp->MarkRenderStateDirty();
+		++ComponentsAffected;
+	}
+
+	Actor->MarkPackageDirty();
+
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor"), Actor->GetActorLabel());
+	Result->SetNumberField(TEXT("forced_lod"), ForcedLod);
+	Result->SetNumberField(TEXT("components_affected"), ComponentsAffected);
+	Result->SetStringField(TEXT("status"), ForcedLod < 0 ? TEXT("LOD forcing disabled") : FString::Printf(TEXT("Forced to LOD %d"), ForcedLod));
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── toggle_wireframe ───────────────────────────────────────
+
+FECACommandResult FECACommand_ToggleWireframe::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	bool bEnable = true;
+	GetBoolParam(Params, TEXT("enable"), bEnable, /*bRequired=*/false);
+
+	// Use the console command approach — works reliably across UE versions
+	FString Command = bEnable ? TEXT("viewmode wireframe") : TEXT("viewmode lit");
+
+	// Execute on all level editor viewport clients
+	FLevelEditorModule& LevelEditor = FModuleManager::GetModuleChecked<FLevelEditorModule>(TEXT("LevelEditor"));
+	TSharedPtr<IAssetViewport> ActiveViewport = LevelEditor.GetFirstActiveViewport();
+
+	if (ActiveViewport.IsValid())
+	{
+		FEditorViewportClient& ViewportClient = ActiveViewport->GetAssetViewportClient();
+
+		if (bEnable)
+		{
+			ViewportClient.SetViewMode(VMI_Wireframe);
+		}
+		else
+		{
+			ViewportClient.SetViewMode(VMI_Lit);
+		}
+
+		ViewportClient.Invalidate();
+	}
+	else
+	{
+		// Fallback: use GEditor to execute the console command on the world
+		UWorld* World = GetEditorWorld();
+		if (World)
+		{
+			GEngine->Exec(World, *Command);
+		}
+	}
+
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("view_mode"), bEnable ? TEXT("wireframe") : TEXT("lit"));
+	Result->SetBoolField(TEXT("wireframe_enabled"), bEnable);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── set_viewport_resolution ────────────────────────────────
+
+FECACommandResult FECACommand_SetViewportResolution::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	int32 Width = 0;
+	if (!GetIntParam(Params, TEXT("width"), Width))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: width"));
+	}
+
+	int32 Height = 0;
+	if (!GetIntParam(Params, TEXT("height"), Height))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: height"));
+	}
+
+	if (Width <= 0 || Height <= 0)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Invalid resolution: %dx%d — both width and height must be positive"), Width, Height));
+	}
+
+	FString ResString = FString::Printf(TEXT("%dx%d"), Width, Height);
+
+	// Approach 1: Resize the active level editor viewport
+	FLevelEditorModule& LevelEditor = FModuleManager::GetModuleChecked<FLevelEditorModule>(TEXT("LevelEditor"));
+	TSharedPtr<IAssetViewport> ActiveViewport = LevelEditor.GetFirstActiveViewport();
+
+	bool bViewportResized = false;
+
+	if (ActiveViewport.IsValid())
+	{
+		FEditorViewportClient& ViewportClient = ActiveViewport->GetAssetViewportClient();
+		FViewport* Viewport = ViewportClient.Viewport;
+		if (Viewport)
+		{
+			FSystemResolution::RequestResolutionChange(Width, Height, EWindowMode::Windowed);
+			bViewportResized = true;
+		}
+	}
+
+	// Approach 2: Set high-res screenshot multiplier via console command
+	// This ensures HighResScreenshot captures at the requested resolution
+	UWorld* World = GetEditorWorld();
+	if (World)
+	{
+		FString ScreenshotCmd = FString::Printf(TEXT("r.SetRes %dx%d"), Width, Height);
+		GEngine->Exec(World, *ScreenshotCmd);
+	}
+
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetNumberField(TEXT("width"), Width);
+	Result->SetNumberField(TEXT("height"), Height);
+	Result->SetStringField(TEXT("resolution"), ResString);
+	Result->SetBoolField(TEXT("viewport_resized"), bViewportResized);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── get_material_slots ─────────────────────────────────────
+
+FECACommandResult FECACommand_GetMaterialSlots::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	// Actor name (required)
+	FString ActorName;
+	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+	}
+
+	AActor* Actor = FindActorByName(ActorName);
+	if (!Actor)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not find actor: %s"), *ActorName));
+	}
+
+	TArray<TSharedPtr<FJsonValue>> AllSlots;
+
+	// Helper lambda for collecting material slot info from a mesh component
+	auto CollectSlots = [&AllSlots](UMeshComponent* MeshComp, const FString& ComponentName)
+	{
+		if (!MeshComp)
+		{
+			return;
+		}
+
+		// Get material slot names from the static mesh if available
+		UStaticMeshComponent* SMC = Cast<UStaticMeshComponent>(MeshComp);
+
+		for (int32 MatIdx = 0; MatIdx < MeshComp->GetNumMaterials(); ++MatIdx)
+		{
+			TSharedPtr<FJsonObject> SlotObj = MakeShared<FJsonObject>();
+			SlotObj->SetNumberField(TEXT("slot_index"), MatIdx);
+			SlotObj->SetStringField(TEXT("component_name"), ComponentName);
+
+			// Get slot name
+			FName SlotName = NAME_None;
+			if (SMC && SMC->GetStaticMesh())
+			{
+				TArray<FStaticMaterial>& StaticMaterials = SMC->GetStaticMesh()->GetStaticMaterials();
+				if (StaticMaterials.IsValidIndex(MatIdx))
+				{
+					SlotName = StaticMaterials[MatIdx].MaterialSlotName;
+				}
+			}
+			else
+			{
+				USkeletalMeshComponent* SKC = Cast<USkeletalMeshComponent>(MeshComp);
+				if (SKC && SKC->GetSkeletalMeshAsset())
+				{
+					TArray<FSkeletalMaterial>& SkelMaterials = SKC->GetSkeletalMeshAsset()->GetMaterials();
+					if (SkelMaterials.IsValidIndex(MatIdx))
+					{
+						SlotName = SkelMaterials[MatIdx].MaterialSlotName;
+					}
+				}
+			}
+
+			SlotObj->SetStringField(TEXT("slot_name"), SlotName.IsNone() ? FString::Printf(TEXT("Slot_%d"), MatIdx) : SlotName.ToString());
+
+			// Get current material
+			UMaterialInterface* Mat = MeshComp->GetMaterial(MatIdx);
+			if (Mat)
+			{
+				SlotObj->SetStringField(TEXT("material_name"), Mat->GetName());
+				SlotObj->SetStringField(TEXT("material_path"), Mat->GetPathName());
+			}
+			else
+			{
+				SlotObj->SetStringField(TEXT("material_name"), TEXT("None"));
+				SlotObj->SetStringField(TEXT("material_path"), TEXT(""));
+			}
+
+			AllSlots.Add(MakeShared<FJsonValueObject>(SlotObj));
+		}
+	};
+
+	// Collect from all StaticMeshComponents
+	TArray<UStaticMeshComponent*> StaticMeshComps;
+	Actor->GetComponents<UStaticMeshComponent>(StaticMeshComps);
+	for (UStaticMeshComponent* SMC : StaticMeshComps)
+	{
+		if (SMC)
+		{
+			CollectSlots(SMC, SMC->GetName());
+		}
+	}
+
+	// Collect from all SkeletalMeshComponents
+	TArray<USkeletalMeshComponent*> SkelMeshComps;
+	Actor->GetComponents<USkeletalMeshComponent>(SkelMeshComps);
+	for (USkeletalMeshComponent* SKC : SkelMeshComps)
+	{
+		if (SKC)
+		{
+			CollectSlots(SKC, SKC->GetName());
+		}
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor"), Actor->GetActorLabel());
+	Result->SetStringField(TEXT("actor_class"), Actor->GetClass()->GetName());
+	Result->SetNumberField(TEXT("total_slots"), AllSlots.Num());
+	Result->SetNumberField(TEXT("static_mesh_components"), StaticMeshComps.Num());
+	Result->SetNumberField(TEXT("skeletal_mesh_components"), SkelMeshComps.Num());
+	Result->SetArrayField(TEXT("material_slots"), AllSlots);
 
 	return FECACommandResult::Success(Result);
 }

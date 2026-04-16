@@ -871,3 +871,102 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+// ─── replace_material_on_actors ─────────────────────────────
+// Replace a material across all actors using it — useful for quick material swaps across a scene.
+class FECACommand_ReplaceMaterialOnActors : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("replace_material_on_actors"); }
+	virtual FString GetDescription() const override { return TEXT("Replace a material across all actors using it — useful for quick material swaps across a scene"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("old_material_path"), TEXT("string"), TEXT("Asset path of the material to find and replace"), true },
+			{ TEXT("new_material_path"), TEXT("string"), TEXT("Asset path of the replacement material"), true },
+			{ TEXT("actor_filter"), TEXT("string"), TEXT("Wildcard pattern to limit which actors are affected (optional — e.g. 'Wall*')"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── set_lod_settings ───────────────────────────────────────
+// Force an LOD level on an actor's static mesh component — useful for screenshots at specific quality.
+class FECACommand_SetLodSettings : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_lod_settings"); }
+	virtual FString GetDescription() const override { return TEXT("Force an LOD level on an actor's static mesh component — useful for screenshots at specific quality"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("actor_name"), TEXT("string"), TEXT("Name or label of the target actor"), true },
+			{ TEXT("forced_lod"), TEXT("number"), TEXT("LOD level to force: -1 to disable forcing, 0 for highest detail, 1+ for lower detail"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── toggle_wireframe ───────────────────────────────────────
+// Toggle wireframe rendering in the viewport — useful for debugging mesh complexity.
+class FECACommand_ToggleWireframe : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("toggle_wireframe"); }
+	virtual FString GetDescription() const override { return TEXT("Toggle wireframe rendering in the editor viewport — useful for debugging mesh complexity"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("enable"), TEXT("boolean"), TEXT("Whether to enable wireframe mode (true) or return to lit mode (false). Default: true"), false, TEXT("true") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── set_viewport_resolution ────────────────────────────────
+// Set the editor viewport resolution for consistent screenshots.
+class FECACommand_SetViewportResolution : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_viewport_resolution"); }
+	virtual FString GetDescription() const override { return TEXT("Set the editor viewport resolution for consistent screenshots"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("width"), TEXT("number"), TEXT("Viewport width in pixels"), true },
+			{ TEXT("height"), TEXT("number"), TEXT("Viewport height in pixels"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── get_material_slots ─────────────────────────────────────
+// Get all material slots on an actor with their current material assignments.
+class FECACommand_GetMaterialSlots : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("get_material_slots"); }
+	virtual FString GetDescription() const override { return TEXT("Get all material slots on an actor with their current material assignments"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("actor_name"), TEXT("string"), TEXT("Name or label of the target actor"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
