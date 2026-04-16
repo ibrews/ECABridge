@@ -3779,3 +3779,437 @@ FECACommandResult FECACommand_GetAssetThumbnails::Execute(const TSharedPtr<FJson
 
 	return FECACommandResult::Success(Result);
 }
+
+// ============================================================================
+// Rosetta Stone: dump_asset
+// ============================================================================
+
+REGISTER_ECA_COMMAND(FECACommand_DumpAsset)
+
+// Forward declare the recursive helper
+static TSharedPtr<FJsonObject> SerializeObjectProperties(UObject* Object, UObject* DefaultObject, bool bIncludeDefaults, int32 CurrentDepth, int32 MaxDepth);
+
+static TSharedPtr<FJsonObject> SerializeObjectProperties(UObject* Object, UObject* DefaultObject, bool bIncludeDefaults, int32 CurrentDepth, int32 MaxDepth)
+{
+	TSharedPtr<FJsonObject> PropsObj = MakeShared<FJsonObject>();
+
+	for (TFieldIterator<FProperty> PropIt(Object->GetClass()); PropIt; ++PropIt)
+	{
+		FProperty* Property = *PropIt;
+
+		// Skip internal / deprecated / transient
+		if (Property->HasAnyPropertyFlags(CPF_Deprecated | CPF_Transient))
+		{
+			continue;
+		}
+
+		// Only include editable or visible properties
+		if (!Property->HasAnyPropertyFlags(CPF_Edit | CPF_BlueprintVisible))
+		{
+			continue;
+		}
+
+		void* ValuePtr = Property->ContainerPtrToValuePtr<void>(Object);
+
+		// If we have a default object, skip properties that match default values
+		if (!bIncludeDefaults && DefaultObject)
+		{
+			void* DefaultValuePtr = Property->ContainerPtrToValuePtr<void>(DefaultObject);
+			if (Property->Identical(ValuePtr, DefaultValuePtr))
+			{
+				continue;
+			}
+		}
+
+		PropsObj->SetField(Property->GetName(), PropertyToJsonValue(Property, ValuePtr));
+	}
+
+	return PropsObj;
+}
+
+static void CollectAssetReferences(UObject* Object, TSet<FString>& OutReferences)
+{
+	for (TFieldIterator<FProperty> PropIt(Object->GetClass()); PropIt; ++PropIt)
+	{
+		FProperty* Property = *PropIt;
+		void* ValuePtr = Property->ContainerPtrToValuePtr<void>(Object);
+
+		if (FObjectProperty* ObjProp = CastField<FObjectProperty>(Property))
+		{
+			UObject* RefObj = ObjProp->GetObjectPropertyValue(ValuePtr);
+			if (RefObj && RefObj->IsAsset())
+			{
+				OutReferences.Add(RefObj->GetPathName());
+			}
+		}
+		else if (FSoftObjectProperty* SoftProp = CastField<FSoftObjectProperty>(Property))
+		{
+			FSoftObjectPtr SoftRef = SoftProp->GetPropertyValue(ValuePtr);
+			if (!SoftRef.IsNull())
+			{
+				OutReferences.Add(SoftRef.ToSoftObjectPath().ToString());
+			}
+		}
+	}
+}
+
+FECACommandResult FECACommand_DumpAsset::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString AssetPath;
+	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+	}
+
+	int32 MaxDepth = 2;
+	GetIntParam(Params, TEXT("depth"), MaxDepth, false);
+	MaxDepth = FMath::Clamp(MaxDepth, 0, 5);
+
+	bool bIncludeDefaults = false;
+	GetBoolParam(Params, TEXT("include_defaults"), bIncludeDefaults, false);
+
+	bool bIncludeThumbnail = false;
+	GetBoolParam(Params, TEXT("include_thumbnail"), bIncludeThumbnail, false);
+
+	// Parse sections filter
+	TSet<FString> Sections;
+	const TArray<TSharedPtr<FJsonValue>>* SectionsArray;
+	if (GetArrayParam(Params, TEXT("sections"), SectionsArray, false))
+	{
+		for (const auto& Val : *SectionsArray)
+		{
+			Sections.Add(Val->AsString());
+		}
+	}
+	bool bAllSections = Sections.Num() == 0;
+
+	// Load the asset
+	UObject* Asset = LoadObject<UObject>(nullptr, *AssetPath);
+	if (!Asset)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Failed to load asset: %s"), *AssetPath));
+	}
+
+	// Get the CDO for default comparison
+	UObject* DefaultObject = Asset->GetClass()->GetDefaultObject();
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("asset_path"), AssetPath);
+	Result->SetStringField(TEXT("asset_class"), Asset->GetClass()->GetName());
+	Result->SetStringField(TEXT("asset_name"), Asset->GetName());
+	Result->SetStringField(TEXT("outer"), Asset->GetOuter() ? Asset->GetOuter()->GetName() : TEXT("None"));
+
+	// --- Metadata section ---
+	if (bAllSections || Sections.Contains(TEXT("metadata")))
+	{
+		TSharedPtr<FJsonObject> MetaObj = MakeShared<FJsonObject>();
+
+		// Class hierarchy
+		TArray<TSharedPtr<FJsonValue>> ClassChain;
+		for (UClass* C = Asset->GetClass(); C; C = C->GetSuperClass())
+		{
+			ClassChain.Add(MakeShared<FJsonValueString>(C->GetName()));
+		}
+		MetaObj->SetArrayField(TEXT("class_hierarchy"), ClassChain);
+
+		// Interfaces
+		TArray<TSharedPtr<FJsonValue>> Interfaces;
+		for (const FImplementedInterface& Iface : Asset->GetClass()->Interfaces)
+		{
+			if (Iface.Class)
+			{
+				Interfaces.Add(MakeShared<FJsonValueString>(Iface.Class->GetName()));
+			}
+		}
+		MetaObj->SetArrayField(TEXT("interfaces"), Interfaces);
+
+		// Package/file info
+		UPackage* Package = Asset->GetOutermost();
+		if (Package)
+		{
+			FString PackageFilename;
+			if (FPackageName::DoesPackageExist(Package->GetName(), &PackageFilename))
+			{
+				MetaObj->SetStringField(TEXT("file_path"), PackageFilename);
+				int64 FileSize = IFileManager::Get().FileSize(*PackageFilename);
+				MetaObj->SetNumberField(TEXT("file_size_bytes"), static_cast<double>(FileSize));
+			}
+		}
+
+		Result->SetObjectField(TEXT("metadata"), MetaObj);
+	}
+
+	// --- Properties section ---
+	if (bAllSections || Sections.Contains(TEXT("properties")))
+	{
+		TSharedPtr<FJsonObject> PropsObj = SerializeObjectProperties(Asset, DefaultObject, bIncludeDefaults, 0, MaxDepth);
+		Result->SetObjectField(TEXT("properties"), PropsObj);
+	}
+
+	// --- References section ---
+	if (bAllSections || Sections.Contains(TEXT("references")))
+	{
+		TSet<FString> References;
+		CollectAssetReferences(Asset, References);
+
+		TArray<TSharedPtr<FJsonValue>> RefsArray;
+		for (const FString& Ref : References)
+		{
+			RefsArray.Add(MakeShared<FJsonValueString>(Ref));
+		}
+		Result->SetArrayField(TEXT("references"), RefsArray);
+	}
+
+	// --- Sub-objects section ---
+	if ((bAllSections || Sections.Contains(TEXT("sub_objects"))) && MaxDepth > 0)
+	{
+		TArray<UObject*> SubObjects;
+		GetObjectsWithOuter(Asset, SubObjects, false);
+
+		TArray<TSharedPtr<FJsonValue>> SubObjArray;
+		for (UObject* SubObj : SubObjects)
+		{
+			if (!SubObj || SubObj->HasAnyFlags(RF_Transient))
+			{
+				continue;
+			}
+
+			TSharedPtr<FJsonObject> SubObjInfo = MakeShared<FJsonObject>();
+			SubObjInfo->SetStringField(TEXT("name"), SubObj->GetName());
+			SubObjInfo->SetStringField(TEXT("class"), SubObj->GetClass()->GetName());
+
+			if (MaxDepth > 1)
+			{
+				UObject* SubDefault = SubObj->GetClass()->GetDefaultObject();
+				SubObjInfo->SetObjectField(TEXT("properties"),
+					SerializeObjectProperties(SubObj, SubDefault, bIncludeDefaults, 1, MaxDepth));
+			}
+
+			SubObjArray.Add(MakeShared<FJsonValueObject>(SubObjInfo));
+		}
+		Result->SetArrayField(TEXT("sub_objects"), SubObjArray);
+	}
+
+	// --- Thumbnail section ---
+	if (bIncludeThumbnail)
+	{
+		FObjectThumbnail* ObjThumb = ThumbnailTools::GenerateThumbnailForObjectToSaveTo(Asset);
+		if (ObjThumb && ObjThumb->GetImageWidth() > 0)
+		{
+			TArray<uint8> PngData;
+			FImageUtils::ThumbnailCompressImageArray(ObjThumb->GetImageWidth(), ObjThumb->GetImageHeight(),
+				ObjThumb->GetUncompressedImageData(), PngData);
+			Result->SetStringField(TEXT("thumbnail_base64"), FBase64::Encode(PngData));
+		}
+	}
+
+	return FECACommandResult::Success(Result);
+}
+
+// ============================================================================
+// Rosetta Stone: find_assets
+// ============================================================================
+
+REGISTER_ECA_COMMAND(FECACommand_FindAssets)
+
+FECACommandResult FECACommand_FindAssets::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString ClassFilter;
+	GetStringParam(Params, TEXT("class_filter"), ClassFilter, false);
+
+	FString PathFilter = TEXT("/Game/");
+	GetStringParam(Params, TEXT("path_filter"), PathFilter, false);
+
+	FString NameFilter;
+	GetStringParam(Params, TEXT("name_filter"), NameFilter, false);
+
+	bool bRecursive = true;
+	GetBoolParam(Params, TEXT("recursive"), bRecursive, false);
+
+	int32 MaxResults = 100;
+	GetIntParam(Params, TEXT("max_results"), MaxResults, false);
+	MaxResults = FMath::Clamp(MaxResults, 1, 10000);
+
+	bool bIncludeMetadata = false;
+	GetBoolParam(Params, TEXT("include_metadata"), bIncludeMetadata, false);
+
+	IAssetRegistry& AssetRegistry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
+
+	FARFilter Filter;
+	Filter.PackagePaths.Add(FName(*PathFilter));
+	Filter.bRecursivePaths = bRecursive;
+
+	// Class filter — try to resolve the class name
+	if (!ClassFilter.IsEmpty())
+	{
+		// Try common UE class names
+		UClass* FilterClass = FindObject<UClass>(nullptr, *FString::Printf(TEXT("/Script/Engine.%s"), *ClassFilter));
+		if (!FilterClass)
+		{
+			FilterClass = FindObject<UClass>(nullptr, *FString::Printf(TEXT("/Script/CoreUObject.%s"), *ClassFilter));
+		}
+		if (!FilterClass)
+		{
+			// Try searching all loaded classes
+			for (TObjectIterator<UClass> It; It; ++It)
+			{
+				if (It->GetName() == ClassFilter)
+				{
+					FilterClass = *It;
+					break;
+				}
+			}
+		}
+		if (FilterClass)
+		{
+			Filter.ClassPaths.Add(FilterClass->GetClassPathName());
+			Filter.bRecursiveClasses = true;
+		}
+	}
+
+	TArray<FAssetData> AssetDataList;
+	AssetRegistry.GetAssets(Filter, AssetDataList);
+
+	// Apply name filter (wildcard matching)
+	if (!NameFilter.IsEmpty())
+	{
+		AssetDataList.RemoveAll([&NameFilter](const FAssetData& Data) {
+			return !Data.AssetName.ToString().MatchesWildcard(NameFilter);
+		});
+	}
+
+	// Build result
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetNumberField(TEXT("total_found"), AssetDataList.Num());
+
+	int32 Count = FMath::Min(AssetDataList.Num(), MaxResults);
+	TArray<TSharedPtr<FJsonValue>> AssetsArray;
+
+	for (int32 i = 0; i < Count; i++)
+	{
+		const FAssetData& Data = AssetDataList[i];
+		TSharedPtr<FJsonObject> AssetObj = MakeShared<FJsonObject>();
+
+		AssetObj->SetStringField(TEXT("path"), Data.GetObjectPathString());
+		AssetObj->SetStringField(TEXT("name"), Data.AssetName.ToString());
+		AssetObj->SetStringField(TEXT("class"), Data.AssetClassPath.GetAssetName().ToString());
+
+		if (bIncludeMetadata)
+		{
+			FString PackageFilename;
+			if (FPackageName::DoesPackageExist(Data.PackageName.ToString(), &PackageFilename))
+			{
+				int64 FileSize = IFileManager::Get().FileSize(*PackageFilename);
+				AssetObj->SetNumberField(TEXT("file_size_bytes"), static_cast<double>(FileSize));
+			}
+		}
+
+		AssetsArray.Add(MakeShared<FJsonValueObject>(AssetObj));
+	}
+
+	Result->SetArrayField(TEXT("assets"), AssetsArray);
+	if (Count < AssetDataList.Num())
+	{
+		Result->SetNumberField(TEXT("truncated_count"), AssetDataList.Num() - Count);
+	}
+
+	return FECACommandResult::Success(Result);
+}
+
+// ============================================================================
+// Rosetta Stone: get_asset_references
+// ============================================================================
+
+REGISTER_ECA_COMMAND(FECACommand_GetAssetReferences)
+
+static void GetReferencesRecursive(IAssetRegistry& Registry, const FName& PackageName, bool bDependencies, int32 Depth, int32 MaxDepth, TSet<FName>& Visited, TArray<TSharedPtr<FJsonValue>>& OutArray)
+{
+	if (Depth > MaxDepth || Visited.Contains(PackageName))
+	{
+		return;
+	}
+	Visited.Add(PackageName);
+
+	TArray<FName> Results;
+	if (bDependencies)
+	{
+		Registry.GetDependencies(PackageName, Results);
+	}
+	else
+	{
+		Registry.GetReferencers(PackageName, Results);
+	}
+
+	for (const FName& RefName : Results)
+	{
+		FString RefStr = RefName.ToString();
+		// Only include /Game/ paths (skip engine/plugin content)
+		if (!RefStr.StartsWith(TEXT("/Game/")))
+		{
+			continue;
+		}
+
+		TSharedPtr<FJsonObject> RefObj = MakeShared<FJsonObject>();
+		RefObj->SetStringField(TEXT("package"), RefStr);
+		RefObj->SetNumberField(TEXT("depth"), Depth);
+
+		// Try to get asset class
+		TArray<FAssetData> Assets;
+		Registry.GetAssetsByPackageName(RefName, Assets);
+		if (Assets.Num() > 0)
+		{
+			RefObj->SetStringField(TEXT("asset_name"), Assets[0].AssetName.ToString());
+			RefObj->SetStringField(TEXT("class"), Assets[0].AssetClassPath.GetAssetName().ToString());
+		}
+
+		OutArray.Add(MakeShared<FJsonValueObject>(RefObj));
+
+		// Recurse
+		if (Depth < MaxDepth)
+		{
+			GetReferencesRecursive(Registry, RefName, bDependencies, Depth + 1, MaxDepth, Visited, OutArray);
+		}
+	}
+}
+
+FECACommandResult FECACommand_GetAssetReferences::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString AssetPath;
+	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+	}
+
+	FString Direction = TEXT("both");
+	GetStringParam(Params, TEXT("direction"), Direction, false);
+
+	int32 MaxDepth = 1;
+	GetIntParam(Params, TEXT("depth"), MaxDepth, false);
+	MaxDepth = FMath::Clamp(MaxDepth, 1, 3);
+
+	IAssetRegistry& AssetRegistry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
+
+	// Convert content path to package name
+	FString PackageName = FPackageName::ObjectPathToPackageName(AssetPath);
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("asset_path"), AssetPath);
+
+	if (Direction == TEXT("dependencies") || Direction == TEXT("both"))
+	{
+		TArray<TSharedPtr<FJsonValue>> DepsArray;
+		TSet<FName> Visited;
+		GetReferencesRecursive(AssetRegistry, FName(*PackageName), true, 1, MaxDepth, Visited, DepsArray);
+		Result->SetArrayField(TEXT("dependencies"), DepsArray);
+	}
+
+	if (Direction == TEXT("referencers") || Direction == TEXT("both"))
+	{
+		TArray<TSharedPtr<FJsonValue>> RefsArray;
+		TSet<FName> Visited;
+		GetReferencesRecursive(AssetRegistry, FName(*PackageName), false, 1, MaxDepth, Visited, RefsArray);
+		Result->SetArrayField(TEXT("referencers"), RefsArray);
+	}
+
+	return FECACommandResult::Success(Result);
+}

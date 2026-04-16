@@ -588,6 +588,30 @@ public:
  * 
  * Example: {"blueprint_path":"/Game/BP_Test", "graph_name":"EventGraph", "strategy":"horizontal"}
  */
+/**
+ * Dump the complete blueprint graph structure to JSON.
+ * Returns all graphs, all nodes, all pins, all connections, all variables.
+ * This is the "Rosetta Stone" for blueprints — makes any BP fully legible to an LLM.
+ */
+class FECACommand_DumpBlueprintGraph : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("dump_blueprint_graph"); }
+	virtual FString GetDescription() const override { return TEXT("Serialize an entire Blueprint to JSON: all graphs (event, function, macro), all nodes with pins and connections, all variables with types and defaults, compilation status. Makes any Blueprint fully readable in one call."); }
+	virtual FString GetCategory() const override { return TEXT("Blueprint Node"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Content path to the Blueprint asset"), true },
+			{ TEXT("graph_name"), TEXT("string"), TEXT("Specific graph to dump (default: all graphs)"), false },
+			{ TEXT("include_positions"), TEXT("boolean"), TEXT("Include node X/Y positions (default true)"), false, TEXT("true") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
 class FECACommand_AutoLayoutBlueprintGraph : public IECACommand
 {
 public:

@@ -87,10 +87,10 @@ FECACommandResult FECACommand_RenderSequence::Execute(const TSharedPtr<FJsonObje
 	GetFloatParam(Params, TEXT("frame_rate"), FrameRate, /*bRequired=*/false);
 
 	// --- Validate parameters ---
-	if (OutputFormat != TEXT("png") && OutputFormat != TEXT("jpg") && OutputFormat != TEXT("exr"))
+	if (OutputFormat != TEXT("png") && OutputFormat != TEXT("jpg") && OutputFormat != TEXT("exr") && OutputFormat != TEXT("mp4") && OutputFormat != TEXT("video"))
 	{
 		return FECACommandResult::Error(FString::Printf(
-			TEXT("Invalid output_format '%s'. Supported: png, jpg, exr"), *OutputFormat));
+			TEXT("Invalid output_format '%s'. Supported: png, jpg, exr, mp4"), *OutputFormat));
 	}
 
 	if (ResolutionX <= 0 || ResolutionY <= 0)
@@ -175,7 +175,10 @@ FECACommandResult FECACommand_RenderSequence::Execute(const TSharedPtr<FJsonObje
 		OutputSetting->bUseCustomFrameRate = true;
 		OutputSetting->OutputFrameRate = FFrameRate(static_cast<int32>(FrameRate), 1);
 		OutputSetting->bOverrideExistingOutput = true;
-		OutputSetting->FileNameFormat = TEXT("{sequence_name}/{sequence_name}.{frame_number}");
+		if (OutputFormat == TEXT("mp4") || OutputFormat == TEXT("video"))
+			OutputSetting->FileNameFormat = TEXT("{sequence_name}/{sequence_name}");
+		else
+			OutputSetting->FileNameFormat = TEXT("{sequence_name}/{sequence_name}.{frame_number}");
 	}
 
 	// Render pass: Deferred Rendering (standard lit)
