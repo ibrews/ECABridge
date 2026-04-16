@@ -23,6 +23,9 @@
 | **Widget/UMG** | 15+ | Create widgets, add text/buttons/images, bind events |
 | **Mutable/CO** | 15 | Character customization: create/edit CO graphs, compile, runtime params, spawn actors, MetaHuman creation |
 | **Sequencer** | 6 | Create sequences, bind actors, keyframe transforms, spawn cameras, play |
+| **Animation** | 6 | Play/stop animations, list compatible anims, set AnimBP, skeleton info, **create animations programmatically** |
+| **Lighting** | 4 | Set light properties, get light info, one-command 3-point rig, post-process settings |
+| **Movie Render Queue** | 2 | Render sequences to PNG/JPG with configurable resolution, check render progress |
 | **Data Table** | 4 | Schema, rows, CRUD |
 | **Editor** | 10+ | Viewport control, screenshots, PIE, console commands, save/open levels |
 | **View** | 3 | Camera control, scene description, frustum queries |
