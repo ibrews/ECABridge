@@ -14,6 +14,7 @@
 #include "GameFramework/FloatingPawnMovement.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
+#include "Components/SceneComponent.h"
 #include "EngineUtils.h"
 
 // ─── REGISTER ──────────────────────────────────────────────────
@@ -22,6 +23,11 @@ REGISTER_ECA_COMMAND(FECACommand_BuildNavigation);
 REGISTER_ECA_COMMAND(FECACommand_FindPath);
 REGISTER_ECA_COMMAND(FECACommand_MoveActorTo);
 REGISTER_ECA_COMMAND(FECACommand_GetNavMeshInfo);
+REGISTER_ECA_COMMAND(FECACommand_AddActorTag);
+REGISTER_ECA_COMMAND(FECACommand_RemoveActorTag);
+REGISTER_ECA_COMMAND(FECACommand_FindActorsByTag);
+REGISTER_ECA_COMMAND(FECACommand_GetActorHierarchy);
+REGISTER_ECA_COMMAND(FECACommand_SetActorMobility);
 
 // ─── build_navigation ─────────────────────────────────────────
 
@@ -286,6 +292,285 @@ FECACommandResult FECACommand_GetNavMeshInfo::Execute(const TSharedPtr<FJsonObje
 		}
 	}
 	Result->SetNumberField(TEXT("nav_mesh_bounds_volume_count"), BoundsVolumeCount);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── add_actor_tag ───────────────────────────────────────────
+
+FECACommandResult FECACommand_AddActorTag::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString ActorName, Tag;
+	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+	if (!GetStringParam(Params, TEXT("tag"), Tag))
+		return FECACommandResult::Error(TEXT("Missing required parameter: tag"));
+
+	AActor* Actor = FindActorByName(ActorName);
+	if (!Actor)
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor '%s' not found in the level"), *ActorName));
+
+	FName TagName(*Tag);
+	bool bAlreadyHad = Actor->Tags.Contains(TagName);
+	Actor->Tags.AddUnique(TagName);
+	Actor->MarkPackageDirty();
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), ActorName);
+	Result->SetStringField(TEXT("tag"), Tag);
+	Result->SetBoolField(TEXT("already_had_tag"), bAlreadyHad);
+
+	// Return current tags list
+	TArray<TSharedPtr<FJsonValue>> TagsArray;
+	for (const FName& ActorTag : Actor->Tags)
+	{
+		TagsArray.Add(MakeShared<FJsonValueString>(ActorTag.ToString()));
+	}
+	Result->SetArrayField(TEXT("current_tags"), TagsArray);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── remove_actor_tag ────────────────────────────────────────
+
+FECACommandResult FECACommand_RemoveActorTag::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString ActorName, Tag;
+	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+	if (!GetStringParam(Params, TEXT("tag"), Tag))
+		return FECACommandResult::Error(TEXT("Missing required parameter: tag"));
+
+	AActor* Actor = FindActorByName(ActorName);
+	if (!Actor)
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor '%s' not found in the level"), *ActorName));
+
+	FName TagName(*Tag);
+	int32 Removed = Actor->Tags.Remove(TagName);
+
+	if (Removed > 0)
+	{
+		Actor->MarkPackageDirty();
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), ActorName);
+	Result->SetStringField(TEXT("tag"), Tag);
+	Result->SetBoolField(TEXT("was_removed"), Removed > 0);
+
+	// Return current tags list
+	TArray<TSharedPtr<FJsonValue>> TagsArray;
+	for (const FName& ActorTag : Actor->Tags)
+	{
+		TagsArray.Add(MakeShared<FJsonValueString>(ActorTag.ToString()));
+	}
+	Result->SetArrayField(TEXT("current_tags"), TagsArray);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── find_actors_by_tag ──────────────────────────────────────
+
+FECACommandResult FECACommand_FindActorsByTag::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString Tag;
+	if (!GetStringParam(Params, TEXT("tag"), Tag))
+		return FECACommandResult::Error(TEXT("Missing required parameter: tag"));
+
+	UWorld* World = GetEditorWorld();
+	if (!World)
+		return FECACommandResult::Error(TEXT("No editor world available"));
+
+	FName TagName(*Tag);
+
+	TArray<TSharedPtr<FJsonValue>> ActorsArray;
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (Actor && Actor->Tags.Contains(TagName))
+		{
+			TSharedPtr<FJsonObject> ActorObj = MakeShared<FJsonObject>();
+			ActorObj->SetStringField(TEXT("name"), Actor->GetActorLabel().IsEmpty() ? Actor->GetName() : Actor->GetActorLabel());
+			ActorObj->SetStringField(TEXT("internal_name"), Actor->GetName());
+			ActorObj->SetStringField(TEXT("class"), Actor->GetClass()->GetName());
+			ActorObj->SetObjectField(TEXT("location"), VectorToJson(Actor->GetActorLocation()));
+
+			// Include all tags on this actor
+			TArray<TSharedPtr<FJsonValue>> TagsArray;
+			for (const FName& ActorTag : Actor->Tags)
+			{
+				TagsArray.Add(MakeShared<FJsonValueString>(ActorTag.ToString()));
+			}
+			ActorObj->SetArrayField(TEXT("tags"), TagsArray);
+
+			ActorsArray.Add(MakeShared<FJsonValueObject>(ActorObj));
+		}
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("tag"), Tag);
+	Result->SetNumberField(TEXT("count"), ActorsArray.Num());
+	Result->SetArrayField(TEXT("actors"), ActorsArray);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── get_actor_hierarchy ─────────────────────────────────────
+
+FECACommandResult FECACommand_GetActorHierarchy::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString ActorName;
+	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+
+	AActor* Actor = FindActorByName(ActorName);
+	if (!Actor)
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor '%s' not found in the level"), *ActorName));
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), Actor->GetActorLabel().IsEmpty() ? Actor->GetName() : Actor->GetActorLabel());
+	Result->SetStringField(TEXT("internal_name"), Actor->GetName());
+	Result->SetStringField(TEXT("class"), Actor->GetClass()->GetName());
+	Result->SetObjectField(TEXT("location"), VectorToJson(Actor->GetActorLocation()));
+
+	// Parent (attachment parent)
+	AActor* ParentActor = Actor->GetAttachParentActor();
+	if (ParentActor)
+	{
+		TSharedPtr<FJsonObject> ParentObj = MakeShared<FJsonObject>();
+		ParentObj->SetStringField(TEXT("name"), ParentActor->GetActorLabel().IsEmpty() ? ParentActor->GetName() : ParentActor->GetActorLabel());
+		ParentObj->SetStringField(TEXT("internal_name"), ParentActor->GetName());
+		ParentObj->SetStringField(TEXT("class"), ParentActor->GetClass()->GetName());
+		ParentObj->SetObjectField(TEXT("location"), VectorToJson(ParentActor->GetActorLocation()));
+
+		USceneComponent* ParentSocket = Actor->GetRootComponent() ? Actor->GetRootComponent()->GetAttachParent() : nullptr;
+		if (ParentSocket)
+		{
+			ParentObj->SetStringField(TEXT("attach_socket"), ParentSocket->GetAttachSocketName().ToString());
+			ParentObj->SetStringField(TEXT("attach_component"), ParentSocket->GetName());
+		}
+		Result->SetObjectField(TEXT("parent"), ParentObj);
+	}
+	else
+	{
+		Result->SetField(TEXT("parent"), MakeShared<FJsonValueNull>());
+	}
+
+	// Children (attached child actors)
+	TArray<AActor*> ChildActors;
+	Actor->GetAttachedActors(ChildActors);
+
+	TArray<TSharedPtr<FJsonValue>> ChildrenArray;
+	for (AActor* Child : ChildActors)
+	{
+		if (!Child) continue;
+		TSharedPtr<FJsonObject> ChildObj = MakeShared<FJsonObject>();
+		ChildObj->SetStringField(TEXT("name"), Child->GetActorLabel().IsEmpty() ? Child->GetName() : Child->GetActorLabel());
+		ChildObj->SetStringField(TEXT("internal_name"), Child->GetName());
+		ChildObj->SetStringField(TEXT("class"), Child->GetClass()->GetName());
+		ChildObj->SetObjectField(TEXT("location"), VectorToJson(Child->GetActorLocation()));
+		ChildrenArray.Add(MakeShared<FJsonValueObject>(ChildObj));
+	}
+	Result->SetNumberField(TEXT("children_count"), ChildrenArray.Num());
+	Result->SetArrayField(TEXT("children"), ChildrenArray);
+
+	// Components
+	TArray<TSharedPtr<FJsonValue>> ComponentsArray;
+	TInlineComponentArray<UActorComponent*> Components;
+	Actor->GetComponents(Components);
+
+	for (UActorComponent* Comp : Components)
+	{
+		if (!Comp) continue;
+		TSharedPtr<FJsonObject> CompObj = MakeShared<FJsonObject>();
+		CompObj->SetStringField(TEXT("name"), Comp->GetName());
+		CompObj->SetStringField(TEXT("class"), Comp->GetClass()->GetName());
+
+		USceneComponent* SceneComp = Cast<USceneComponent>(Comp);
+		if (SceneComp)
+		{
+			CompObj->SetBoolField(TEXT("is_scene_component"), true);
+			CompObj->SetObjectField(TEXT("relative_location"), VectorToJson(SceneComp->GetRelativeLocation()));
+			CompObj->SetStringField(TEXT("mobility"),
+				SceneComp->Mobility == EComponentMobility::Static ? TEXT("Static") :
+				SceneComp->Mobility == EComponentMobility::Stationary ? TEXT("Stationary") : TEXT("Movable"));
+
+			// Parent component within this actor
+			USceneComponent* ParentComp = SceneComp->GetAttachParent();
+			if (ParentComp && ParentComp->GetOwner() == Actor)
+			{
+				CompObj->SetStringField(TEXT("parent_component"), ParentComp->GetName());
+			}
+		}
+		else
+		{
+			CompObj->SetBoolField(TEXT("is_scene_component"), false);
+		}
+
+		ComponentsArray.Add(MakeShared<FJsonValueObject>(CompObj));
+	}
+	Result->SetNumberField(TEXT("component_count"), ComponentsArray.Num());
+	Result->SetArrayField(TEXT("components"), ComponentsArray);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── set_actor_mobility ──────────────────────────────────────
+
+FECACommandResult FECACommand_SetActorMobility::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString ActorName, MobilityStr;
+	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+	if (!GetStringParam(Params, TEXT("mobility"), MobilityStr))
+		return FECACommandResult::Error(TEXT("Missing required parameter: mobility"));
+
+	// Parse mobility enum
+	EComponentMobility::Type Mobility;
+	MobilityStr = MobilityStr.ToLower();
+	if (MobilityStr == TEXT("static"))
+	{
+		Mobility = EComponentMobility::Static;
+	}
+	else if (MobilityStr == TEXT("stationary"))
+	{
+		Mobility = EComponentMobility::Stationary;
+	}
+	else if (MobilityStr == TEXT("movable"))
+	{
+		Mobility = EComponentMobility::Movable;
+	}
+	else
+	{
+		return FECACommandResult::Error(FString::Printf(
+			TEXT("Invalid mobility '%s'. Must be 'static', 'stationary', or 'movable'."), *MobilityStr));
+	}
+
+	AActor* Actor = FindActorByName(ActorName);
+	if (!Actor)
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor '%s' not found in the level"), *ActorName));
+
+	USceneComponent* RootComp = Actor->GetRootComponent();
+	if (!RootComp)
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor '%s' has no root component to set mobility on"), *ActorName));
+
+	FString PreviousMobility =
+		RootComp->Mobility == EComponentMobility::Static ? TEXT("Static") :
+		RootComp->Mobility == EComponentMobility::Stationary ? TEXT("Stationary") : TEXT("Movable");
+
+	RootComp->SetMobility(Mobility);
+	Actor->MarkPackageDirty();
+
+	FString NewMobility =
+		Mobility == EComponentMobility::Static ? TEXT("Static") :
+		Mobility == EComponentMobility::Stationary ? TEXT("Stationary") : TEXT("Movable");
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), ActorName);
+	Result->SetStringField(TEXT("previous_mobility"), PreviousMobility);
+	Result->SetStringField(TEXT("new_mobility"), NewMobility);
+	Result->SetStringField(TEXT("root_component"), RootComp->GetName());
+	Result->SetStringField(TEXT("root_component_class"), RootComp->GetClass()->GetName());
 
 	return FECACommandResult::Success(Result);
 }

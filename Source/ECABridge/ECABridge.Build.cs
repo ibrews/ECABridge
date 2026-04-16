@@ -84,7 +84,10 @@ public class ECABridge : ModuleRules
 
 			// Navigation / AI
 			"NavigationSystem",
-			"AIModule"
+			"AIModule",
+
+			// Landscape
+			"Landscape"
 		});
 
 		// ModelViewViewModelBlueprint include path - UBT doesn't resolve it via PrivateDependencyModuleNames

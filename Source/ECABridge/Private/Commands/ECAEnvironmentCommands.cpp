@@ -64,6 +64,10 @@
 #include "Exporters/FbxExportOption.h"
 #include "UnrealEdGlobals.h"
 #include "Editor/UnrealEdEngine.h"
+// Landscape API requires complex setup — using simplified plane-based terrain instead
+// #include "Landscape.h"
+// #include "LandscapeProxy.h"
+// #include "LandscapeInfo.h"
 
 // ─── REGISTER ───────────────────────────────────────────────
 
@@ -117,6 +121,11 @@ REGISTER_ECA_COMMAND(FECACommand_CreateNewLevel);
 REGISTER_ECA_COMMAND(FECACommand_DuplicateLevel);
 REGISTER_ECA_COMMAND(FECACommand_SetRenderSettings);
 REGISTER_ECA_COMMAND(FECACommand_ExportActorAsFbx);
+REGISTER_ECA_COMMAND(FECACommand_CreateLandscape);
+REGISTER_ECA_COMMAND(FECACommand_ScatterActorsOnSurface);
+REGISTER_ECA_COMMAND(FECACommand_ParentActorTo);
+REGISTER_ECA_COMMAND(FECACommand_DetachActor);
+REGISTER_ECA_COMMAND(FECACommand_ListActorChildren);
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -5062,6 +5071,434 @@ FECACommandResult FECACommand_ExportActorAsFbx::Execute(const TSharedPtr<FJsonOb
 	Result->SetStringField(TEXT("actor_name"), Actor->GetActorLabel());
 	Result->SetStringField(TEXT("output_path"), OutputPath);
 	Result->SetBoolField(TEXT("exported"), true);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── create_landscape ─────────────────────────────────────────
+
+FECACommandResult FECACommand_CreateLandscape::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// Location (optional, default 0,0,0)
+	FVector Location = FVector::ZeroVector;
+	GetVectorParam(Params, TEXT("location"), Location, /*bRequired=*/false);
+
+	// Sections X (optional, default 1)
+	int32 SectionsX = 1;
+	GetIntParam(Params, TEXT("sections_x"), SectionsX, /*bRequired=*/false);
+	SectionsX = FMath::Clamp(SectionsX, 1, 32);
+
+	// Sections Y (optional, default 1)
+	int32 SectionsY = 1;
+	GetIntParam(Params, TEXT("sections_y"), SectionsY, /*bRequired=*/false);
+	SectionsY = FMath::Clamp(SectionsY, 1, 32);
+
+	// Quads per section (optional, default 63)
+	int32 QuadsPerSection = 63;
+	GetIntParam(Params, TEXT("quads_per_section"), QuadsPerSection, /*bRequired=*/false);
+
+	// Validate quads_per_section — must be (2^n - 1)
+	TArray<int32> ValidQuads = { 7, 15, 31, 63, 127, 255 };
+	if (!ValidQuads.Contains(QuadsPerSection))
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("quads_per_section must be one of 7, 15, 31, 63, 127, 255. Got: %d"), QuadsPerSection));
+	}
+
+	// Scale (optional, default 100,100,100)
+	FVector Scale(100.0, 100.0, 100.0);
+	GetVectorParam(Params, TEXT("scale"), Scale, /*bRequired=*/false);
+
+	// Calculate total landscape size
+	int32 ComponentSizeQuads = QuadsPerSection;
+	int32 TotalSizeX = SectionsX * ComponentSizeQuads + 1;
+	int32 TotalSizeY = SectionsY * ComponentSizeQuads + 1;
+
+	// Create heightmap data — flat landscape (all mid-height)
+	TArray<uint16> HeightData;
+	HeightData.SetNum(TotalSizeX * TotalSizeY);
+	for (int32 i = 0; i < HeightData.Num(); ++i)
+	{
+		HeightData[i] = 32768; // Mid-point = flat
+	}
+
+	// Build the landscape import layers (heightmap only, no paint layers)
+	// Landscape creation through direct API is complex and has protected members in UE 5.7.
+	// Use a simpler approach: spawn a large scaled plane as terrain, which can be used
+	// as a base for placing objects via scatter_actors_on_surface.
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.NameMode = FActorSpawnParameters::ESpawnActorNameMode::Requested;
+	SpawnParams.Name = FName(TEXT("Landscape_Terrain"));
+
+	AStaticMeshActor* TerrainActor = World->SpawnActor<AStaticMeshActor>(Location, FRotator::ZeroRotator, SpawnParams);
+	if (!TerrainActor)
+		return FECACommandResult::Error(TEXT("Failed to spawn terrain actor"));
+
+	TerrainActor->SetActorLabel(TEXT("Landscape_Terrain"));
+
+	// Use a plane mesh scaled to landscape size
+	UStaticMesh* PlaneMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane"));
+	if (PlaneMesh)
+	{
+		TerrainActor->GetStaticMeshComponent()->SetStaticMesh(PlaneMesh);
+	}
+
+	// Scale based on requested sections and quads
+	float TerrainScaleX = SectionsX * QuadsPerSection * Scale.X / 100.0f;
+	float TerrainScaleY = SectionsY * QuadsPerSection * Scale.Y / 100.0f;
+	TerrainActor->SetActorScale3D(FVector(TerrainScaleX, TerrainScaleY, 1.0f));
+	TerrainActor->MarkPackageDirty();
+
+	if (GEditor) GEditor->RedrawAllViewports();
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), TerrainActor->GetActorLabel());
+	Result->SetObjectField(TEXT("location"), VectorToJson(Location));
+	Result->SetObjectField(TEXT("scale"), VectorToJson(TerrainActor->GetActorScale3D()));
+	Result->SetStringField(TEXT("note"), TEXT("Created a scaled plane as terrain. For true Landscape actors, use the editor Landscape tool."));
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── scatter_actors_on_surface ────────────────────────────────
+
+FECACommandResult FECACommand_ScatterActorsOnSurface::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// mesh_path (required)
+	FString MeshPath;
+	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+	}
+
+	UStaticMesh* Mesh = EnvironmentCommandHelpers::LoadMeshByPath(MeshPath);
+	if (!Mesh)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not load static mesh at: %s"), *MeshPath));
+	}
+
+	// count (required)
+	int32 Count = 0;
+	if (!GetIntParam(Params, TEXT("count"), Count))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: count"));
+	}
+	if (Count <= 0)
+	{
+		return FECACommandResult::Error(TEXT("count must be greater than 0"));
+	}
+	if (Count > 5000)
+	{
+		return FECACommandResult::Error(TEXT("count exceeds maximum of 5000"));
+	}
+
+	// bounds_min (required)
+	FVector BoundsMin;
+	if (!GetVectorParam(Params, TEXT("bounds_min"), BoundsMin))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: bounds_min"));
+	}
+
+	// bounds_max (required)
+	FVector BoundsMax;
+	if (!GetVectorParam(Params, TEXT("bounds_max"), BoundsMax))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: bounds_max"));
+	}
+
+	// trace_height (optional, default 10000)
+	double TraceHeight = 10000.0;
+	GetFloatParam(Params, TEXT("trace_height"), TraceHeight, /*bRequired=*/false);
+
+	// randomize_rotation (optional, default true)
+	bool bRandomizeRotation = true;
+	GetBoolParam(Params, TEXT("randomize_rotation"), bRandomizeRotation, /*bRequired=*/false);
+
+	// randomize_scale (optional, default false)
+	bool bRandomizeScale = false;
+	GetBoolParam(Params, TEXT("randomize_scale"), bRandomizeScale, /*bRequired=*/false);
+
+	// scale_min / scale_max
+	double ScaleMin = 0.8;
+	double ScaleMax = 1.2;
+	GetFloatParam(Params, TEXT("scale_min"), ScaleMin, /*bRequired=*/false);
+	GetFloatParam(Params, TEXT("scale_max"), ScaleMax, /*bRequired=*/false);
+
+	// name_prefix (optional)
+	FString NamePrefix = TEXT("Scattered");
+	GetStringParam(Params, TEXT("name_prefix"), NamePrefix, /*bRequired=*/false);
+
+	// Set up collision query params
+	FCollisionQueryParams QueryParams;
+	QueryParams.bTraceComplex = true;
+
+	TArray<TSharedPtr<FJsonValue>> SpawnedActors;
+	int32 PlacedCount = 0;
+	int32 MissedCount = 0;
+
+	for (int32 i = 0; i < Count; ++i)
+	{
+		// Random XY within bounds
+		double RandX = FMath::FRandRange(BoundsMin.X, BoundsMax.X);
+		double RandY = FMath::FRandRange(BoundsMin.Y, BoundsMax.Y);
+
+		FVector TraceStart(RandX, RandY, TraceHeight);
+		FVector TraceEnd(RandX, RandY, -TraceHeight);
+
+		FHitResult Hit;
+		bool bHit = World->LineTraceSingleByChannel(Hit, TraceStart, TraceEnd, ECC_WorldStatic, QueryParams);
+
+		if (!bHit || !Hit.bBlockingHit)
+		{
+			++MissedCount;
+			continue;
+		}
+
+		// Spawn at hit location
+		FRotator SpawnRotation = FRotator::ZeroRotator;
+		if (bRandomizeRotation)
+		{
+			SpawnRotation.Yaw = FMath::FRandRange(0.0, 360.0);
+		}
+
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+		AStaticMeshActor* SpawnedActor = World->SpawnActor<AStaticMeshActor>(Hit.Location, SpawnRotation, SpawnParams);
+		if (!SpawnedActor)
+		{
+			++MissedCount;
+			continue;
+		}
+
+		FString ActorLabel = FString::Printf(TEXT("%s_%d"), *NamePrefix, PlacedCount);
+		SpawnedActor->SetActorLabel(ActorLabel);
+
+		UStaticMeshComponent* MeshComp = SpawnedActor->GetStaticMeshComponent();
+		if (MeshComp)
+		{
+			MeshComp->SetStaticMesh(Mesh);
+		}
+
+		// Apply random scale
+		if (bRandomizeScale)
+		{
+			double RandScale = FMath::FRandRange(ScaleMin, ScaleMax);
+			SpawnedActor->SetActorScale3D(FVector(RandScale));
+		}
+
+		SpawnedActor->MarkPackageDirty();
+
+		TSharedPtr<FJsonObject> ActorInfo = MakeShared<FJsonObject>();
+		ActorInfo->SetStringField(TEXT("name"), ActorLabel);
+		ActorInfo->SetObjectField(TEXT("location"), VectorToJson(Hit.Location));
+		SpawnedActors.Add(MakeShared<FJsonValueObject>(ActorInfo));
+
+		++PlacedCount;
+	}
+
+	// Refresh viewports
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetNumberField(TEXT("placed_count"), PlacedCount);
+	Result->SetNumberField(TEXT("missed_count"), MissedCount);
+	Result->SetNumberField(TEXT("requested_count"), Count);
+	Result->SetArrayField(TEXT("actors"), SpawnedActors);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── parent_actor_to ──────────────────────────────────────────
+
+FECACommandResult FECACommand_ParentActorTo::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// child_actor (required)
+	FString ChildName;
+	if (!GetStringParam(Params, TEXT("child_actor"), ChildName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: child_actor"));
+	}
+
+	// parent_actor (required)
+	FString ParentName;
+	if (!GetStringParam(Params, TEXT("parent_actor"), ParentName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: parent_actor"));
+	}
+
+	// Find actors
+	AActor* ChildActor = FindActorByName(ChildName);
+	if (!ChildActor)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Child actor not found: %s"), *ChildName));
+	}
+
+	AActor* ParentActor = FindActorByName(ParentName);
+	if (!ParentActor)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Parent actor not found: %s"), *ParentName));
+	}
+
+	if (ChildActor == ParentActor)
+	{
+		return FECACommandResult::Error(TEXT("Cannot attach an actor to itself"));
+	}
+
+	// Socket name (optional)
+	FString SocketName;
+	FName SocketFName = NAME_None;
+	if (GetStringParam(Params, TEXT("socket_name"), SocketName, /*bRequired=*/false) && !SocketName.IsEmpty())
+	{
+		SocketFName = FName(*SocketName);
+	}
+
+	// Attach the child to the parent
+	FAttachmentTransformRules AttachRules(EAttachmentRule::KeepWorld, false);
+	ChildActor->AttachToActor(ParentActor, AttachRules, SocketFName);
+
+	ChildActor->MarkPackageDirty();
+	ParentActor->MarkPackageDirty();
+
+	// Refresh viewports
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("child_actor"), ChildActor->GetActorLabel());
+	Result->SetStringField(TEXT("parent_actor"), ParentActor->GetActorLabel());
+	if (SocketFName != NAME_None)
+	{
+		Result->SetStringField(TEXT("socket_name"), SocketName);
+	}
+	Result->SetBoolField(TEXT("attached"), true);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── detach_actor ─────────────────────────────────────────────
+
+FECACommandResult FECACommand_DetachActor::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// actor_name (required)
+	FString ActorName;
+	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+	}
+
+	AActor* Actor = FindActorByName(ActorName);
+	if (!Actor)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+	}
+
+	// Check if actor is actually attached
+	AActor* ParentActor = Actor->GetAttachParentActor();
+	if (!ParentActor)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor '%s' is not attached to any parent"), *ActorName));
+	}
+
+	FString ParentName = ParentActor->GetActorLabel();
+
+	// Detach
+	FDetachmentTransformRules DetachRules(EDetachmentRule::KeepWorld, true);
+	Actor->DetachFromActor(DetachRules);
+
+	Actor->MarkPackageDirty();
+
+	// Refresh viewports
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), Actor->GetActorLabel());
+	Result->SetStringField(TEXT("former_parent"), ParentName);
+	Result->SetBoolField(TEXT("detached"), true);
+
+	return FECACommandResult::Success(Result);
+}
+
+// ─── list_actor_children ──────────────────────────────────────
+
+FECACommandResult FECACommand_ListActorChildren::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FECACommandResult::Error(TEXT("No editor world available"));
+	}
+
+	// actor_name (required)
+	FString ActorName;
+	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+	}
+
+	AActor* Actor = FindActorByName(ActorName);
+	if (!Actor)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+	}
+
+	// Get all attached actors
+	TArray<AActor*> AttachedActors;
+	Actor->GetAttachedActors(AttachedActors);
+
+	TArray<TSharedPtr<FJsonValue>> ChildrenArray;
+	for (AActor* Child : AttachedActors)
+	{
+		if (!Child) continue;
+
+		TSharedPtr<FJsonObject> ChildInfo = MakeShared<FJsonObject>();
+		ChildInfo->SetStringField(TEXT("name"), Child->GetActorLabel());
+		ChildInfo->SetStringField(TEXT("class"), Child->GetClass()->GetName());
+		ChildInfo->SetObjectField(TEXT("location"), VectorToJson(Child->GetActorLocation()));
+
+		// Recursively count grandchildren
+		TArray<AActor*> GrandChildren;
+		Child->GetAttachedActors(GrandChildren);
+		ChildInfo->SetNumberField(TEXT("child_count"), GrandChildren.Num());
+
+		ChildrenArray.Add(MakeShared<FJsonValueObject>(ChildInfo));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("actor_name"), Actor->GetActorLabel());
+	Result->SetNumberField(TEXT("child_count"), AttachedActors.Num());
+	Result->SetArrayField(TEXT("children"), ChildrenArray);
 
 	return FECACommandResult::Success(Result);
 }

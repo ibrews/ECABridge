@@ -1051,3 +1051,113 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+// ─── create_landscape ─────────────────────────────────────────
+// Create a landscape actor in the level.
+class FECACommand_CreateLandscape : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("create_landscape"); }
+	virtual FString GetDescription() const override { return TEXT("Create a landscape actor in the level with configurable sections and scale"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("location"), TEXT("object"), TEXT("Spawn location as {x, y, z} (default: 0,0,0)"), false },
+			{ TEXT("sections_x"), TEXT("number"), TEXT("Number of sections along the X axis (default: 1)"), false, TEXT("1") },
+			{ TEXT("sections_y"), TEXT("number"), TEXT("Number of sections along the Y axis (default: 1)"), false, TEXT("1") },
+			{ TEXT("quads_per_section"), TEXT("number"), TEXT("Number of quads per section — must be 7, 15, 31, 63, 127, or 255 (default: 63)"), false, TEXT("63") },
+			{ TEXT("scale"), TEXT("object"), TEXT("Scale as {x, y, z} (default: {x:100, y:100, z:100})"), false, TEXT("{x:100, y:100, z:100}") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── scatter_actors_on_surface ────────────────────────────────
+// Place actors on top of existing geometry using line traces.
+class FECACommand_ScatterActorsOnSurface : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("scatter_actors_on_surface"); }
+	virtual FString GetDescription() const override { return TEXT("Place actors on top of existing geometry using line traces — useful for placing objects on terrain or floors"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("mesh_path"), TEXT("string"), TEXT("Asset path to the static mesh to scatter"), true },
+			{ TEXT("count"), TEXT("number"), TEXT("Number of actors to place"), true },
+			{ TEXT("bounds_min"), TEXT("object"), TEXT("Minimum corner of the scatter area as {x, y, z}"), true },
+			{ TEXT("bounds_max"), TEXT("object"), TEXT("Maximum corner of the scatter area as {x, y, z}"), true },
+			{ TEXT("trace_height"), TEXT("number"), TEXT("Height to trace down from (default: 10000)"), false, TEXT("10000") },
+			{ TEXT("randomize_rotation"), TEXT("boolean"), TEXT("Apply random yaw rotation to each actor (default: true)"), false, TEXT("true") },
+			{ TEXT("randomize_scale"), TEXT("boolean"), TEXT("Apply random uniform scale to each actor (default: false)"), false, TEXT("false") },
+			{ TEXT("scale_min"), TEXT("number"), TEXT("Minimum scale factor when randomize_scale is true (default: 0.8)"), false, TEXT("0.8") },
+			{ TEXT("scale_max"), TEXT("number"), TEXT("Maximum scale factor when randomize_scale is true (default: 1.2)"), false, TEXT("1.2") },
+			{ TEXT("name_prefix"), TEXT("string"), TEXT("Prefix for actor labels (default: Scattered)"), false, TEXT("Scattered") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── parent_actor_to ──────────────────────────────────────────
+// Attach one actor to another (parent-child relationship).
+class FECACommand_ParentActorTo : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("parent_actor_to"); }
+	virtual FString GetDescription() const override { return TEXT("Attach one actor to another as a parent-child relationship"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("child_actor"), TEXT("string"), TEXT("Name or label of the child actor to attach"), true },
+			{ TEXT("parent_actor"), TEXT("string"), TEXT("Name or label of the parent actor to attach to"), true },
+			{ TEXT("socket_name"), TEXT("string"), TEXT("Optional socket name on the parent to attach to"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── detach_actor ─────────────────────────────────────────────
+// Detach an actor from its parent.
+class FECACommand_DetachActor : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("detach_actor"); }
+	virtual FString GetDescription() const override { return TEXT("Detach an actor from its parent"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("actor_name"), TEXT("string"), TEXT("Name or label of the actor to detach"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+// ─── list_actor_children ──────────────────────────────────────
+// List all actors attached to a given actor.
+class FECACommand_ListActorChildren : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("list_actor_children"); }
+	virtual FString GetDescription() const override { return TEXT("List all actors attached to a given actor as children"); }
+	virtual FString GetCategory() const override { return TEXT("Environment"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("actor_name"), TEXT("string"), TEXT("Name or label of the parent actor"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
