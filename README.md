@@ -1,10 +1,10 @@
 # ECABridge — AI-Powered Unreal Engine 5 MCP Plugin
 
-258+ MCP tools for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent.
+300+ MCP tools for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent.
 
 ## Features
 
-- **258+ MCP tools** organized by category
+- **300+ MCP tools** organized by category
 - **HTTP/SSE MCP server** on localhost:3000 (Streamable HTTP transport)
 - **UE 5.7 compatible** (built and tested against 5.7.4)
 - **No engine modifications** — drop-in plugin
@@ -26,6 +26,8 @@
 | **Animation** | 6 | Play/stop animations, list compatible anims, set AnimBP, skeleton info, **create animations programmatically** |
 | **Lighting** | 4 | Set light properties, get light info, one-command 3-point rig, post-process settings |
 | **Movie Render Queue** | 2 | Render sequences to PNG/JPG with configurable resolution, check render progress |
+| **Environment/PCG** | 17 | Generate grids/circles, walls, fog, sky, splines, gravity, batch spawn, batch set property, destroy by pattern, physics, impulse, visibility, teleport, scene stats, camera screenshots |
+| **AI/Navigation** | 4 | Build navmesh, find paths, move actors, navmesh info |
 | **Data Table** | 4 | Schema, rows, CRUD |
 | **Editor** | 10+ | Viewport control, screenshots, PIE, console commands, save/open levels |
 | **View** | 3 | Camera control, scene description, frustum queries |
