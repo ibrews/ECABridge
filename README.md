@@ -1,13 +1,14 @@
 # ECABridge — AI-Powered Unreal Engine 5 MCP Plugin
 
-355+ MCP tools for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent.
+360+ MCP tools for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent.
 
 ## Features
 
-- **355+ MCP tools** organized by category
+- **360+ MCP tools** organized by category
 - **12 Rosetta Stone commands** — full JSON dumps of assets, blueprints, levels, materials, Niagara, sequencer, widgets, animation, MetaSound, and DataTables
 - **6 workflow commands** — project overview, cross-blueprint search, asset validation, snapshot/diff, undo-batching, class hierarchy
 - **5 refactoring commands** — replace references, bulk rename, search-and-replace properties, world settings
+- **5 advanced system commands** — landscape, source control, PCG graphs, Control Rig, Gameplay Ability System
 - **HTTP/SSE MCP server** on localhost:3000 (Streamable HTTP transport)
 - **UE 5.7 compatible** (built and tested against 5.7.4)
 - **No engine modifications** — drop-in plugin
@@ -267,6 +268,31 @@ set_world_settings(property="KillZ", value="-10000")
 **Understand a class hierarchy before working with it:**
 ```
 get_class_hierarchy(class_name="Character", include_functions=true)
+```
+
+**Inspect landscape terrain — components, layers, material:**
+```
+dump_landscape()
+```
+
+**Check source control status for pending changes:**
+```
+get_source_control_status(path_filter="/Game/", include_unchanged=false)
+```
+
+**Dump a PCG graph — all nodes, edges, parameters:**
+```
+dump_pcg_graph(graph_path="/Game/PCG/PCGG_ForestSpawner")
+```
+
+**Read a Control Rig's hierarchy (bones, controls, nulls):**
+```
+dump_control_rig(rig_path="/Game/Characters/CR_Mannequin")
+```
+
+**Inspect a Gameplay Ability / Effect / AttributeSet:**
+```
+dump_gameplay_ability(asset_path="/Game/GAS/GA_Fireball")
 ```
 
 ## Requirements

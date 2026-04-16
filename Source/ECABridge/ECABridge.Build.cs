@@ -87,7 +87,23 @@ public class ECABridge : ModuleRules
 			"AIModule",
 
 			// Landscape
-			"Landscape"
+			"Landscape",
+			"LandscapeEditor",
+
+			// Source Control (always available in editor)
+			"SourceControl",
+
+			// PCG (Procedural Content Generation) - requires PCG plugin
+			"PCG",
+
+			// Control Rig - requires ControlRig plugin
+			"ControlRig",
+			"ControlRigDeveloper",
+
+			// Gameplay Ability System - requires GameplayAbilities plugin
+			"GameplayAbilities",
+			"GameplayTags",
+			"GameplayTasks"
 		});
 
 		// ModelViewViewModelBlueprint include path - UBT doesn't resolve it via PrivateDependencyModuleNames
