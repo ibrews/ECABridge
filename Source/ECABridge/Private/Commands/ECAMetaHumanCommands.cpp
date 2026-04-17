@@ -38,6 +38,79 @@ REGISTER_ECA_COMMAND(FECACommand_OpenMetaHumanEditor)
 REGISTER_ECA_COMMAND(FECACommand_BuildMetaHuman)
 REGISTER_ECA_COMMAND(FECACommand_DownloadMetaHumanTextures)
 REGISTER_ECA_COMMAND(FECACommand_RigMetaHuman)
+REGISTER_ECA_COMMAND(FECACommand_SetMetaHumanPreviewMode)
+
+// Implementation lives further down the file after the other MH commands.
+FECACommandResult FECACommand_SetMetaHumanPreviewMode::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString CharacterPath, Mode;
+	if (!Params->TryGetStringField(TEXT("character_path"), CharacterPath) || CharacterPath.IsEmpty())
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: character_path"));
+	}
+	if (!Params->TryGetStringField(TEXT("mode"), Mode) || Mode.IsEmpty())
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: mode (skin, topology, or clay)"));
+	}
+
+	// Map user-friendly mode names to the EMetaHumanCharacterSkinPreviewMaterial enum names
+	FString EnumValue;
+	FString ModeLower = Mode.ToLower();
+	if (ModeLower == TEXT("skin") || ModeLower == TEXT("default") || ModeLower == TEXT("preview"))
+	{
+		EnumValue = TEXT("Default");
+	}
+	else if (ModeLower == TEXT("topology") || ModeLower == TEXT("editable") || ModeLower == TEXT("zones"))
+	{
+		EnumValue = TEXT("Editable");
+	}
+	else if (ModeLower == TEXT("clay"))
+	{
+		EnumValue = TEXT("Clay");
+	}
+	else
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Unknown mode '%s'. Valid: skin, topology, clay"), *Mode));
+	}
+
+	UObject* Asset = LoadObject<UObject>(nullptr, *CharacterPath);
+	if (!Asset)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Failed to load asset: %s"), *CharacterPath));
+	}
+
+	// Find the PreviewMaterialType property and set it via reflection
+	FProperty* Property = Asset->GetClass()->FindPropertyByName(FName(TEXT("PreviewMaterialType")));
+	if (!Property)
+	{
+		return FECACommandResult::Error(TEXT("Asset has no PreviewMaterialType property — not a MetaHumanCharacter?"));
+	}
+
+	void* ValuePtr = Property->ContainerPtrToValuePtr<void>(Asset);
+
+	// Capture old value for reporting
+	FString OldValue;
+	Property->ExportTextItem_Direct(OldValue, ValuePtr, nullptr, Asset, PPF_None);
+
+	// Import the new enum value
+	const TCHAR* ImportResult = Property->ImportText_Direct(*EnumValue, ValuePtr, Asset, PPF_None);
+	if (!ImportResult)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Failed to set PreviewMaterialType to '%s'"), *EnumValue));
+	}
+
+	Asset->PostEditChange();
+	Asset->MarkPackageDirty();
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("character_path"), CharacterPath);
+	Result->SetStringField(TEXT("requested_mode"), Mode);
+	Result->SetStringField(TEXT("enum_value_set"), EnumValue);
+	Result->SetStringField(TEXT("old_value"), OldValue);
+	Result->SetBoolField(TEXT("success"), true);
+	Result->SetStringField(TEXT("note"), TEXT("If the MetaHuman editor viewport is already open, click its mode dropdown once to force a visual refresh — UE caches the render path."));
+	return FECACommandResult::Success(Result);
+}
 
 // Helper: call a named function on the MetaHumanCharacterEditorSubsystem.
 // Builds the param buffer dynamically by inspecting the UFunction's actual parameter layout.
@@ -190,7 +263,85 @@ FECACommandResult FECACommand_DownloadMetaHumanTextures::Execute(const TSharedPt
 
 FECACommandResult FECACommand_RigMetaHuman::Execute(const TSharedPtr<FJsonObject>& Params)
 {
-	return EnsureEditorOpenThenCall(Params, TEXT("RequestAutoRigging"), TEXT("auto_rig"));
+	FString CharacterPath;
+	if (!Params->TryGetStringField(TEXT("character_path"), CharacterPath) || CharacterPath.IsEmpty())
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: character_path"));
+	}
+
+	FString RigType = TEXT("full");
+	Params->TryGetStringField(TEXT("rig_type"), RigType);
+	FString RigTypeLower = RigType.ToLower();
+	FString EnumValue = (RigTypeLower == TEXT("joints") || RigTypeLower == TEXT("jointsonly") || RigTypeLower == TEXT("joints_only"))
+		? TEXT("JointsOnly") : TEXT("JointsAndBlendShapes");
+
+	UObject* Asset = LoadObject<UObject>(nullptr, *CharacterPath);
+	if (!Asset)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Failed to load asset: %s"), *CharacterPath));
+	}
+
+	// Open editor first to initialize auth/toolkit state
+	UAssetEditorSubsystem* AssetEditorSubsystem = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr;
+	if (AssetEditorSubsystem)
+	{
+		AssetEditorSubsystem->OpenEditorForAsset(Asset);
+	}
+
+	UClass* SubsystemClass = FindObject<UClass>(nullptr, TEXT("/Script/MetaHumanCharacterEditor.MetaHumanCharacterEditorSubsystem"));
+	if (!SubsystemClass) return FECACommandResult::Error(TEXT("MetaHumanCharacterEditorSubsystem not found"));
+	UEditorEngine* EdEngine = Cast<UEditorEngine>(GEditor);
+	if (!EdEngine) return FECACommandResult::Error(TEXT("GEditor not available"));
+	UEditorSubsystem* Subsystem = EdEngine->GetEditorSubsystemBase(SubsystemClass);
+	if (!Subsystem) return FECACommandResult::Error(TEXT("Subsystem not instantiated"));
+
+	UFunction* Func = Subsystem->FindFunction(FName(TEXT("RequestAutoRigging")));
+	if (!Func) return FECACommandResult::Error(TEXT("RequestAutoRigging function not found"));
+
+	TArray<uint8> ParamBuffer;
+	ParamBuffer.SetNumZeroed(Func->ParmsSize);
+
+	// Default-construct all params
+	for (TFieldIterator<FProperty> It(Func); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+	{
+		It->InitializeValue_InContainer(ParamBuffer.GetData());
+	}
+
+	// Walk params: first UObject* gets our character, first struct gets RigType injected
+	for (TFieldIterator<FProperty> It(Func); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+	{
+		FProperty* Prop = *It;
+		if (FObjectProperty* ObjProp = CastField<FObjectProperty>(Prop))
+		{
+			ObjProp->SetObjectPropertyValue_InContainer(ParamBuffer.GetData(), Asset);
+		}
+		else if (FStructProperty* StructProp = CastField<FStructProperty>(Prop))
+		{
+			// Find RigType field inside the struct
+			void* StructPtr = StructProp->ContainerPtrToValuePtr<void>(ParamBuffer.GetData());
+			if (FProperty* RigTypeProp = StructProp->Struct->FindPropertyByName(FName(TEXT("RigType"))))
+			{
+				void* RigTypeValPtr = RigTypeProp->ContainerPtrToValuePtr<void>(StructPtr);
+				RigTypeProp->ImportText_Direct(*EnumValue, RigTypeValPtr, nullptr, PPF_None);
+			}
+		}
+	}
+
+	Subsystem->ProcessEvent(Func, ParamBuffer.GetData());
+
+	// Destroy allocated struct contents
+	for (TFieldIterator<FProperty> It(Func); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+	{
+		It->DestroyValue_InContainer(ParamBuffer.GetData());
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("character_path"), CharacterPath);
+	Result->SetStringField(TEXT("function_called"), TEXT("RequestAutoRigging"));
+	Result->SetStringField(TEXT("rig_type"), EnumValue);
+	Result->SetBoolField(TEXT("triggered"), true);
+	Result->SetStringField(TEXT("note"), TEXT("Auto-rigging is async — expect 30-60s. Full rig (Joints + Blend Shapes) is required for face animation."));
+	return FECACommandResult::Success(Result);
 }
 
 //==============================================================================
@@ -946,7 +1097,7 @@ FECACommandResult FECACommand_DescribeMetaHuman::Execute(const TSharedPtr<FJsonO
 	}
 	MatchedKeywords.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("body=%s"), *BodyKeyword)));
 	Notes.Add(MakeShared<FJsonValueString>(
-		TEXT("body type is recorded but not directly mutated — body morphing requires the MetaHumanCharacterEditorSubsystem.")));
+		TEXT("Body keyword recorded but NOT applied — body shape morphing requires calling UMetaHumanCharacterEditorSubsystem::SetBodyConstraints with an FMetaHumanCharacterBodyConstraints struct (height, weight, measurements). describe_metahuman only sets skin/eye/hair color properties on the asset. Body shape will stay at the default parametric body until body-constraint editing is added as a separate command.")));
 
 	// ─── Skin tone ─────────────────────────────────────
 	FString SkinKeyword;
@@ -1044,8 +1195,11 @@ FECACommandResult FECACommand_DescribeMetaHuman::Execute(const TSharedPtr<FJsonO
 			MatchedKeywords.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("hair=%s"), Entry.Keyword)));
 			// Tint eyelashes — the exposed stand-in for hair color on the character asset
 			ApplyImport(TEXT("HeadModelSettings.Eyelashes.DyeColor"), Entry.LinearColor);
+			// Drive melanin + lightness away from neutral so the tint actually reads
+			ApplyImport(TEXT("HeadModelSettings.Eyelashes.Melanin"), TEXT("0.8"));
+			ApplyImport(TEXT("HeadModelSettings.Eyelashes.Lightness"), TEXT("0.6"));
 			Notes.Add(MakeShared<FJsonValueString>(
-				TEXT("hair color applied via eyelash DyeColor — true hair color lives on the groom asset assembled by the pipeline.")));
+				TEXT("Hair color applied via eyelash DyeColor. TRUE hair (head groom) requires attaching a UGroomAsset via the Hair panel in the MetaHuman editor — describe_metahuman does NOT attach grooms, so characters remain bald until a groom is added.")));
 			break;
 		}
 	}

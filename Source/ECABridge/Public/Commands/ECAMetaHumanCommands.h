@@ -138,13 +138,36 @@ class FECACommand_RigMetaHuman : public IECACommand
 {
 public:
 	virtual FString GetName() const override { return TEXT("rig_metahuman"); }
-	virtual FString GetDescription() const override { return TEXT("Trigger auto-rigging on a MetaHumanCharacter — generates the skeleton needed for animation playback. Calls UMetaHumanCharacterEditorSubsystem::RequestAutoRigging via reflection."); }
+	virtual FString GetDescription() const override { return TEXT("Trigger auto-rigging on a MetaHumanCharacter. rig_type='full' creates Joints + Blend Shapes (needed for face animation), 'joints' creates skeleton only. Default: full."); }
 	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
-			{ TEXT("character_path"), TEXT("string"), TEXT("Content path to the MetaHumanCharacter"), true }
+			{ TEXT("character_path"), TEXT("string"), TEXT("Content path to the MetaHumanCharacter"), true },
+			{ TEXT("rig_type"), TEXT("string"), TEXT("'full' for Joints + Blend Shapes (default, recommended for animation), 'joints' for joints-only rig"), false, TEXT("full") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Switch the MetaHuman editor viewport preview mode.
+ * Controls whether the character renders with actual skin, the topology/zone overlay, or clay shader.
+ */
+class FECACommand_SetMetaHumanPreviewMode : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_metahuman_preview_mode"); }
+	virtual FString GetDescription() const override { return TEXT("Switch the MetaHuman editor viewport preview mode. 'skin' shows fully-textured rendering, 'topology' shows editable zone overlay (default for unrigged characters), 'clay' shows a matte clay shader."); }
+	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("character_path"), TEXT("string"), TEXT("Content path to the MetaHumanCharacter"), true },
+			{ TEXT("mode"), TEXT("string"), TEXT("Preview mode: skin, topology, or clay"), true }
 		};
 	}
 
