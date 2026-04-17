@@ -153,6 +153,110 @@ public:
 };
 
 /**
+ * Spawn a MetaHuman actor in the current level.
+ */
+class FECACommand_SpawnMetaHumanActor : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("spawn_metahuman_actor"); }
+	virtual FString GetDescription() const override { return TEXT("Spawn a MetaHumanCharacter as an actor in the current level. Calls UMetaHumanCharacterEditorSubsystem::SpawnMetaHumanActor. The character must already be built (textures downloaded, rigged) for the actor to render properly."); }
+	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("character_path"), TEXT("string"), TEXT("Content path to the MetaHumanCharacter"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Get all body constraints for a MetaHumanCharacter with current values and ranges.
+ */
+class FECACommand_GetMetaHumanBodyConstraints : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("get_metahuman_body_constraints"); }
+	virtual FString GetDescription() const override { return TEXT("List all body-shape constraints for a MetaHuman (Height, Weight, Chest, Waist, etc.) with current values and valid ranges. Use this to discover what body-shape dimensions can be set."); }
+	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("character_path"), TEXT("string"), TEXT("Content path to the MetaHumanCharacter"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Set body constraints on a MetaHumanCharacter to morph the parametric body.
+ */
+class FECACommand_SetMetaHumanBodyConstraints : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_metahuman_body_constraints"); }
+	virtual FString GetDescription() const override { return TEXT("Set one or more body constraints on a MetaHuman to morph the parametric body shape. Each constraint is {name, target_measurement, active}. Valid names come from get_metahuman_body_constraints (Height, Weight, Chest, etc.). Measurements are in cm."); }
+	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("character_path"), TEXT("string"), TEXT("Content path to the MetaHumanCharacter"), true },
+			{ TEXT("constraints"), TEXT("array"), TEXT("Array of {name: string, target_measurement: number, active: boolean}"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Set a fixed-body-type preset (height × weight grid).
+ */
+class FECACommand_SetMetaHumanBodyType : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_metahuman_body_type"); }
+	virtual FString GetDescription() const override { return TEXT("Set a MetaHuman body type from Epic's preset grid. Format: {gender}_{height}_{weight}. Gender: f|m. Height: srt|med|tal. Weight: unw|nrw|ovw. Examples: m_tal_ovw (tall muscular male), f_med_nrw (average female), m_srt_unw (short thin male). Also accepts 'BlendableBody'. Calls SetMetaHumanBodyType via reflection."); }
+	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("character_path"), TEXT("string"), TEXT("Content path to the MetaHumanCharacter"), true },
+			{ TEXT("body_type"), TEXT("string"), TEXT("Body type preset: f_med_nrw, m_tal_ovw, etc. (19 options + BlendableBody)"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Attach a hair groom (or other wardrobe item) to a MetaHumanCharacter.
+ */
+class FECACommand_AttachMetaHumanGroom : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("attach_metahuman_groom"); }
+	virtual FString GetDescription() const override { return TEXT("Attach a UMetaHumanWardrobeItem (hair groom, outfit, etc.) to a MetaHumanCharacter. The wardrobe item must be a pre-made asset. Writes to the character's WardrobeIndividualAssets map under the given slot name. Common slot names: 'Hair', 'Eyebrows', 'Beard', 'Eyelashes', 'Outfit'."); }
+	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("character_path"), TEXT("string"), TEXT("Content path to the MetaHumanCharacter"), true },
+			{ TEXT("slot_name"), TEXT("string"), TEXT("Slot name (Hair, Eyebrows, Beard, Eyelashes, Outfit, etc.)"), true },
+			{ TEXT("wardrobe_item_path"), TEXT("string"), TEXT("Content path to a UMetaHumanWardrobeItem asset"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
  * Switch the MetaHuman editor viewport preview mode.
  * Controls whether the character renders with actual skin, the topology/zone overlay, or clay shader.
  */

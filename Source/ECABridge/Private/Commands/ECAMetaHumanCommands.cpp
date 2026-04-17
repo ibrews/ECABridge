@@ -39,6 +39,440 @@ REGISTER_ECA_COMMAND(FECACommand_BuildMetaHuman)
 REGISTER_ECA_COMMAND(FECACommand_DownloadMetaHumanTextures)
 REGISTER_ECA_COMMAND(FECACommand_RigMetaHuman)
 REGISTER_ECA_COMMAND(FECACommand_SetMetaHumanPreviewMode)
+REGISTER_ECA_COMMAND(FECACommand_SpawnMetaHumanActor)
+REGISTER_ECA_COMMAND(FECACommand_GetMetaHumanBodyConstraints)
+REGISTER_ECA_COMMAND(FECACommand_SetMetaHumanBodyConstraints)
+REGISTER_ECA_COMMAND(FECACommand_SetMetaHumanBodyType)
+REGISTER_ECA_COMMAND(FECACommand_AttachMetaHumanGroom)
+
+// ============================================================================
+// Common subsystem accessors for new commands
+// ============================================================================
+
+static UEditorSubsystem* GetMHEditorSubsystem(FString& OutErrorMessage)
+{
+	UClass* SubsystemClass = FindObject<UClass>(nullptr, TEXT("/Script/MetaHumanCharacterEditor.MetaHumanCharacterEditorSubsystem"));
+	if (!SubsystemClass) { OutErrorMessage = TEXT("MetaHumanCharacterEditorSubsystem not found"); return nullptr; }
+	UEditorEngine* EdEngine = Cast<UEditorEngine>(GEditor);
+	if (!EdEngine) { OutErrorMessage = TEXT("GEditor not available"); return nullptr; }
+	UEditorSubsystem* Subsystem = EdEngine->GetEditorSubsystemBase(SubsystemClass);
+	if (!Subsystem) { OutErrorMessage = TEXT("Subsystem not instantiated"); return nullptr; }
+	return Subsystem;
+}
+
+static UObject* LoadMHCharacter(const FString& Path, FString& OutErrorMessage)
+{
+	UObject* Asset = LoadObject<UObject>(nullptr, *Path);
+	if (!Asset) { OutErrorMessage = FString::Printf(TEXT("Failed to load asset: %s"), *Path); return nullptr; }
+	UClass* MHClass = FindObject<UClass>(nullptr, TEXT("/Script/MetaHumanCharacter.MetaHumanCharacter"));
+	if (!MHClass || !Asset->IsA(MHClass)) { OutErrorMessage = TEXT("Asset is not a MetaHumanCharacter"); return nullptr; }
+	return Asset;
+}
+
+static void OpenCharacterEditor(UObject* Character)
+{
+	UAssetEditorSubsystem* AssetEditorSubsystem = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr;
+	if (AssetEditorSubsystem) AssetEditorSubsystem->OpenEditorForAsset(Character);
+}
+
+// ============================================================================
+// spawn_metahuman_actor
+// ============================================================================
+
+FECACommandResult FECACommand_SpawnMetaHumanActor::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString CharacterPath;
+	if (!Params->TryGetStringField(TEXT("character_path"), CharacterPath) || CharacterPath.IsEmpty())
+		return FECACommandResult::Error(TEXT("Missing character_path"));
+
+	FString Err;
+	UObject* Character = LoadMHCharacter(CharacterPath, Err);
+	if (!Character) return FECACommandResult::Error(Err);
+	OpenCharacterEditor(Character);
+
+	UEditorSubsystem* Subsystem = GetMHEditorSubsystem(Err);
+	if (!Subsystem) return FECACommandResult::Error(Err);
+
+	UFunction* Func = Subsystem->FindFunction(FName(TEXT("SpawnMetaHumanActor")));
+	if (!Func) return FECACommandResult::Error(TEXT("SpawnMetaHumanActor not found"));
+
+	TArray<uint8> Buffer;
+	Buffer.SetNumZeroed(Func->ParmsSize);
+	for (TFieldIterator<FProperty> It(Func); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+		It->InitializeValue_InContainer(Buffer.GetData());
+
+	// Set input UObject* param
+	for (TFieldIterator<FProperty> It(Func); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+	{
+		if (FObjectProperty* ObjProp = CastField<FObjectProperty>(*It))
+		{
+			if (!It->HasAnyPropertyFlags(CPF_ReturnParm))
+			{
+				ObjProp->SetObjectPropertyValue_InContainer(Buffer.GetData(), Character);
+				break;
+			}
+		}
+	}
+
+	Subsystem->ProcessEvent(Func, Buffer.GetData());
+
+	// Read the return value
+	AActor* SpawnedActor = nullptr;
+	for (TFieldIterator<FProperty> It(Func); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+	{
+		if (It->HasAnyPropertyFlags(CPF_ReturnParm))
+		{
+			if (FObjectProperty* ObjProp = CastField<FObjectProperty>(*It))
+			{
+				SpawnedActor = Cast<AActor>(ObjProp->GetObjectPropertyValue_InContainer(Buffer.GetData()));
+			}
+			break;
+		}
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("character_path"), CharacterPath);
+	if (SpawnedActor)
+	{
+		Result->SetStringField(TEXT("actor_name"), SpawnedActor->GetName());
+		Result->SetStringField(TEXT("actor_label"), SpawnedActor->GetActorLabel());
+		Result->SetStringField(TEXT("actor_class"), SpawnedActor->GetClass()->GetName());
+		FVector Loc = SpawnedActor->GetActorLocation();
+		TSharedPtr<FJsonObject> LocJson = MakeShared<FJsonObject>();
+		LocJson->SetNumberField(TEXT("x"), Loc.X);
+		LocJson->SetNumberField(TEXT("y"), Loc.Y);
+		LocJson->SetNumberField(TEXT("z"), Loc.Z);
+		Result->SetObjectField(TEXT("location"), LocJson);
+		Result->SetBoolField(TEXT("spawned"), true);
+	}
+	else
+	{
+		Result->SetBoolField(TEXT("spawned"), false);
+		Result->SetStringField(TEXT("note"), TEXT("SpawnMetaHumanActor returned null. The character may not be fully built (missing textures, unrigged)."));
+	}
+
+	for (TFieldIterator<FProperty> It(Func); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+		It->DestroyValue_InContainer(Buffer.GetData());
+
+	return FECACommandResult::Success(Result);
+}
+
+// ============================================================================
+// get_metahuman_body_constraints
+// ============================================================================
+
+FECACommandResult FECACommand_GetMetaHumanBodyConstraints::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString CharacterPath;
+	if (!Params->TryGetStringField(TEXT("character_path"), CharacterPath) || CharacterPath.IsEmpty())
+		return FECACommandResult::Error(TEXT("Missing character_path"));
+
+	FString Err;
+	UObject* Character = LoadMHCharacter(CharacterPath, Err);
+	if (!Character) return FECACommandResult::Error(Err);
+	OpenCharacterEditor(Character);
+
+	UEditorSubsystem* Subsystem = GetMHEditorSubsystem(Err);
+	if (!Subsystem) return FECACommandResult::Error(Err);
+
+	UFunction* Func = Subsystem->FindFunction(FName(TEXT("GetBodyConstraints")));
+	if (!Func) return FECACommandResult::Error(TEXT("GetBodyConstraints function not found"));
+
+	TArray<uint8> Buffer;
+	Buffer.SetNumZeroed(Func->ParmsSize);
+	for (TFieldIterator<FProperty> It(Func); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+		It->InitializeValue_InContainer(Buffer.GetData());
+
+	// Fill input UObject* (character)
+	for (TFieldIterator<FProperty> It(Func); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+	{
+		if (It->HasAnyPropertyFlags(CPF_ReturnParm)) continue;
+		if (FObjectProperty* ObjProp = CastField<FObjectProperty>(*It))
+		{
+			ObjProp->SetObjectPropertyValue_InContainer(Buffer.GetData(), Character);
+			break;
+		}
+	}
+
+	Subsystem->ProcessEvent(Func, Buffer.GetData());
+
+	// Read return TArray<FMetaHumanCharacterBodyConstraint>
+	TArray<TSharedPtr<FJsonValue>> ConstraintsArray;
+	for (TFieldIterator<FProperty> It(Func); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+	{
+		if (!It->HasAnyPropertyFlags(CPF_ReturnParm)) continue;
+		if (FArrayProperty* ArrayProp = CastField<FArrayProperty>(*It))
+		{
+			void* ArrayValPtr = ArrayProp->ContainerPtrToValuePtr<void>(Buffer.GetData());
+			FScriptArrayHelper Helper(ArrayProp, ArrayValPtr);
+			FStructProperty* InnerStruct = CastField<FStructProperty>(ArrayProp->Inner);
+			if (InnerStruct)
+			{
+				for (int32 i = 0; i < Helper.Num(); i++)
+				{
+					void* ElemPtr = Helper.GetRawPtr(i);
+					TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
+					for (TFieldIterator<FProperty> FieldIt(InnerStruct->Struct); FieldIt; ++FieldIt)
+					{
+						FProperty* Field = *FieldIt;
+						void* FieldPtr = Field->ContainerPtrToValuePtr<void>(ElemPtr);
+						FString Exported;
+						Field->ExportTextItem_Direct(Exported, FieldPtr, nullptr, nullptr, PPF_None);
+						Obj->SetStringField(Field->GetName(), Exported);
+					}
+					ConstraintsArray.Add(MakeShared<FJsonValueObject>(Obj));
+				}
+			}
+		}
+	}
+
+	for (TFieldIterator<FProperty> It(Func); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+		It->DestroyValue_InContainer(Buffer.GetData());
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("character_path"), CharacterPath);
+	Result->SetNumberField(TEXT("count"), ConstraintsArray.Num());
+	Result->SetArrayField(TEXT("constraints"), ConstraintsArray);
+	return FECACommandResult::Success(Result);
+}
+
+// ============================================================================
+// set_metahuman_body_constraints
+// ============================================================================
+
+FECACommandResult FECACommand_SetMetaHumanBodyConstraints::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString CharacterPath;
+	if (!Params->TryGetStringField(TEXT("character_path"), CharacterPath) || CharacterPath.IsEmpty())
+		return FECACommandResult::Error(TEXT("Missing character_path"));
+
+	const TArray<TSharedPtr<FJsonValue>>* ConstraintsArray;
+	if (!Params->TryGetArrayField(TEXT("constraints"), ConstraintsArray))
+		return FECACommandResult::Error(TEXT("Missing constraints array"));
+
+	FString Err;
+	UObject* Character = LoadMHCharacter(CharacterPath, Err);
+	if (!Character) return FECACommandResult::Error(Err);
+	OpenCharacterEditor(Character);
+
+	UEditorSubsystem* Subsystem = GetMHEditorSubsystem(Err);
+	if (!Subsystem) return FECACommandResult::Error(Err);
+
+	UFunction* Func = Subsystem->FindFunction(FName(TEXT("SetBodyConstraints")));
+	if (!Func) return FECACommandResult::Error(TEXT("SetBodyConstraints function not found"));
+
+	TArray<uint8> Buffer;
+	Buffer.SetNumZeroed(Func->ParmsSize);
+	for (TFieldIterator<FProperty> It(Func); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+		It->InitializeValue_InContainer(Buffer.GetData());
+
+	// Walk params: UObject* = Character, TArray = the constraints list
+	for (TFieldIterator<FProperty> It(Func); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+	{
+		FProperty* Prop = *It;
+		if (FObjectProperty* ObjProp = CastField<FObjectProperty>(Prop))
+		{
+			ObjProp->SetObjectPropertyValue_InContainer(Buffer.GetData(), Character);
+		}
+		else if (FArrayProperty* ArrayProp = CastField<FArrayProperty>(Prop))
+		{
+			FStructProperty* InnerStruct = CastField<FStructProperty>(ArrayProp->Inner);
+			if (!InnerStruct) continue;
+			void* ArrayValPtr = ArrayProp->ContainerPtrToValuePtr<void>(Buffer.GetData());
+			FScriptArrayHelper Helper(ArrayProp, ArrayValPtr);
+			for (const auto& Entry : *ConstraintsArray)
+			{
+				const TSharedPtr<FJsonObject>* EntryObj;
+				if (!Entry->TryGetObject(EntryObj)) continue;
+				int32 NewIdx = Helper.AddValue();
+				void* ElemPtr = Helper.GetRawPtr(NewIdx);
+				FString Name;
+				double Target = 0.0;
+				bool bActive = true;
+				(*EntryObj)->TryGetStringField(TEXT("name"), Name);
+				(*EntryObj)->TryGetNumberField(TEXT("target_measurement"), Target);
+				(*EntryObj)->TryGetBoolField(TEXT("active"), bActive);
+
+				if (FProperty* NameProp = InnerStruct->Struct->FindPropertyByName(FName(TEXT("Name"))))
+				{
+					void* NamePtr = NameProp->ContainerPtrToValuePtr<void>(ElemPtr);
+					NameProp->ImportText_Direct(*Name, NamePtr, nullptr, PPF_None);
+				}
+				if (FProperty* TargetProp = InnerStruct->Struct->FindPropertyByName(FName(TEXT("TargetMeasurement"))))
+				{
+					void* TargetPtr = TargetProp->ContainerPtrToValuePtr<void>(ElemPtr);
+					float Tf = static_cast<float>(Target);
+					FString TargetStr = FString::SanitizeFloat(Tf);
+					TargetProp->ImportText_Direct(*TargetStr, TargetPtr, nullptr, PPF_None);
+				}
+				if (FProperty* ActiveProp = InnerStruct->Struct->FindPropertyByName(FName(TEXT("bIsActive"))))
+				{
+					void* ActivePtr = ActiveProp->ContainerPtrToValuePtr<void>(ElemPtr);
+					ActiveProp->ImportText_Direct(bActive ? TEXT("true") : TEXT("false"), ActivePtr, nullptr, PPF_None);
+				}
+			}
+		}
+	}
+
+	Subsystem->ProcessEvent(Func, Buffer.GetData());
+
+	for (TFieldIterator<FProperty> It(Func); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+		It->DestroyValue_InContainer(Buffer.GetData());
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("character_path"), CharacterPath);
+	Result->SetNumberField(TEXT("constraints_set"), ConstraintsArray->Num());
+	Result->SetBoolField(TEXT("triggered"), true);
+	Result->SetStringField(TEXT("note"), TEXT("Body morph re-evaluates async. Call get_metahuman_body_constraints afterward to verify."));
+	return FECACommandResult::Success(Result);
+}
+
+// ============================================================================
+// set_metahuman_body_type
+// ============================================================================
+
+FECACommandResult FECACommand_SetMetaHumanBodyType::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString CharacterPath, BodyType;
+	if (!Params->TryGetStringField(TEXT("character_path"), CharacterPath) || CharacterPath.IsEmpty())
+		return FECACommandResult::Error(TEXT("Missing character_path"));
+	if (!Params->TryGetStringField(TEXT("body_type"), BodyType) || BodyType.IsEmpty())
+		return FECACommandResult::Error(TEXT("Missing body_type"));
+
+	FString Err;
+	UObject* Character = LoadMHCharacter(CharacterPath, Err);
+	if (!Character) return FECACommandResult::Error(Err);
+	OpenCharacterEditor(Character);
+
+	UEditorSubsystem* Subsystem = GetMHEditorSubsystem(Err);
+	if (!Subsystem) return FECACommandResult::Error(Err);
+
+	UFunction* Func = Subsystem->FindFunction(FName(TEXT("SetMetaHumanBodyType")));
+	if (!Func) return FECACommandResult::Error(TEXT("SetMetaHumanBodyType function not found"));
+
+	TArray<uint8> Buffer;
+	Buffer.SetNumZeroed(Func->ParmsSize);
+	for (TFieldIterator<FProperty> It(Func); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+		It->InitializeValue_InContainer(Buffer.GetData());
+
+	// Param 1: UObject*, param 2: EMetaHumanBodyType (byte enum), param 3: EBodyMeshUpdateMode (byte enum)
+	int32 ParamIdx = 0;
+	for (TFieldIterator<FProperty> It(Func); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+	{
+		FProperty* Prop = *It;
+		if (ParamIdx == 0 && CastField<FObjectProperty>(Prop))
+		{
+			CastField<FObjectProperty>(Prop)->SetObjectPropertyValue_InContainer(Buffer.GetData(), Character);
+		}
+		else if (ParamIdx == 1)
+		{
+			void* EnumPtr = Prop->ContainerPtrToValuePtr<void>(Buffer.GetData());
+			Prop->ImportText_Direct(*BodyType, EnumPtr, nullptr, PPF_None);
+		}
+		// Param 2 (update mode) stays at default (0 = immediate or whatever default is)
+		ParamIdx++;
+	}
+
+	Subsystem->ProcessEvent(Func, Buffer.GetData());
+
+	for (TFieldIterator<FProperty> It(Func); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+		It->DestroyValue_InContainer(Buffer.GetData());
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("character_path"), CharacterPath);
+	Result->SetStringField(TEXT("body_type"), BodyType);
+	Result->SetBoolField(TEXT("triggered"), true);
+	return FECACommandResult::Success(Result);
+}
+
+// ============================================================================
+// attach_metahuman_groom
+// ============================================================================
+
+FECACommandResult FECACommand_AttachMetaHumanGroom::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString CharacterPath, SlotName, WardrobePath;
+	if (!Params->TryGetStringField(TEXT("character_path"), CharacterPath) || CharacterPath.IsEmpty())
+		return FECACommandResult::Error(TEXT("Missing character_path"));
+	if (!Params->TryGetStringField(TEXT("slot_name"), SlotName) || SlotName.IsEmpty())
+		return FECACommandResult::Error(TEXT("Missing slot_name"));
+	if (!Params->TryGetStringField(TEXT("wardrobe_item_path"), WardrobePath) || WardrobePath.IsEmpty())
+		return FECACommandResult::Error(TEXT("Missing wardrobe_item_path"));
+
+	FString Err;
+	UObject* Character = LoadMHCharacter(CharacterPath, Err);
+	if (!Character) return FECACommandResult::Error(Err);
+
+	// Verify the wardrobe item exists + is the right class
+	UObject* WardrobeItem = LoadObject<UObject>(nullptr, *WardrobePath);
+	if (!WardrobeItem)
+		return FECACommandResult::Error(FString::Printf(TEXT("Wardrobe item not found: %s"), *WardrobePath));
+
+	UClass* WardrobeClass = FindObject<UClass>(nullptr, TEXT("/Script/MetaHumanCharacterPalette.MetaHumanWardrobeItem"));
+	if (WardrobeClass && !WardrobeItem->IsA(WardrobeClass))
+		return FECACommandResult::Error(TEXT("Asset is not a UMetaHumanWardrobeItem"));
+
+	// Find WardrobeIndividualAssets (TMap<FName, FMetaHumanCharacterWardrobeIndividualAssets>)
+	FProperty* MapProp = Character->GetClass()->FindPropertyByName(FName(TEXT("WardrobeIndividualAssets")));
+	if (!MapProp) return FECACommandResult::Error(TEXT("MetaHumanCharacter has no WardrobeIndividualAssets map"));
+	FMapProperty* TypedMapProp = CastField<FMapProperty>(MapProp);
+	if (!TypedMapProp) return FECACommandResult::Error(TEXT("WardrobeIndividualAssets is not a TMap"));
+
+	void* MapValPtr = TypedMapProp->ContainerPtrToValuePtr<void>(Character);
+	FScriptMapHelper MapHelper(TypedMapProp, MapValPtr);
+
+	// Find or add the slot entry
+	FName SlotKey(*SlotName);
+	int32 FoundIdx = -1;
+	for (int32 i = 0; i < MapHelper.GetMaxIndex(); i++)
+	{
+		if (!MapHelper.IsValidIndex(i)) continue;
+		FName* Key = reinterpret_cast<FName*>(MapHelper.GetKeyPtr(i));
+		if (Key && *Key == SlotKey) { FoundIdx = i; break; }
+	}
+
+	int32 PairIdx = FoundIdx;
+	if (PairIdx < 0)
+	{
+		PairIdx = MapHelper.AddDefaultValue_Invalid_NeedsRehash();
+		FName* NewKey = reinterpret_cast<FName*>(MapHelper.GetKeyPtr(PairIdx));
+		*NewKey = SlotKey;
+	}
+
+	// Get the value struct (FMetaHumanCharacterWardrobeIndividualAssets) which has TArray<TSoftObjectPtr<UMetaHumanWardrobeItem>> Items
+	void* ValuePtr = MapHelper.GetValuePtr(PairIdx);
+	FStructProperty* ValueStructProp = CastField<FStructProperty>(TypedMapProp->ValueProp);
+	if (!ValueStructProp) return FECACommandResult::Error(TEXT("Wardrobe map value is not a struct"));
+	FProperty* ItemsProp = ValueStructProp->Struct->FindPropertyByName(FName(TEXT("Items")));
+	if (!ItemsProp) return FECACommandResult::Error(TEXT("WardrobeIndividualAssets struct has no Items field"));
+	FArrayProperty* ItemsArrayProp = CastField<FArrayProperty>(ItemsProp);
+	if (!ItemsArrayProp) return FECACommandResult::Error(TEXT("Items is not a TArray"));
+
+	void* ItemsValPtr = ItemsArrayProp->ContainerPtrToValuePtr<void>(ValuePtr);
+	FScriptArrayHelper ItemsHelper(ItemsArrayProp, ItemsValPtr);
+
+	int32 NewItemIdx = ItemsHelper.AddValue();
+	void* NewItemPtr = ItemsHelper.GetRawPtr(NewItemIdx);
+	// Inner is a TSoftObjectPtr<UMetaHumanWardrobeItem> which is an FSoftObjectProperty
+	FSoftObjectProperty* SoftProp = CastField<FSoftObjectProperty>(ItemsArrayProp->Inner);
+	if (SoftProp)
+	{
+		FSoftObjectPtr NewPtr(WardrobeItem);
+		SoftProp->SetPropertyValue(NewItemPtr, NewPtr);
+	}
+
+	MapHelper.Rehash();
+	Character->PostEditChange();
+	Character->MarkPackageDirty();
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("character_path"), CharacterPath);
+	Result->SetStringField(TEXT("slot_name"), SlotName);
+	Result->SetStringField(TEXT("wardrobe_item_path"), WardrobePath);
+	Result->SetNumberField(TEXT("items_in_slot"), ItemsHelper.Num());
+	Result->SetBoolField(TEXT("attached"), true);
+	return FECACommandResult::Success(Result);
+}
 
 // Implementation lives further down the file after the other MH commands.
 FECACommandResult FECACommand_SetMetaHumanPreviewMode::Execute(const TSharedPtr<FJsonObject>& Params)
