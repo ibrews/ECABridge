@@ -235,6 +235,48 @@ public:
 };
 
 /**
+ * Re-run the MetaHuman character editor pipeline at preview quality.
+ * Refreshes the rendered preview after changes (face preset, makeup, grooms, etc.).
+ */
+class FECACommand_RefreshMetaHumanPreview : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("refresh_metahuman_preview"); }
+	virtual FString GetDescription() const override { return TEXT("Rebuild the MetaHuman preview at Preview quality. Needed after changing face preset, attaching grooms, changing body constraints — so the rendered character actually reflects the new settings. Calls RunCharacterEditorPipelineForPreview."); }
+	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("character_path"), TEXT("string"), TEXT("Content path to the MetaHumanCharacter"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Screenshot the MetaHuman character editor's preview viewport.
+ */
+class FECACommand_TakeMetaHumanEditorScreenshot : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("take_metahuman_editor_screenshot"); }
+	virtual FString GetDescription() const override { return TEXT("Capture a screenshot of the MetaHuman Character editor's preview viewport. This is the viewport that shows the character with full skin/hair/makeup rendering — NOT the main level viewport. Opens the editor first if needed, then captures."); }
+	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("character_path"), TEXT("string"), TEXT("Content path to the MetaHumanCharacter"), true },
+			{ TEXT("file_path"), TEXT("string"), TEXT("Absolute path to save the PNG (e.g., D:/Meridian.png)"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
  * List available MetaHuman wardrobe items (hair, beard, eyebrows, clothing) from the Engine.
  */
 class FECACommand_ListMetaHumanGrooms : public IECACommand

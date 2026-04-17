@@ -30,6 +30,13 @@
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
+#include "Framework/Application/SlateApplication.h"
+#include "Widgets/SWindow.h"
+#include "HAL/FileManager.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "ImageUtils.h"
+#include "ImageCore.h"
 
 // Forward declarations for helpers that live further down in the file
 static UObject* LoadMHCharacter(const FString& Path, FString& OutErrorMessage);
@@ -55,6 +62,147 @@ REGISTER_ECA_COMMAND(FECACommand_ListMetaHumanGrooms)
 REGISTER_ECA_COMMAND(FECACommand_ListMetaHumanPresets)
 REGISTER_ECA_COMMAND(FECACommand_SetMetaHumanFacePreset)
 REGISTER_ECA_COMMAND(FECACommand_SetMetaHumanMakeup)
+REGISTER_ECA_COMMAND(FECACommand_RefreshMetaHumanPreview)
+REGISTER_ECA_COMMAND(FECACommand_TakeMetaHumanEditorScreenshot)
+
+// ============================================================================
+// refresh_metahuman_preview
+// ============================================================================
+
+FECACommandResult FECACommand_RefreshMetaHumanPreview::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString CharacterPath;
+	if (!Params->TryGetStringField(TEXT("character_path"), CharacterPath) || CharacterPath.IsEmpty())
+		return FECACommandResult::Error(TEXT("Missing character_path"));
+
+	FString Err;
+	UObject* Character = LoadMHCharacter(CharacterPath, Err);
+	if (!Character) return FECACommandResult::Error(Err);
+	OpenCharacterEditor(Character);
+
+	UEditorSubsystem* Subsystem = GetMHEditorSubsystem(Err);
+	if (!Subsystem) return FECACommandResult::Error(Err);
+
+	UFunction* Func = Subsystem->FindFunction(FName(TEXT("RunCharacterEditorPipelineForPreview")));
+	if (!Func) return FECACommandResult::Error(TEXT("RunCharacterEditorPipelineForPreview not found"));
+
+	TArray<uint8> Buffer;
+	Buffer.SetNumZeroed(Func->ParmsSize);
+	for (TFieldIterator<FProperty> It(Func); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+		It->InitializeValue_InContainer(Buffer.GetData());
+	for (TFieldIterator<FProperty> It(Func); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+	{
+		if (FObjectProperty* ObjProp = CastField<FObjectProperty>(*It))
+		{
+			ObjProp->SetObjectPropertyValue_InContainer(Buffer.GetData(), Character);
+			break;
+		}
+	}
+	Subsystem->ProcessEvent(Func, Buffer.GetData());
+	for (TFieldIterator<FProperty> It(Func); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+		It->DestroyValue_InContainer(Buffer.GetData());
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("character_path"), CharacterPath);
+	Result->SetBoolField(TEXT("triggered"), true);
+	Result->SetStringField(TEXT("note"), TEXT("Preview pipeline re-run at Preview quality. Async — give it a few seconds for skin/hair/makeup to re-render."));
+	return FECACommandResult::Success(Result);
+}
+
+// ============================================================================
+// take_metahuman_editor_screenshot
+// ============================================================================
+
+FECACommandResult FECACommand_TakeMetaHumanEditorScreenshot::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString CharacterPath, FilePath;
+	if (!Params->TryGetStringField(TEXT("character_path"), CharacterPath) || CharacterPath.IsEmpty())
+		return FECACommandResult::Error(TEXT("Missing character_path"));
+	if (!Params->TryGetStringField(TEXT("file_path"), FilePath) || FilePath.IsEmpty())
+		return FECACommandResult::Error(TEXT("Missing file_path"));
+
+	FString Err;
+	UObject* Character = LoadMHCharacter(CharacterPath, Err);
+	if (!Character) return FECACommandResult::Error(Err);
+
+	// Open the MetaHuman editor and bring its tab to focus
+	OpenCharacterEditor(Character);
+
+	// Give Slate a frame to redraw
+	FSlateApplication::Get().Tick();
+
+	// Find a target window. Strategy:
+	//   1. Look for a top-level window whose title contains the character name (floating MH editor)
+	//   2. Fall back to the active top-level window
+	//   3. Fall back to the first visible interactive top-level window (main editor)
+	//   4. Fall back to the root window from the Slate renderer
+	TSharedPtr<SWindow> TargetWindow;
+	FString CharacterName = Character->GetName();
+	TArray<TSharedRef<SWindow>> AllWindows;
+	FSlateApplication::Get().GetAllVisibleWindowsOrdered(AllWindows);
+	for (const TSharedRef<SWindow>& Win : AllWindows)
+	{
+		FString Title = Win->GetTitle().ToString();
+		if (Title.Contains(CharacterName))
+		{
+			TargetWindow = Win;
+			break;
+		}
+	}
+	if (!TargetWindow.IsValid())
+	{
+		TargetWindow = FSlateApplication::Get().GetActiveTopLevelWindow();
+	}
+	if (!TargetWindow.IsValid() && AllWindows.Num() > 0)
+	{
+		// Pick the first regular visible window (skip tooltips etc.)
+		for (const TSharedRef<SWindow>& Win : AllWindows)
+		{
+			if (Win->IsRegularWindow() && Win->IsVisible())
+			{
+				TargetWindow = Win;
+				break;
+			}
+		}
+	}
+	if (!TargetWindow.IsValid())
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not find a window (visible window count: %d)"), AllWindows.Num()));
+	}
+
+	// Capture the whole window contents
+	TArray<FColor> ColorBuffer;
+	FIntVector OutSize;
+	bool bCaptured = FSlateApplication::Get().TakeScreenshot(TargetWindow.ToSharedRef(), ColorBuffer, OutSize);
+	if (!bCaptured || ColorBuffer.Num() == 0)
+	{
+		return FECACommandResult::Error(TEXT("TakeScreenshot returned no pixels"));
+	}
+
+	// Ensure directory exists
+	IFileManager::Get().MakeDirectory(*FPaths::GetPath(FilePath), true);
+
+	// Encode PNG via FImageUtils
+	TArray64<uint8> PngData;
+	FImageView ImgView(ColorBuffer.GetData(), OutSize.X, OutSize.Y, 1, ERawImageFormat::BGRA8, EGammaSpace::sRGB);
+	bool bSaved = FImageUtils::CompressImage(PngData, TEXT("png"), ImgView);
+	if (!bSaved)
+	{
+		return FECACommandResult::Error(TEXT("Failed to encode PNG"));
+	}
+	if (!FFileHelper::SaveArrayToFile(TArrayView64<const uint8>(PngData.GetData(), PngData.Num()), *FilePath))
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Failed to write file: %s"), *FilePath));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("character_path"), CharacterPath);
+	Result->SetStringField(TEXT("file_path"), FilePath);
+	Result->SetNumberField(TEXT("width"), OutSize.X);
+	Result->SetNumberField(TEXT("height"), OutSize.Y);
+	Result->SetStringField(TEXT("window_title"), TargetWindow->GetTitle().ToString());
+	return FECACommandResult::Success(Result);
+}
 
 // ============================================================================
 // list_metahuman_grooms
