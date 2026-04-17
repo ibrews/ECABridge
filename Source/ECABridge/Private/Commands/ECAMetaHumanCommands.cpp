@@ -803,6 +803,13 @@ FECACommandResult FECACommand_SetMetaHumanBodyType::Execute(const TSharedPtr<FJs
 // attach_metahuman_groom
 // ============================================================================
 
+// The correct attach path is:
+//   Character->InternalCollection->TryAddItemFromWardrobeItem(SlotName, WardrobeItem, OutKey)
+//   Character->InternalCollection->DefaultInstance->SetSingleSlotSelection(SlotName, OutKey)
+// ...which is what the editor's Wardrobe UI does internally. Writing to
+// WardrobeIndividualAssets alone (as the previous implementation did) is insufficient because
+// that map is a secondary registry; the editor reads the Collection's palette + the Instance's
+// slot selection to determine what to render.
 FECACommandResult FECACommand_AttachMetaHumanGroom::Execute(const TSharedPtr<FJsonObject>& Params)
 {
 	FString CharacterPath, SlotName, WardrobePath;
@@ -817,7 +824,6 @@ FECACommandResult FECACommand_AttachMetaHumanGroom::Execute(const TSharedPtr<FJs
 	UObject* Character = LoadMHCharacter(CharacterPath, Err);
 	if (!Character) return FECACommandResult::Error(Err);
 
-	// Verify the wardrobe item exists + is the right class
 	UObject* WardrobeItem = LoadObject<UObject>(nullptr, *WardrobePath);
 	if (!WardrobeItem)
 		return FECACommandResult::Error(FString::Printf(TEXT("Wardrobe item not found: %s"), *WardrobePath));
@@ -826,65 +832,181 @@ FECACommandResult FECACommand_AttachMetaHumanGroom::Execute(const TSharedPtr<FJs
 	if (WardrobeClass && !WardrobeItem->IsA(WardrobeClass))
 		return FECACommandResult::Error(TEXT("Asset is not a UMetaHumanWardrobeItem"));
 
-	// Find WardrobeIndividualAssets (TMap<FName, FMetaHumanCharacterWardrobeIndividualAssets>)
-	FProperty* MapProp = Character->GetClass()->FindPropertyByName(FName(TEXT("WardrobeIndividualAssets")));
-	if (!MapProp) return FECACommandResult::Error(TEXT("MetaHumanCharacter has no WardrobeIndividualAssets map"));
-	FMapProperty* TypedMapProp = CastField<FMapProperty>(MapProp);
-	if (!TypedMapProp) return FECACommandResult::Error(TEXT("WardrobeIndividualAssets is not a TMap"));
+	// Get the internal Collection via reflection on the InternalCollection UPROPERTY
+	FProperty* CollectionProp = Character->GetClass()->FindPropertyByName(FName(TEXT("InternalCollection")));
+	if (!CollectionProp) return FECACommandResult::Error(TEXT("Character has no InternalCollection property"));
+	FObjectProperty* CollectionObjProp = CastField<FObjectProperty>(CollectionProp);
+	if (!CollectionObjProp) return FECACommandResult::Error(TEXT("InternalCollection is not an object property"));
+	UObject* Collection = CollectionObjProp->GetObjectPropertyValue_InContainer(Character);
+	if (!Collection) return FECACommandResult::Error(TEXT("InternalCollection is null — is the character initialized?"));
 
-	void* MapValPtr = TypedMapProp->ContainerPtrToValuePtr<void>(Character);
-	FScriptMapHelper MapHelper(TypedMapProp, MapValPtr);
+	// Step 1: TryAddItemFromWardrobeItem(FName SlotName, UMetaHumanWardrobeItem* WardrobeItem, FMetaHumanPaletteItemKey& OutNewItemKey) -> bool
+	UFunction* AddFunc = Collection->FindFunction(FName(TEXT("TryAddItemFromWardrobeItem")));
+	if (!AddFunc) return FECACommandResult::Error(TEXT("TryAddItemFromWardrobeItem function not found on Collection"));
 
-	// Find or add the slot entry
+	TArray<uint8> AddBuffer;
+	AddBuffer.SetNumZeroed(AddFunc->ParmsSize);
+	for (TFieldIterator<FProperty> It(AddFunc); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+		It->InitializeValue_InContainer(AddBuffer.GetData());
+
+	// Find each param by name and fill it in
 	FName SlotKey(*SlotName);
-	int32 FoundIdx = -1;
-	for (int32 i = 0; i < MapHelper.GetMaxIndex(); i++)
+	for (TFieldIterator<FProperty> It(AddFunc); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
 	{
-		if (!MapHelper.IsValidIndex(i)) continue;
-		FName* Key = reinterpret_cast<FName*>(MapHelper.GetKeyPtr(i));
-		if (Key && *Key == SlotKey) { FoundIdx = i; break; }
+		FProperty* Prop = *It;
+		FString PropName = Prop->GetName();
+		void* ValPtr = Prop->ContainerPtrToValuePtr<void>(AddBuffer.GetData());
+		if (PropName.Equals(TEXT("SlotName"), ESearchCase::IgnoreCase))
+		{
+			if (FNameProperty* NameProp = CastField<FNameProperty>(Prop))
+				NameProp->SetPropertyValue(ValPtr, SlotKey);
+		}
+		else if (PropName.Equals(TEXT("WardrobeItem"), ESearchCase::IgnoreCase))
+		{
+			if (FObjectProperty* ObjProp = CastField<FObjectProperty>(Prop))
+				ObjProp->SetObjectPropertyValue(ValPtr, WardrobeItem);
+		}
+		// OutNewItemKey stays default-initialized; we read it after the call
 	}
 
-	int32 PairIdx = FoundIdx;
-	if (PairIdx < 0)
+	Collection->ProcessEvent(AddFunc, AddBuffer.GetData());
+
+	// Read back the return value (bool) and OutKey
+	bool bAdded = false;
+	TArray<uint8> SavedKeyBytes;
+	FStructProperty* KeyStructProp = nullptr;
+	for (TFieldIterator<FProperty> It(AddFunc); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
 	{
-		PairIdx = MapHelper.AddDefaultValue_Invalid_NeedsRehash();
-		FName* NewKey = reinterpret_cast<FName*>(MapHelper.GetKeyPtr(PairIdx));
-		*NewKey = SlotKey;
+		FProperty* Prop = *It;
+		if (Prop->HasAnyPropertyFlags(CPF_ReturnParm))
+		{
+			if (FBoolProperty* BoolProp = CastField<FBoolProperty>(Prop))
+				bAdded = BoolProp->GetPropertyValue_InContainer(AddBuffer.GetData());
+		}
+		else if (Prop->HasAnyPropertyFlags(CPF_OutParm))
+		{
+			if (FStructProperty* SP = CastField<FStructProperty>(Prop))
+			{
+				// Save a copy of the key struct bytes so we can pass them to the next call
+				KeyStructProp = SP;
+				void* KeyPtr = SP->ContainerPtrToValuePtr<void>(AddBuffer.GetData());
+				int32 KeySize = SP->Struct->GetStructureSize();
+				SavedKeyBytes.SetNumZeroed(KeySize);
+				SP->Struct->CopyScriptStruct(SavedKeyBytes.GetData(), KeyPtr);
+			}
+		}
 	}
 
-	// Get the value struct (FMetaHumanCharacterWardrobeIndividualAssets) which has TArray<TSoftObjectPtr<UMetaHumanWardrobeItem>> Items
-	void* ValuePtr = MapHelper.GetValuePtr(PairIdx);
-	FStructProperty* ValueStructProp = CastField<FStructProperty>(TypedMapProp->ValueProp);
-	if (!ValueStructProp) return FECACommandResult::Error(TEXT("Wardrobe map value is not a struct"));
-	FProperty* ItemsProp = ValueStructProp->Struct->FindPropertyByName(FName(TEXT("Items")));
-	if (!ItemsProp) return FECACommandResult::Error(TEXT("WardrobeIndividualAssets struct has no Items field"));
-	FArrayProperty* ItemsArrayProp = CastField<FArrayProperty>(ItemsProp);
-	if (!ItemsArrayProp) return FECACommandResult::Error(TEXT("Items is not a TArray"));
+	for (TFieldIterator<FProperty> It(AddFunc); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+		It->DestroyValue_InContainer(AddBuffer.GetData());
 
-	void* ItemsValPtr = ItemsArrayProp->ContainerPtrToValuePtr<void>(ValuePtr);
-	FScriptArrayHelper ItemsHelper(ItemsArrayProp, ItemsValPtr);
+	if (!KeyStructProp)
+		return FECACommandResult::Error(TEXT("Could not locate OutNewItemKey struct in TryAddItemFromWardrobeItem signature"));
 
-	int32 NewItemIdx = ItemsHelper.AddValue();
-	void* NewItemPtr = ItemsHelper.GetRawPtr(NewItemIdx);
-	// Inner is a TSoftObjectPtr<UMetaHumanWardrobeItem> which is an FSoftObjectProperty
-	FSoftObjectProperty* SoftProp = CastField<FSoftObjectProperty>(ItemsArrayProp->Inner);
-	if (SoftProp)
+	// Step 2: Get DefaultInstance from the Collection
+	FProperty* InstanceProp = Collection->GetClass()->FindPropertyByName(FName(TEXT("DefaultInstance")));
+	if (!InstanceProp) return FECACommandResult::Error(TEXT("Collection has no DefaultInstance property"));
+	FObjectProperty* InstanceObjProp = CastField<FObjectProperty>(InstanceProp);
+	UObject* Instance = InstanceObjProp ? InstanceObjProp->GetObjectPropertyValue_InContainer(Collection) : nullptr;
+	if (!Instance) return FECACommandResult::Error(TEXT("DefaultInstance is null"));
+
+	// Step 3: SetSingleSlotSelection(FName SlotName, const FMetaHumanPaletteItemKey& ItemKey)
+	UFunction* SelectFunc = Instance->FindFunction(FName(TEXT("SetSingleSlotSelection")));
+	if (!SelectFunc) return FECACommandResult::Error(TEXT("SetSingleSlotSelection function not found on Instance"));
+
+	TArray<uint8> SelectBuffer;
+	SelectBuffer.SetNumZeroed(SelectFunc->ParmsSize);
+	for (TFieldIterator<FProperty> It(SelectFunc); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+		It->InitializeValue_InContainer(SelectBuffer.GetData());
+
+	for (TFieldIterator<FProperty> It(SelectFunc); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
 	{
-		FSoftObjectPtr NewPtr(WardrobeItem);
-		SoftProp->SetPropertyValue(NewItemPtr, NewPtr);
+		FProperty* Prop = *It;
+		FString PropName = Prop->GetName();
+		void* ValPtr = Prop->ContainerPtrToValuePtr<void>(SelectBuffer.GetData());
+		if (PropName.Equals(TEXT("SlotName"), ESearchCase::IgnoreCase))
+		{
+			if (FNameProperty* NameProp = CastField<FNameProperty>(Prop))
+				NameProp->SetPropertyValue(ValPtr, SlotKey);
+		}
+		else if (PropName.Equals(TEXT("ItemKey"), ESearchCase::IgnoreCase))
+		{
+			// Copy the saved key bytes into this struct param
+			if (FStructProperty* SP = CastField<FStructProperty>(Prop))
+			{
+				SP->Struct->CopyScriptStruct(ValPtr, SavedKeyBytes.GetData());
+			}
+		}
 	}
 
-	MapHelper.Rehash();
+	Instance->ProcessEvent(SelectFunc, SelectBuffer.GetData());
+
+	for (TFieldIterator<FProperty> It(SelectFunc); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+		It->DestroyValue_InContainer(SelectBuffer.GetData());
+
+	// Also write to WardrobeIndividualAssets so the Wardrobe UI tab shows the item as "owned"
+	FProperty* MapProp = Character->GetClass()->FindPropertyByName(FName(TEXT("WardrobeIndividualAssets")));
+	if (FMapProperty* TypedMapProp = CastField<FMapProperty>(MapProp))
+	{
+		void* MapValPtr = TypedMapProp->ContainerPtrToValuePtr<void>(Character);
+		FScriptMapHelper MapHelper(TypedMapProp, MapValPtr);
+		int32 FoundIdx = -1;
+		for (int32 i = 0; i < MapHelper.GetMaxIndex(); i++)
+		{
+			if (!MapHelper.IsValidIndex(i)) continue;
+			FName* Key = reinterpret_cast<FName*>(MapHelper.GetKeyPtr(i));
+			if (Key && *Key == SlotKey) { FoundIdx = i; break; }
+		}
+		int32 PairIdx = FoundIdx;
+		if (PairIdx < 0)
+		{
+			PairIdx = MapHelper.AddDefaultValue_Invalid_NeedsRehash();
+			FName* NewKey = reinterpret_cast<FName*>(MapHelper.GetKeyPtr(PairIdx));
+			*NewKey = SlotKey;
+		}
+		if (FStructProperty* ValueStructProp = CastField<FStructProperty>(TypedMapProp->ValueProp))
+		{
+			void* ValuePtr = MapHelper.GetValuePtr(PairIdx);
+			if (FProperty* ItemsProp = ValueStructProp->Struct->FindPropertyByName(FName(TEXT("Items"))))
+			{
+				if (FArrayProperty* ItemsArrayProp = CastField<FArrayProperty>(ItemsProp))
+				{
+					void* ItemsValPtr = ItemsArrayProp->ContainerPtrToValuePtr<void>(ValuePtr);
+					FScriptArrayHelper ItemsHelper(ItemsArrayProp, ItemsValPtr);
+					// Check if this wardrobe item is already in the list
+					bool bAlreadyListed = false;
+					if (FSoftObjectProperty* SoftProp = CastField<FSoftObjectProperty>(ItemsArrayProp->Inner))
+					{
+						for (int32 i = 0; i < ItemsHelper.Num(); i++)
+						{
+							FSoftObjectPtr Existing = SoftProp->GetPropertyValue(ItemsHelper.GetRawPtr(i));
+							if (Existing.Get() == WardrobeItem) { bAlreadyListed = true; break; }
+						}
+						if (!bAlreadyListed)
+						{
+							int32 NewItemIdx = ItemsHelper.AddValue();
+							void* NewItemPtr = ItemsHelper.GetRawPtr(NewItemIdx);
+							FSoftObjectPtr NewPtr(WardrobeItem);
+							SoftProp->SetPropertyValue(NewItemPtr, NewPtr);
+						}
+					}
+				}
+			}
+		}
+		MapHelper.Rehash();
+	}
+
 	Character->PostEditChange();
 	Character->MarkPackageDirty();
+	Collection->MarkPackageDirty();
 
 	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 	Result->SetStringField(TEXT("character_path"), CharacterPath);
 	Result->SetStringField(TEXT("slot_name"), SlotName);
 	Result->SetStringField(TEXT("wardrobe_item_path"), WardrobePath);
-	Result->SetNumberField(TEXT("items_in_slot"), ItemsHelper.Num());
-	Result->SetBoolField(TEXT("attached"), true);
+	Result->SetBoolField(TEXT("added_to_collection"), bAdded);
+	Result->SetBoolField(TEXT("selected_in_instance"), true);
+	Result->SetStringField(TEXT("note"), TEXT("Called TryAddItemFromWardrobeItem on Collection, then SetSingleSlotSelection on DefaultInstance. The groom should render in the preview after the next refresh_metahuman_preview call."));
 	return FECACommandResult::Success(Result);
 }
 
