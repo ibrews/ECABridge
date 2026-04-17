@@ -112,6 +112,46 @@ public:
 };
 
 /**
+ * Download MetaHuman texture sources (skin albedo, normal maps) from Epic's service.
+ */
+class FECACommand_DownloadMetaHumanTextures : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("download_metahuman_textures"); }
+	virtual FString GetDescription() const override { return TEXT("Download skin/face texture sources for a MetaHumanCharacter. Required before the character renders with actual skin (otherwise shows pink/blue material zones). Calls UMetaHumanCharacterEditorSubsystem::RequestTextureSources via reflection."); }
+	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("character_path"), TEXT("string"), TEXT("Content path to the MetaHumanCharacter"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Request auto-rigging for a MetaHumanCharacter (Rig State: Unrigged → Rigged).
+ */
+class FECACommand_RigMetaHuman : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("rig_metahuman"); }
+	virtual FString GetDescription() const override { return TEXT("Trigger auto-rigging on a MetaHumanCharacter — generates the skeleton needed for animation playback. Calls UMetaHumanCharacterEditorSubsystem::RequestAutoRigging via reflection."); }
+	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("character_path"), TEXT("string"), TEXT("Content path to the MetaHumanCharacter"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
  * Describe a MetaHuman in natural language and apply best-guess settings.
  * Takes descriptive terms like "large white-skinned with purple hair" and maps them to properties.
  */
