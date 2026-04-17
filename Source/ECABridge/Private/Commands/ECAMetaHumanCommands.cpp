@@ -37,6 +37,11 @@
 #include "Misc/Paths.h"
 #include "ImageUtils.h"
 #include "ImageCore.h"
+#include "Components/MeshComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "EngineUtils.h"
+#include "Engine/World.h"
+#include "GameFramework/Actor.h"
 
 // Forward declarations for helpers that live further down in the file
 static UObject* LoadMHCharacter(const FString& Path, FString& OutErrorMessage);
@@ -64,6 +69,151 @@ REGISTER_ECA_COMMAND(FECACommand_SetMetaHumanFacePreset)
 REGISTER_ECA_COMMAND(FECACommand_SetMetaHumanMakeup)
 REGISTER_ECA_COMMAND(FECACommand_RefreshMetaHumanPreview)
 REGISTER_ECA_COMMAND(FECACommand_TakeMetaHumanEditorScreenshot)
+REGISTER_ECA_COMMAND(FECACommand_TintMetaHumanOutfit)
+
+// ============================================================================
+// tint_metahuman_outfit
+// ============================================================================
+
+static FLinearColor ReadColorField(const TSharedPtr<FJsonObject>& Obj)
+{
+	double R = 1, G = 1, B = 1, A = 1;
+	Obj->TryGetNumberField(TEXT("r"), R);
+	Obj->TryGetNumberField(TEXT("g"), G);
+	Obj->TryGetNumberField(TEXT("b"), B);
+	Obj->TryGetNumberField(TEXT("a"), A);
+	return FLinearColor((float)R, (float)G, (float)B, (float)A);
+}
+
+FECACommandResult FECACommand_TintMetaHumanOutfit::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString ActorName;
+	if (!Params->TryGetStringField(TEXT("actor_name"), ActorName) || ActorName.IsEmpty())
+		return FECACommandResult::Error(TEXT("Missing actor_name"));
+
+	bool bHasShirt = false, bHasShorts = false;
+	FLinearColor ShirtColor(1, 1, 1, 1), ShortsColor(1, 1, 1, 1);
+	const TSharedPtr<FJsonObject>* ShirtObj = nullptr;
+	if (Params->TryGetObjectField(TEXT("shirt_color"), ShirtObj) && ShirtObj && ShirtObj->IsValid())
+	{
+		ShirtColor = ReadColorField(*ShirtObj);
+		bHasShirt = true;
+	}
+	const TSharedPtr<FJsonObject>* ShortsObj = nullptr;
+	if (Params->TryGetObjectField(TEXT("shorts_color"), ShortsObj) && ShortsObj && ShortsObj->IsValid())
+	{
+		ShortsColor = ReadColorField(*ShortsObj);
+		bHasShorts = true;
+	}
+	if (!bHasShirt && !bHasShorts)
+		return FECACommandResult::Error(TEXT("Provide at least one of shirt_color, shorts_color"));
+
+	// Find actor in editor world
+	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+	if (!World) return FECACommandResult::Error(TEXT("No editor world"));
+
+	AActor* TargetActor = nullptr;
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* A = *It;
+		if (A && (A->GetName() == ActorName || A->GetActorLabel() == ActorName))
+		{
+			TargetActor = A;
+			break;
+		}
+	}
+	if (!TargetActor) return FECACommandResult::Error(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+
+	// Find all mesh components (SkeletalMeshComponent + StaticMeshComponent for outfit)
+	TArray<UMeshComponent*> MeshComps;
+	TargetActor->GetComponents<UMeshComponent>(MeshComps);
+
+	TArray<TSharedPtr<FJsonValue>> AppliedSlots;
+	int32 TintedCount = 0;
+
+	for (UMeshComponent* MeshComp : MeshComps)
+	{
+		if (!MeshComp) continue;
+		int32 NumMaterials = MeshComp->GetNumMaterials();
+		for (int32 SlotIdx = 0; SlotIdx < NumMaterials; SlotIdx++)
+		{
+			UMaterialInterface* Mat = MeshComp->GetMaterial(SlotIdx);
+			if (!Mat) continue;
+			FString MatName = Mat->GetName();
+			FString SlotName = MeshComp->GetMaterialSlotNames().IsValidIndex(SlotIdx)
+				? MeshComp->GetMaterialSlotNames()[SlotIdx].ToString() : FString();
+
+			// Classify. Priority:
+			//   explicit "Shirt"/"Top" material name -> shirt
+			//   explicit "Short"/"Pant"/"Bottom" -> shorts
+			//   generic Body material (no face/eye/hair/teeth/hide) -> treat as "shirt" (full-body outfit)
+			bool bIsShirt = MatName.Contains(TEXT("Shirt")) || MatName.Contains(TEXT("Top"))
+				|| SlotName.Contains(TEXT("Shirt")) || SlotName.Contains(TEXT("Top"));
+			bool bIsShorts = MatName.Contains(TEXT("Shorts")) || MatName.Contains(TEXT("Pant")) || MatName.Contains(TEXT("Bottom"))
+				|| SlotName.Contains(TEXT("Shorts")) || SlotName.Contains(TEXT("Pant")) || SlotName.Contains(TEXT("Bottom"));
+
+			// Fallback: treat the Body material on a skeletal mesh as the outfit proxy
+			// (editor preview actors use one Body material covering where the outfit would be)
+			bool bIsBodyProxy = false;
+			FString CompName = MeshComp->GetName();
+			if (!bIsShirt && !bIsShorts && CompName.Equals(TEXT("Body"), ESearchCase::IgnoreCase))
+			{
+				bIsBodyProxy = true;
+			}
+
+			FLinearColor Color;
+			bool bShouldTint = false;
+			const TCHAR* Category = TEXT("");
+			if (bIsShirt && bHasShirt) { Color = ShirtColor; bShouldTint = true; Category = TEXT("shirt"); }
+			else if (bIsShorts && bHasShorts) { Color = ShortsColor; bShouldTint = true; Category = TEXT("shorts"); }
+			else if (bIsBodyProxy && bHasShirt) { Color = ShirtColor; bShouldTint = true; Category = TEXT("body_outfit_proxy"); }
+			if (!bShouldTint) continue;
+
+			// Create a dynamic material instance and set a common color parameter
+			UMaterialInstanceDynamic* MID = MeshComp->CreateAndSetMaterialInstanceDynamic(SlotIdx);
+			if (!MID) continue;
+
+			// Try several common parameter names that clothing materials use
+			const TCHAR* ColorParamNames[] = { TEXT("BaseColor"), TEXT("Color"), TEXT("Tint"), TEXT("MainColor"), TEXT("ClothColor"), TEXT("Albedo") };
+			for (const TCHAR* ParamName : ColorParamNames)
+			{
+				MID->SetVectorParameterValue(FName(ParamName), Color);
+			}
+			// Also drive any parameter that has "Color" in its name dynamically
+			TArray<FMaterialParameterInfo> VectorParams;
+			TArray<FGuid> VectorGuids;
+			MID->GetAllVectorParameterInfo(VectorParams, VectorGuids);
+			for (const FMaterialParameterInfo& Info : VectorParams)
+			{
+				FString PName = Info.Name.ToString();
+				if (PName.Contains(TEXT("Color")) || PName.Contains(TEXT("Tint")) || PName.Contains(TEXT("Albedo")))
+				{
+					MID->SetVectorParameterValueByInfo(Info, Color);
+				}
+			}
+
+			TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+			Entry->SetStringField(TEXT("slot_name"), SlotName);
+			Entry->SetStringField(TEXT("material"), MatName);
+			Entry->SetStringField(TEXT("category"), Category);
+			Entry->SetStringField(TEXT("color"), FString::Printf(TEXT("%.2f,%.2f,%.2f,%.2f"), Color.R, Color.G, Color.B, Color.A));
+			AppliedSlots.Add(MakeShared<FJsonValueObject>(Entry));
+			TintedCount++;
+		}
+		MeshComp->MarkRenderStateDirty();
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("actor_name"), ActorName);
+	Result->SetNumberField(TEXT("mesh_components"), MeshComps.Num());
+	Result->SetNumberField(TEXT("slots_tinted"), TintedCount);
+	Result->SetArrayField(TEXT("applied"), AppliedSlots);
+	if (TintedCount == 0)
+	{
+		Result->SetStringField(TEXT("note"), TEXT("No matching material slots found. The actor may not be fully built yet — the pipeline assembles outfit meshes asynchronously. Try spawning the actor again after the build completes, or check that the character has an Outfit slot attached."));
+	}
+	return FECACommandResult::Success(Result);
+}
 
 // ============================================================================
 // refresh_metahuman_preview

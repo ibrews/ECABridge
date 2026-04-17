@@ -256,6 +256,29 @@ public:
 };
 
 /**
+ * Tint a MetaHuman's outfit on a spawned actor in the level.
+ * Creates a dynamic material instance per mesh component slot so the color is per-actor.
+ */
+class FECACommand_TintMetaHumanOutfit : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("tint_metahuman_outfit"); }
+	virtual FString GetDescription() const override { return TEXT("Tint a spawned MetaHuman actor's outfit colors (shirt/top and shorts/pants) by creating per-actor dynamic material instances. Takes the actor_name from spawn_metahuman_actor. Colors are RGBA 0-1."); }
+	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("actor_name"), TEXT("string"), TEXT("Name of the spawned MetaHuman actor in the level (e.g., MetaHumanDefaultEditorPipelineActor_0)"), true },
+			{ TEXT("shirt_color"), TEXT("object"), TEXT("Shirt/top color {r,g,b,a} 0-1"), false },
+			{ TEXT("shorts_color"), TEXT("object"), TEXT("Shorts/pants color {r,g,b,a} 0-1"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
  * Screenshot the MetaHuman character editor's preview viewport.
  */
 class FECACommand_TakeMetaHumanEditorScreenshot : public IECACommand
