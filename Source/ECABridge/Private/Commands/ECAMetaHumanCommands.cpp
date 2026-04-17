@@ -153,15 +153,16 @@ static FECACommandResult CallMHEditorFunction(const TSharedPtr<FJsonObject>& Par
 	return FECACommandResult::Success(Result);
 }
 
-// Note: RequestTextureSources and RequestAutoRigging have internal state preconditions
-// (Epic MetaHuman service sign-in, registered UI callbacks, pipeline context) that are only
-// satisfied when invoked from the MetaHuman Character editor toolkit. Calling them externally
-// via ProcessEvent triggers assertion failures (TMap lookup with missing key). These commands
-// therefore open the MetaHuman editor and instruct the user to click the corresponding button.
-FECACommandResult FECACommand_DownloadMetaHumanTextures::Execute(const TSharedPtr<FJsonObject>& Params)
+// These commands invoke UMetaHumanCharacterEditorSubsystem functions via reflection.
+// They require the user to be signed in to Epic (click the person icon in the MetaHuman editor toolbar)
+// because the cloud services (texture synthesis, auto-rigging, build pipeline) need an auth session.
+// If the user hasn't signed in, the subsystem hits an assertion in a TMap auth-token lookup.
+// Safe mode: before calling, this command opens the MetaHuman editor window to force auth state init.
+
+static FECACommandResult EnsureEditorOpenThenCall(const TSharedPtr<FJsonObject>& Params, const FString& FuncName, const FString& OperationLabel)
 {
 	FString CharacterPath;
-	if (!GetStringParam(Params, TEXT("character_path"), CharacterPath))
+	if (!Params->TryGetStringField(TEXT("character_path"), CharacterPath) || CharacterPath.IsEmpty())
 	{
 		return FECACommandResult::Error(TEXT("Missing required parameter: character_path"));
 	}
@@ -172,46 +173,24 @@ FECACommandResult FECACommand_DownloadMetaHumanTextures::Execute(const TSharedPt
 		return FECACommandResult::Error(FString::Printf(TEXT("Failed to load asset: %s"), *CharacterPath));
 	}
 
-	UAssetEditorSubsystem* EditorSubsystem = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr;
-	if (EditorSubsystem)
+	// Open the MetaHuman editor first — initializes toolkit state, auth callbacks, pipeline context.
+	UAssetEditorSubsystem* AssetEditorSubsystem = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr;
+	if (AssetEditorSubsystem)
 	{
-		EditorSubsystem->OpenEditorForAsset(Asset);
+		AssetEditorSubsystem->OpenEditorForAsset(Asset);
 	}
 
-	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-	Result->SetStringField(TEXT("character_path"), CharacterPath);
-	Result->SetStringField(TEXT("status"), TEXT("editor_opened"));
-	Result->SetStringField(TEXT("next_action"), TEXT("Click 'Download Texture Sources' button in the MetaHuman editor toolbar (top row)."));
-	Result->SetStringField(TEXT("why_not_automated"), TEXT("RequestTextureSources requires Epic MetaHuman service sign-in and registered UI callbacks that are only initialized when invoked from the editor toolkit. Calling it externally causes an assertion failure."));
-	return FECACommandResult::Success(Result);
+	return CallMHEditorFunction(Params, FuncName, OperationLabel);
+}
+
+FECACommandResult FECACommand_DownloadMetaHumanTextures::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	return EnsureEditorOpenThenCall(Params, TEXT("RequestTextureSources"), TEXT("download_textures"));
 }
 
 FECACommandResult FECACommand_RigMetaHuman::Execute(const TSharedPtr<FJsonObject>& Params)
 {
-	FString CharacterPath;
-	if (!GetStringParam(Params, TEXT("character_path"), CharacterPath))
-	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: character_path"));
-	}
-
-	UObject* Asset = LoadObject<UObject>(nullptr, *CharacterPath);
-	if (!Asset)
-	{
-		return FECACommandResult::Error(FString::Printf(TEXT("Failed to load asset: %s"), *CharacterPath));
-	}
-
-	UAssetEditorSubsystem* EditorSubsystem = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr;
-	if (EditorSubsystem)
-	{
-		EditorSubsystem->OpenEditorForAsset(Asset);
-	}
-
-	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-	Result->SetStringField(TEXT("character_path"), CharacterPath);
-	Result->SetStringField(TEXT("status"), TEXT("editor_opened"));
-	Result->SetStringField(TEXT("next_action"), TEXT("Click 'Create Full Rig' or 'Create Joints Only Rig' button in the MetaHuman editor toolbar (top row)."));
-	Result->SetStringField(TEXT("why_not_automated"), TEXT("RequestAutoRigging requires registered pipeline context initialized by the editor toolkit. Calling it externally causes an assertion failure."));
-	return FECACommandResult::Success(Result);
+	return EnsureEditorOpenThenCall(Params, TEXT("RequestAutoRigging"), TEXT("auto_rig"));
 }
 
 //==============================================================================
@@ -1188,23 +1167,21 @@ FECACommandResult FECACommand_BuildMetaHuman::Execute(const TSharedPtr<FJsonObje
 		if (BuildFunc) FoundName = TEXT("AssembleCollection");
 	}
 
-	// Don't actually invoke BuildMetaHuman — same state-precondition issue as RequestTextureSources.
-	// Instead, open the editor and tell the user to click Build.
+	// Open the MetaHuman editor first to initialize auth/toolkit state, then invoke.
 	UAssetEditorSubsystem* AssetEditorSubsystem = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr;
 	if (AssetEditorSubsystem)
 	{
 		AssetEditorSubsystem->OpenEditorForAsset(AssetObj);
 	}
 
+	if (BuildFunc)
+	{
+		return CallMHEditorFunction(Params, FoundName, TEXT("build"));
+	}
+
+	// No known build function found — list what's available
 	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 	Result->SetStringField(TEXT("character_path"), CharacterPath);
-	Result->SetStringField(TEXT("status"), TEXT("editor_opened"));
-	Result->SetStringField(TEXT("detected_function"), BuildFunc ? FoundName : TEXT("none"));
-	Result->SetStringField(TEXT("next_action"), TEXT("Click 'Assemble' tab (left side) then the Build button in the MetaHuman editor, or use File > Build MetaHumans from the menu. Your data settings (skin, eyes, etc.) are already saved and will be applied."));
-	Result->SetStringField(TEXT("why_not_automated"), TEXT("BuildMetaHuman requires pipeline context and async callback registration that are only initialized when invoked from the editor toolkit. Calling it externally causes assertion failures."));
-	Result->SetBoolField(TEXT("triggered"), false);
-
-	// Still include available_functions for future diagnosis
 	TArray<TSharedPtr<FJsonValue>> AvailableFuncs;
 	for (TFieldIterator<UFunction> FuncIt(EditorSubsystemClass); FuncIt; ++FuncIt)
 	{
@@ -1215,5 +1192,7 @@ FECACommandResult FECACommand_BuildMetaHuman::Execute(const TSharedPtr<FJsonObje
 		}
 	}
 	Result->SetArrayField(TEXT("available_functions"), AvailableFuncs);
+	Result->SetStringField(TEXT("note"), TEXT("No known build function found. Pick one from available_functions."));
+	Result->SetBoolField(TEXT("triggered"), false);
 	return FECACommandResult::Success(Result);
 }
