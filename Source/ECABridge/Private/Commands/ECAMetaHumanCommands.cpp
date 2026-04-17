@@ -901,16 +901,19 @@ FECACommandResult FECACommand_SetMetaHumanPreviewMode::Execute(const TSharedPtr<
 		return FECACommandResult::Error(TEXT("Missing required parameter: mode (skin, topology, or clay)"));
 	}
 
-	// Map user-friendly mode names to the EMetaHumanCharacterSkinPreviewMaterial enum names
+	// Map user-friendly mode names to the EMetaHumanCharacterSkinPreviewMaterial enum names.
+	// NOTE: Epic's enum DisplayNames are inverted from their C++ names — the enum 'Default'
+	// displays as "Topology" in the UI (shows zones), and 'Editable' displays as "Skin"
+	// (shows actual textures). We map based on what the user sees, not what Epic named it.
 	FString EnumValue;
 	FString ModeLower = Mode.ToLower();
-	if (ModeLower == TEXT("skin") || ModeLower == TEXT("default") || ModeLower == TEXT("preview"))
+	if (ModeLower == TEXT("skin") || ModeLower == TEXT("textured") || ModeLower == TEXT("preview"))
 	{
-		EnumValue = TEXT("Default");
+		EnumValue = TEXT("Editable");  // displays as "Skin" in UI
 	}
-	else if (ModeLower == TEXT("topology") || ModeLower == TEXT("editable") || ModeLower == TEXT("zones"))
+	else if (ModeLower == TEXT("topology") || ModeLower == TEXT("zones") || ModeLower == TEXT("default"))
 	{
-		EnumValue = TEXT("Editable");
+		EnumValue = TEXT("Default");  // displays as "Topology" in UI
 	}
 	else if (ModeLower == TEXT("clay"))
 	{
