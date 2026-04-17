@@ -1,15 +1,15 @@
 # ECABridge — AI-Powered Unreal Engine 5 MCP Plugin
 
-370+ MCP tools for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent.
+390+ MCP tools for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent.
 
 ## Features
 
-- **370+ MCP tools** organized by category
+- **390+ MCP tools** organized by category
 - **12 Rosetta Stone commands** — full JSON dumps of assets, blueprints, levels, materials, Niagara, sequencer, widgets, animation, MetaSound, and DataTables
 - **6 workflow commands** — project overview, cross-blueprint search, asset validation, snapshot/diff, undo-batching, class hierarchy
 - **5 refactoring commands** — replace references, bulk rename, search-and-replace properties, world settings
 - **5 advanced system commands** — landscape, source control, PCG graphs, Control Rig, Gameplay Ability System
-- **4 MetaHuman commands** — create, dump, set properties, natural-language description
+- **22 MetaHuman commands** — full procedural pipeline from asset creation through cloud texture/rig through groom attachment and outfit tinting
 - **5 Enhanced Input commands** — actions, mapping contexts, key bindings
 - **2 Niagara Data Channel commands** — create and dump cross-system data channels
 - **HTTP/SSE MCP server** on localhost:3000 (Streamable HTTP transport)
@@ -75,7 +75,8 @@ dump_widget_tree(widget_path="/Game/UI/WBP_MainMenu")
 | **MetaSound** | 15+ | Create sources, add/connect nodes, set inputs, preview |
 | **MVVM** | 7 | ViewModel binding, text/visibility/image bindings |
 | **Widget/UMG** | 15+ | Create widgets, add text/buttons/images, bind events |
-| **Mutable/CO** | 16 | Character customization: create/edit CO graphs, compile, runtime params, spawn actors, MetaHuman creation |
+| **Mutable/CO** | 16 | Character customization: create/edit CO graphs, compile, runtime params, spawn actors |
+| **MetaHuman** | 22 | Full procedural pipeline: create, describe (NL), face presets, body constraints, groom attach, makeup, cloud textures/rig, tint outfit, editor screenshot |
 | **Sequencer** | 8 | Create sequences, bind actors, keyframe transforms, spawn cameras, camera properties (FOV/aperture), float key animation |
 | **Animation** | 6 | Play/stop animations, list compatible anims, set AnimBP, skeleton info, **create animations programmatically from bone keyframes** |
 | **Lighting** | 4 | Set light properties, get light info, one-command 3-point rig, post-process settings |
@@ -152,6 +153,62 @@ set_co_instance_param(actor_name="CharacterActor", param_name="Head Accessories"
 ```bash
 create_level_sequence → add_sequence_camera → add_sequence_transform_key → play_sequence
 ```
+
+## MetaHuman: Zero-Touch Procedural Character Creation
+
+22 commands that drive Epic's MetaHuman Character pipeline end-to-end from natural-language prompts. No UI clicks required (after Epic sign-in).
+
+**The full pipeline:**
+
+```bash
+create_metahuman(package_path="/Game/Characters", asset_name="MH_Hero")
+
+describe_metahuman(character_path=".../MH_Hero",
+  description="tall muscular with vivid purple hair and green eyes and light freckled skin")
+  # matches: body, skin, eyes, hair keywords → sets 7+ properties
+
+set_metahuman_face_preset(character_path=".../MH_Hero",
+  preset_path="/MetaHumanCharacter/Optional/Presets/Grace")
+  # 29 preset faces: Ada, Bruce, Celeste, Dominic, Grace, Isaiah, Jelena, Kelvin, Lorenzo, ...
+
+set_metahuman_body_type(character_path=".../MH_Hero", body_type="f_tal_nrw")
+  # 18 body presets: {gender}_{height}_{weight}, e.g. m_tal_ovw, f_med_nrw
+
+set_metahuman_body_constraints(character_path=".../MH_Hero", constraints=[
+  {name: "Height", target_measurement: 178, active: true},
+  {name: "Chest",  target_measurement: 94,  active: true},
+  {name: "Waist",  target_measurement: 72,  active: true}
+])  # 30 parametric body dimensions in cm
+
+set_metahuman_makeup(character_path=".../MH_Hero",
+  lip_type="Natural", lip_color={r:0.5,g:0.15,b:0.2,a:1},
+  eye_type="SoftSmokey", blush_type="Apple")
+
+set_metahuman_preview_mode(character_path=".../MH_Hero", mode="skin")
+open_metahuman_editor(character_path=".../MH_Hero")
+download_metahuman_textures(character_path=".../MH_Hero")  # cloud — needs Epic sign-in
+rig_metahuman(character_path=".../MH_Hero", rig_type="full") # cloud
+
+attach_metahuman_groom(slot_name="Hair",
+  wardrobe_item_path="/MetaHumanCharacter/Optional/Grooms/Bindings/Hair/WI_Hair_L_Straight")
+attach_metahuman_groom(slot_name="Eyebrows",
+  wardrobe_item_path="/MetaHumanCharacter/Optional/Grooms/Bindings/Eyebrows/WI_Eyebrows_M_Dense")
+# 96 hair/beard/eyebrow/eyelash grooms ship with the engine
+
+refresh_metahuman_preview(character_path=".../MH_Hero")
+spawn_metahuman_actor(character_path=".../MH_Hero")
+tint_metahuman_outfit(actor_name="MetaHumanDefaultEditorPipelineActor0",
+  shirt_color={r:0.6,g:0.1,b:0.1,a:1})
+
+take_metahuman_editor_screenshot(character_path=".../MH_Hero",
+  file_path="D:/Screenshots/Hero.png")
+```
+
+**Photo → MetaHuman workflow:** pair Claude's vision with the MetaHuman commands. The AI analyzes a photo, extracts features (skin tone, hair style, face shape, beard, etc.), picks the closest preset from Epic's 29, attaches matching grooms, and builds a photo-inspired character. Not a perfect likeness (that needs Epic's Mesh-to-MetaHuman scan pipeline) but genuinely readable.
+
+**Commands:** create, dump, describe, set_property, preview_mode, open_editor, build, download_textures, rig, spawn_actor, get/set_body_constraints, set_body_type, attach_groom, list_grooms, list_presets, set_face_preset, set_makeup, refresh_preview, take_editor_screenshot, tint_outfit.
+
+**Requires:** Epic sign-in (click the person icon in the MetaHuman editor toolbar) for cloud operations — texture synthesis and auto-rigging both hit Epic's MetaHuman service.
 
 ## Things to Try
 
@@ -298,12 +355,61 @@ dump_control_rig(rig_path="/Game/Characters/CR_Mannequin")
 dump_gameplay_ability(asset_path="/Game/GAS/GA_Fireball")
 ```
 
-**Create a MetaHuman and describe it in natural language:**
+**Create a MetaHuman procedurally from natural language:**
 ```
-create_metahuman_character(asset_path="/Game/Characters/MH_Hero")
-describe_metahuman(character_path="/Game/Characters/MH_Hero",
-                   description="tall muscular with purple hair and green eyes")
+create_metahuman(package_path="/Game/Characters", asset_name="MH_Kai")
+describe_metahuman(character_path="/Game/Characters/MH_Kai",
+  description="tall muscular dark-skinned man with brown eyes and black hair")
+set_metahuman_face_preset(character_path="/Game/Characters/MH_Kai",
+  preset_path="/MetaHumanCharacter/Optional/Presets/Kelvin")
+set_metahuman_body_type(character_path="/Game/Characters/MH_Kai", body_type="m_tal_ovw")
+open_metahuman_editor(character_path="/Game/Characters/MH_Kai")
+download_metahuman_textures(character_path="/Game/Characters/MH_Kai")  # Epic cloud
+rig_metahuman(character_path="/Game/Characters/MH_Kai", rig_type="full") # Epic cloud
+attach_metahuman_groom(character_path="/Game/Characters/MH_Kai", slot_name="Hair",
+  wardrobe_item_path="/MetaHumanCharacter/Optional/Grooms/Bindings/Hair/WI_Hair_S_CurlyFade")
+attach_metahuman_groom(character_path="/Game/Characters/MH_Kai", slot_name="Beard",
+  wardrobe_item_path="/MetaHumanCharacter/Optional/Grooms/Bindings/Beards/WI_Beard_L_Full")
+refresh_metahuman_preview(character_path="/Game/Characters/MH_Kai")
 ```
+
+**Discover what groom assets you have available:**
+```
+list_metahuman_grooms()  # Groups 96 engine-shipped wardrobe items by slot
+list_metahuman_presets() # Lists the 29 preset faces
+```
+
+**Morph a MetaHuman's body with 30 parametric dimensions:**
+```
+get_metahuman_body_constraints(character_path="/Game/Characters/MH_Hero")
+set_metahuman_body_constraints(character_path="/Game/Characters/MH_Hero", constraints=[
+  {name: "Height", target_measurement: 185, active: true},
+  {name: "Chest",  target_measurement: 108, active: true},
+  {name: "Thigh",  target_measurement: 62,  active: true}
+])
+```
+
+**Apply Hollywood makeup in one call:**
+```
+set_metahuman_makeup(character_path="/Game/Characters/MH_Hero",
+  lip_type="Hollywood", lip_color={r:0.5,g:0.1,b:0.15,a:1},
+  eye_type="SoftSmokey", blush_type="Apple", foundation=true)
+```
+
+**Drop a MetaHuman into the level and tint their outfit per-actor:**
+```
+spawn_metahuman_actor(character_path="/Game/Characters/MH_Hero")
+tint_metahuman_outfit(actor_name="MetaHumanDefaultEditorPipelineActor0",
+  shirt_color={r:0.1,g:0.3,b:0.8,a:1})
+```
+
+**Capture the MetaHuman editor tab remotely:**
+```
+take_metahuman_editor_screenshot(character_path="/Game/Characters/MH_Hero",
+  file_path="D:/Shots/hero.png")
+```
+
+**Photo → MetaHuman (with Claude's vision in the loop):** Share a photo with your AI agent. It analyzes the image (skin tone, hair, face shape, beard, etc.), picks the closest face preset, attaches matching grooms, and builds a photo-inspired MetaHuman. Not a perfect likeness — that requires Epic's Mesh-to-MetaHuman scan tool — but genuinely recognizable.
 
 **Build an input system from scratch:**
 ```
