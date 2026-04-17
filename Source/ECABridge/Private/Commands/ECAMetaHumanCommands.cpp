@@ -28,6 +28,13 @@
 #include "Editor.h"
 #include "Editor/EditorEngine.h"
 #include "Subsystems/AssetEditorSubsystem.h"
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "AssetRegistry/IAssetRegistry.h"
+
+// Forward declarations for helpers that live further down in the file
+static UObject* LoadMHCharacter(const FString& Path, FString& OutErrorMessage);
+static UEditorSubsystem* GetMHEditorSubsystem(FString& OutErrorMessage);
+static void OpenCharacterEditor(UObject* Character);
 
 // Register all MetaHuman commands
 REGISTER_ECA_COMMAND(FECACommand_CreateMetaHumanCharacter)
@@ -44,6 +51,265 @@ REGISTER_ECA_COMMAND(FECACommand_GetMetaHumanBodyConstraints)
 REGISTER_ECA_COMMAND(FECACommand_SetMetaHumanBodyConstraints)
 REGISTER_ECA_COMMAND(FECACommand_SetMetaHumanBodyType)
 REGISTER_ECA_COMMAND(FECACommand_AttachMetaHumanGroom)
+REGISTER_ECA_COMMAND(FECACommand_ListMetaHumanGrooms)
+REGISTER_ECA_COMMAND(FECACommand_ListMetaHumanPresets)
+REGISTER_ECA_COMMAND(FECACommand_SetMetaHumanFacePreset)
+REGISTER_ECA_COMMAND(FECACommand_SetMetaHumanMakeup)
+
+// ============================================================================
+// list_metahuman_grooms
+// ============================================================================
+
+FECACommandResult FECACommand_ListMetaHumanGrooms::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SlotFilter;
+	Params->TryGetStringField(TEXT("slot_filter"), SlotFilter);
+
+	IAssetRegistry& AssetRegistry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
+
+	FARFilter Filter;
+	UClass* WIClass = FindObject<UClass>(nullptr, TEXT("/Script/MetaHumanCharacterPalette.MetaHumanWardrobeItem"));
+	if (WIClass) Filter.ClassPaths.Add(WIClass->GetClassPathName());
+	Filter.bRecursivePaths = true;
+
+	TArray<FAssetData> AssetData;
+	AssetRegistry.GetAssets(Filter, AssetData);
+
+	TMap<FString, TArray<TSharedPtr<FJsonValue>>> Grouped;
+	for (const FAssetData& D : AssetData)
+	{
+		FString Path = D.GetObjectPathString();
+		// Infer slot from path (e.g., /Bindings/Hair/ → Hair)
+		FString Slot = TEXT("Other");
+		for (const TCHAR* Known : { TEXT("Hair"), TEXT("Beard"), TEXT("Eyebrows"), TEXT("Eyelashes"), TEXT("Mustache"), TEXT("Peachfuzz"), TEXT("Clothing"), TEXT("Outfit") })
+		{
+			if (Path.Contains(FString::Printf(TEXT("/%s/"), Known)))
+			{
+				Slot = Known;
+				break;
+			}
+		}
+		if (!SlotFilter.IsEmpty() && Slot != SlotFilter) continue;
+
+		TSharedPtr<FJsonObject> Item = MakeShared<FJsonObject>();
+		Item->SetStringField(TEXT("path"), Path);
+		Item->SetStringField(TEXT("name"), D.AssetName.ToString());
+		Grouped.FindOrAdd(Slot).Add(MakeShared<FJsonValueObject>(Item));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	int32 Total = 0;
+	TSharedPtr<FJsonObject> ByCategory = MakeShared<FJsonObject>();
+	for (auto& Pair : Grouped)
+	{
+		ByCategory->SetArrayField(Pair.Key, Pair.Value);
+		Total += Pair.Value.Num();
+	}
+	Result->SetObjectField(TEXT("by_category"), ByCategory);
+	Result->SetNumberField(TEXT("total"), Total);
+	return FECACommandResult::Success(Result);
+}
+
+// ============================================================================
+// list_metahuman_presets
+// ============================================================================
+
+FECACommandResult FECACommand_ListMetaHumanPresets::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	IAssetRegistry& AssetRegistry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
+
+	FARFilter Filter;
+	UClass* MHClass = FindObject<UClass>(nullptr, TEXT("/Script/MetaHumanCharacter.MetaHumanCharacter"));
+	if (MHClass) Filter.ClassPaths.Add(MHClass->GetClassPathName());
+	Filter.PackagePaths.Add(FName(TEXT("/MetaHumanCharacter/Optional/Presets")));
+	Filter.bRecursivePaths = true;
+
+	TArray<FAssetData> AssetData;
+	AssetRegistry.GetAssets(Filter, AssetData);
+
+	TArray<TSharedPtr<FJsonValue>> Presets;
+	for (const FAssetData& D : AssetData)
+	{
+		TSharedPtr<FJsonObject> Item = MakeShared<FJsonObject>();
+		Item->SetStringField(TEXT("name"), D.AssetName.ToString());
+		Item->SetStringField(TEXT("path"), D.GetObjectPathString());
+		Presets.Add(MakeShared<FJsonValueObject>(Item));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetArrayField(TEXT("presets"), Presets);
+	Result->SetNumberField(TEXT("count"), Presets.Num());
+	return FECACommandResult::Success(Result);
+}
+
+// ============================================================================
+// set_metahuman_face_preset — copies HeadModelSettings + FaceEvaluationSettings
+// ============================================================================
+
+static bool CopyStructProperty(UObject* Src, UObject* Dst, const FString& PropName)
+{
+	FProperty* SrcProp = Src->GetClass()->FindPropertyByName(FName(*PropName));
+	FProperty* DstProp = Dst->GetClass()->FindPropertyByName(FName(*PropName));
+	if (!SrcProp || !DstProp) return false;
+
+	void* SrcPtr = SrcProp->ContainerPtrToValuePtr<void>(Src);
+	void* DstPtr = DstProp->ContainerPtrToValuePtr<void>(Dst);
+	SrcProp->CopyCompleteValue(DstPtr, SrcPtr);
+	return true;
+}
+
+FECACommandResult FECACommand_SetMetaHumanFacePreset::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString CharPath, PresetPath;
+	if (!Params->TryGetStringField(TEXT("character_path"), CharPath) || CharPath.IsEmpty())
+		return FECACommandResult::Error(TEXT("Missing character_path"));
+	if (!Params->TryGetStringField(TEXT("preset_path"), PresetPath) || PresetPath.IsEmpty())
+		return FECACommandResult::Error(TEXT("Missing preset_path"));
+
+	bool bIncludeSkin = false, bIncludeEyes = false, bIncludeMakeup = false;
+	Params->TryGetBoolField(TEXT("include_skin"), bIncludeSkin);
+	Params->TryGetBoolField(TEXT("include_eyes"), bIncludeEyes);
+	Params->TryGetBoolField(TEXT("include_makeup"), bIncludeMakeup);
+
+	FString Err;
+	UObject* Target = LoadMHCharacter(CharPath, Err);
+	if (!Target) return FECACommandResult::Error(Err);
+
+	UObject* Preset = LoadObject<UObject>(nullptr, *PresetPath);
+	if (!Preset) return FECACommandResult::Error(FString::Printf(TEXT("Failed to load preset: %s"), *PresetPath));
+	UClass* MHClass = FindObject<UClass>(nullptr, TEXT("/Script/MetaHumanCharacter.MetaHumanCharacter"));
+	if (!Preset->IsA(MHClass))
+		return FECACommandResult::Error(TEXT("preset_path is not a MetaHumanCharacter"));
+
+	TArray<TSharedPtr<FJsonValue>> Copied;
+	auto TryCopy = [&](const FString& PropName)
+	{
+		if (CopyStructProperty(Preset, Target, PropName))
+			Copied.Add(MakeShared<FJsonValueString>(PropName));
+	};
+
+	// Face shape lives in HeadModelSettings + FaceEvaluationSettings
+	TryCopy(TEXT("HeadModelSettings"));
+	TryCopy(TEXT("FaceEvaluationSettings"));
+	if (bIncludeSkin) TryCopy(TEXT("SkinSettings"));
+	if (bIncludeEyes) TryCopy(TEXT("EyesSettings"));
+	if (bIncludeMakeup) TryCopy(TEXT("MakeupSettings"));
+
+	Target->PostEditChange();
+	Target->MarkPackageDirty();
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("character_path"), CharPath);
+	Result->SetStringField(TEXT("preset_path"), PresetPath);
+	Result->SetArrayField(TEXT("properties_copied"), Copied);
+	Result->SetStringField(TEXT("note"), TEXT("Face shape properties copied from preset. NOTE: This does a flat property copy. For a full mesh-level face swap, use ImportFromTemplate with a preset mesh (future work). Body shape is not included — it lives in the body identity state."));
+	return FECACommandResult::Success(Result);
+}
+
+// ============================================================================
+// set_metahuman_makeup — convenience wrapper
+// ============================================================================
+
+static void ApplyStringFieldToMakeup(UObject* Character, const FString& Path, const FString& Value)
+{
+	if (Value.IsEmpty()) return;
+	// Walk the dotted path to the leaf property
+	FProperty* CurProp = nullptr;
+	void* CurPtr = Character;
+	UStruct* CurStruct = Character->GetClass();
+	TArray<FString> Segments;
+	Path.ParseIntoArray(Segments, TEXT("."));
+	for (int32 i = 0; i < Segments.Num(); i++)
+	{
+		CurProp = CurStruct->FindPropertyByName(FName(*Segments[i]));
+		if (!CurProp) return;
+		if (i == Segments.Num() - 1)
+		{
+			void* LeafPtr = CurProp->ContainerPtrToValuePtr<void>(CurPtr);
+			CurProp->ImportText_Direct(*Value, LeafPtr, nullptr, PPF_None);
+			return;
+		}
+		FStructProperty* StructProp = CastField<FStructProperty>(CurProp);
+		if (!StructProp) return;
+		CurPtr = StructProp->ContainerPtrToValuePtr<void>(CurPtr);
+		CurStruct = StructProp->Struct;
+	}
+}
+
+static FString ColorJsonToString(const TSharedPtr<FJsonObject>& Obj)
+{
+	if (!Obj.IsValid()) return FString();
+	double R = 0, G = 0, B = 0, A = 1;
+	Obj->TryGetNumberField(TEXT("r"), R);
+	Obj->TryGetNumberField(TEXT("g"), G);
+	Obj->TryGetNumberField(TEXT("b"), B);
+	Obj->TryGetNumberField(TEXT("a"), A);
+	return FString::Printf(TEXT("(R=%f,G=%f,B=%f,A=%f)"), R, G, B, A);
+}
+
+FECACommandResult FECACommand_SetMetaHumanMakeup::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString CharPath;
+	if (!Params->TryGetStringField(TEXT("character_path"), CharPath) || CharPath.IsEmpty())
+		return FECACommandResult::Error(TEXT("Missing character_path"));
+
+	FString Err;
+	UObject* Character = LoadMHCharacter(CharPath, Err);
+	if (!Character) return FECACommandResult::Error(Err);
+
+	TArray<TSharedPtr<FJsonValue>> Applied;
+	auto TryApplyString = [&](const FString& ParamName, const FString& PropPath)
+	{
+		FString Val;
+		if (Params->TryGetStringField(ParamName, Val) && !Val.IsEmpty())
+		{
+			ApplyStringFieldToMakeup(Character, PropPath, Val);
+			TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+			Entry->SetStringField(TEXT("property"), PropPath);
+			Entry->SetStringField(TEXT("value"), Val);
+			Applied.Add(MakeShared<FJsonValueObject>(Entry));
+		}
+	};
+	auto TryApplyColor = [&](const FString& ParamName, const FString& PropPath)
+	{
+		const TSharedPtr<FJsonObject>* ObjPtr = nullptr;
+		if (Params->TryGetObjectField(ParamName, ObjPtr) && ObjPtr && ObjPtr->IsValid())
+		{
+			FString ColorStr = ColorJsonToString(*ObjPtr);
+			ApplyStringFieldToMakeup(Character, PropPath, ColorStr);
+			TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+			Entry->SetStringField(TEXT("property"), PropPath);
+			Entry->SetStringField(TEXT("value"), ColorStr);
+			Applied.Add(MakeShared<FJsonValueObject>(Entry));
+		}
+	};
+
+	TryApplyString(TEXT("lip_type"),   TEXT("MakeupSettings.Lips.Type"));
+	TryApplyColor (TEXT("lip_color"),  TEXT("MakeupSettings.Lips.Color"));
+	TryApplyString(TEXT("eye_type"),   TEXT("MakeupSettings.Eyes.Type"));
+	TryApplyColor (TEXT("eye_color"),  TEXT("MakeupSettings.Eyes.PrimaryColor"));
+	TryApplyString(TEXT("blush_type"), TEXT("MakeupSettings.Blush.Type"));
+	TryApplyColor (TEXT("blush_color"), TEXT("MakeupSettings.Blush.Color"));
+
+	bool bFoundation = false;
+	if (Params->TryGetBoolField(TEXT("foundation"), bFoundation))
+	{
+		ApplyStringFieldToMakeup(Character, TEXT("MakeupSettings.Foundation.bApplyFoundation"), bFoundation ? TEXT("true") : TEXT("false"));
+		TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+		Entry->SetStringField(TEXT("property"), TEXT("MakeupSettings.Foundation.bApplyFoundation"));
+		Entry->SetStringField(TEXT("value"), bFoundation ? TEXT("true") : TEXT("false"));
+		Applied.Add(MakeShared<FJsonValueObject>(Entry));
+	}
+
+	Character->PostEditChange();
+	Character->MarkPackageDirty();
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("character_path"), CharPath);
+	Result->SetArrayField(TEXT("applied"), Applied);
+	Result->SetNumberField(TEXT("count"), Applied.Num());
+	return FECACommandResult::Success(Result);
+}
 
 // ============================================================================
 // Common subsystem accessors for new commands

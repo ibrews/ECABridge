@@ -235,6 +235,90 @@ public:
 };
 
 /**
+ * List available MetaHuman wardrobe items (hair, beard, eyebrows, clothing) from the Engine.
+ */
+class FECACommand_ListMetaHumanGrooms : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("list_metahuman_grooms"); }
+	virtual FString GetDescription() const override { return TEXT("List available MetaHuman wardrobe items (hair grooms, beards, eyebrows, eyelashes, outfits). Returns assets grouped by slot. Searches the asset registry for UMetaHumanWardrobeItem assets. Use the returned paths with attach_metahuman_groom."); }
+	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("slot_filter"), TEXT("string"), TEXT("Optional slot filter: Hair, Beard, Eyebrows, Eyelashes, Mustache, Peachfuzz, Clothing. If empty, returns all."), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * List available MetaHuman face presets from the Engine.
+ */
+class FECACommand_ListMetaHumanPresets : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("list_metahuman_presets"); }
+	virtual FString GetDescription() const override { return TEXT("List available MetaHuman face preset characters (Ada, Bruce, Celeste, etc.). These are pre-sculpted faces you can apply to your character via set_metahuman_face_preset."); }
+	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Apply a face preset to a MetaHumanCharacter by copying face-shape properties from a preset character.
+ */
+class FECACommand_SetMetaHumanFacePreset : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_metahuman_face_preset"); }
+	virtual FString GetDescription() const override { return TEXT("Copy face shape and head model settings from a preset MetaHumanCharacter to the target character. Use list_metahuman_presets to find preset names. By default copies HeadModelSettings + FaceEvaluationSettings; optionally copies SkinSettings/EyesSettings too. Does NOT overwrite rig state."); }
+	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("character_path"), TEXT("string"), TEXT("Content path to the target MetaHumanCharacter"), true },
+			{ TEXT("preset_path"), TEXT("string"), TEXT("Content path to a preset MetaHumanCharacter (e.g., /MetaHumanCharacter/Optional/Presets/Ada)"), true },
+			{ TEXT("include_skin"), TEXT("boolean"), TEXT("Also copy SkinSettings (skin tone)"), false, TEXT("false") },
+			{ TEXT("include_eyes"), TEXT("boolean"), TEXT("Also copy EyesSettings"), false, TEXT("false") },
+			{ TEXT("include_makeup"), TEXT("boolean"), TEXT("Also copy MakeupSettings"), false, TEXT("false") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Apply makeup to a MetaHumanCharacter with simple, named params.
+ */
+class FECACommand_SetMetaHumanMakeup : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_metahuman_makeup"); }
+	virtual FString GetDescription() const override { return TEXT("Apply makeup with a single call. Lip types: None, Natural, Hollywood, Cupid, etc. Eye types: None, ThinLiner, SoftSmokey, CatEye, FullThinLiner. Blush types: None, Angled, Apple, LowSweep, HighCurve. Colors are RGBA 0-1."); }
+	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("character_path"), TEXT("string"), TEXT("Content path to the MetaHumanCharacter"), true },
+			{ TEXT("lip_type"), TEXT("string"), TEXT("Lipstick type: None, Natural, Hollywood, Cupid, etc."), false },
+			{ TEXT("lip_color"), TEXT("object"), TEXT("Lip color {r,g,b,a} 0-1"), false },
+			{ TEXT("eye_type"), TEXT("string"), TEXT("Eye makeup type: None, ThinLiner, SoftSmokey, CatEye, FullThinLiner"), false },
+			{ TEXT("eye_color"), TEXT("object"), TEXT("Eye makeup primary color {r,g,b,a} 0-1"), false },
+			{ TEXT("blush_type"), TEXT("string"), TEXT("Blush type: None, Angled, Apple, LowSweep, HighCurve"), false },
+			{ TEXT("blush_color"), TEXT("object"), TEXT("Blush color {r,g,b,a} 0-1"), false },
+			{ TEXT("foundation"), TEXT("boolean"), TEXT("Enable foundation"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
  * Attach a hair groom (or other wardrobe item) to a MetaHumanCharacter.
  */
 class FECACommand_AttachMetaHumanGroom : public IECACommand
