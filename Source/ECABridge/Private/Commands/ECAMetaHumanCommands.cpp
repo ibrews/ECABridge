@@ -70,6 +70,7 @@ REGISTER_ECA_COMMAND(FECACommand_SetMetaHumanMakeup)
 REGISTER_ECA_COMMAND(FECACommand_RefreshMetaHumanPreview)
 REGISTER_ECA_COMMAND(FECACommand_TakeMetaHumanEditorScreenshot)
 REGISTER_ECA_COMMAND(FECACommand_TintMetaHumanOutfit)
+REGISTER_ECA_COMMAND(FECACommand_SetMetaHumanSkinParams)
 
 // ============================================================================
 // tint_metahuman_outfit
@@ -377,13 +378,29 @@ FECACommandResult FECACommand_ListMetaHumanGrooms::Execute(const TSharedPtr<FJso
 	for (const FAssetData& D : AssetData)
 	{
 		FString Path = D.GetObjectPathString();
-		// Infer slot from path (e.g., /Bindings/Hair/ → Hair)
+		// Infer slot from path (e.g., /Bindings/Hair/ → Hair, /Bindings/Beards/ → Beard).
+		// MetaHuman ships some folders pluralised (Beards, Mustaches); the slot FName the
+		// editor expects is singular. Map both forms here.
 		FString Slot = TEXT("Other");
-		for (const TCHAR* Known : { TEXT("Hair"), TEXT("Beard"), TEXT("Eyebrows"), TEXT("Eyelashes"), TEXT("Mustache"), TEXT("Peachfuzz"), TEXT("Clothing"), TEXT("Outfit") })
+		struct FSlotMap { const TCHAR* Folder; const TCHAR* Slot; };
+		const FSlotMap KnownSlots[] = {
+			{ TEXT("Hair"),       TEXT("Hair") },
+			{ TEXT("Beards"),     TEXT("Beard") },
+			{ TEXT("Beard"),      TEXT("Beard") },
+			{ TEXT("Eyebrows"),   TEXT("Eyebrows") },
+			{ TEXT("Eyelashes"),  TEXT("Eyelashes") },
+			{ TEXT("Mustaches"),  TEXT("Mustache") },
+			{ TEXT("Mustache"),   TEXT("Mustache") },
+			{ TEXT("Peachfuzz"),  TEXT("Peachfuzz") },
+			{ TEXT("Fuzz"),       TEXT("Peachfuzz") },
+			{ TEXT("Clothing"),   TEXT("Outfit") },
+			{ TEXT("Outfit"),     TEXT("Outfit") },
+		};
+		for (const FSlotMap& KS : KnownSlots)
 		{
-			if (Path.Contains(FString::Printf(TEXT("/%s/"), Known)))
+			if (Path.Contains(FString::Printf(TEXT("/%s/"), KS.Folder)))
 			{
-				Slot = Known;
+				Slot = KS.Slot;
 				break;
 			}
 		}
@@ -969,6 +986,30 @@ FECACommandResult FECACommand_AttachMetaHumanGroom::Execute(const TSharedPtr<FJs
 		return FECACommandResult::Error(TEXT("Missing slot_name"));
 	if (!Params->TryGetStringField(TEXT("wardrobe_item_path"), WardrobePath) || WardrobePath.IsEmpty())
 		return FECACommandResult::Error(TEXT("Missing wardrobe_item_path"));
+
+	// Validate slot name against the set MetaHuman's InternalCollection actually exposes.
+	// These match the FName values the editor's Wardrobe UI uses internally — pluralised
+	// folders (Beards, Mustaches) on disk still resolve to singular slot names here.
+	{
+		static const TCHAR* KnownSlots[] = {
+			TEXT("Hair"), TEXT("Eyebrows"), TEXT("Eyelashes"),
+			TEXT("Beard"), TEXT("Mustache"), TEXT("Peachfuzz"),
+			TEXT("Outfit")
+		};
+		bool bValidSlot = false;
+		for (const TCHAR* S : KnownSlots)
+		{
+			if (SlotName.Equals(S, ESearchCase::IgnoreCase)) { bValidSlot = true; break; }
+		}
+		if (!bValidSlot)
+		{
+			FString JoinedSlots;
+			for (const TCHAR* S : KnownSlots) { if (!JoinedSlots.IsEmpty()) JoinedSlots += TEXT(", "); JoinedSlots += S; }
+			return FECACommandResult::Error(FString::Printf(
+				TEXT("Unknown slot_name '%s'. Expected one of: %s. Note: folders on disk may be plural (Beards, Mustaches) but the slot name is singular."),
+				*SlotName, *JoinedSlots));
+		}
+	}
 
 	FString Err;
 	UObject* Character = LoadMHCharacter(CharacterPath, Err);
@@ -2135,6 +2176,136 @@ FECACommandResult FECACommand_SetMetaHumanProperty::Execute(const TSharedPtr<FJs
 	TSharedPtr<FJsonValue> ReadBack = MHPropertyToJsonValue(LeafProp, LeafValuePtr);
 	Result->SetField(TEXT("new_value"), ReadBack);
 
+	return FECACommandResult::Success(Result);
+}
+
+//==============================================================================
+// set_metahuman_skin_params
+//==============================================================================
+
+FECACommandResult FECACommand_SetMetaHumanSkinParams::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString CharacterPath;
+	if (!GetStringParam(Params, TEXT("character_path"), CharacterPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: character_path"));
+	}
+	if (!GetMetaHumanCharacterClass())
+	{
+		return FECACommandResult::Error(TEXT("MetaHumanCharacter plugin is not enabled."));
+	}
+	UObject* Character = LoadMetaHumanCharacter(CharacterPath);
+	if (!Character)
+	{
+		return FECACommandResult::Error(FString::Printf(
+			TEXT("Could not load MetaHumanCharacter at '%s'"), *CharacterPath));
+	}
+
+	TArray<TSharedPtr<FJsonValue>> Applied;
+	TArray<TSharedPtr<FJsonValue>> Skipped;
+	FProperty* LastTouchedProp = nullptr;
+
+	auto WriteScalar = [&](const TCHAR* PropertyPath, const TSharedPtr<FJsonValue>& Val) -> void
+	{
+		FProperty* Prop = nullptr;
+		void* ValuePtr = nullptr;
+		FString Err;
+		if (!ResolvePropertyPath(Character, PropertyPath, Prop, ValuePtr, Err) || !Prop || !ValuePtr)
+		{
+			Skipped.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("%s: %s"), PropertyPath, *Err)));
+			return;
+		}
+		const FString ImportString = JsonValueToImportString(Val, Prop);
+		const TCHAR* R = Prop->ImportText_Direct(*ImportString, ValuePtr, Character, PPF_None);
+		if (!R)
+		{
+			Skipped.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("%s: ImportText failed for '%s'"), PropertyPath, *ImportString)));
+			return;
+		}
+		TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+		Entry->SetStringField(TEXT("path"), PropertyPath);
+		Entry->SetStringField(TEXT("value"), ImportString);
+		Applied.Add(MakeShared<FJsonValueObject>(Entry));
+		LastTouchedProp = Prop;
+	};
+
+	// Top-level Skin sub-struct fields
+	TSharedPtr<FJsonValue> V;
+	if ((V = Params->TryGetField(TEXT("tone_u"))).IsValid())             WriteScalar(TEXT("SkinSettings.Skin.U"), V);
+	if ((V = Params->TryGetField(TEXT("tone_v"))).IsValid())             WriteScalar(TEXT("SkinSettings.Skin.V"), V);
+	if ((V = Params->TryGetField(TEXT("roughness"))).IsValid())          WriteScalar(TEXT("SkinSettings.Skin.Roughness"), V);
+	if ((V = Params->TryGetField(TEXT("face_texture_index"))).IsValid()) WriteScalar(TEXT("SkinSettings.Skin.FaceTextureIndex"), V);
+	if ((V = Params->TryGetField(TEXT("body_texture_index"))).IsValid()) WriteScalar(TEXT("SkinSettings.Skin.BodyTextureIndex"), V);
+
+	// Freckles
+	if ((V = Params->TryGetField(TEXT("freckles_density"))).IsValid())    WriteScalar(TEXT("SkinSettings.Freckles.Density"), V);
+	if ((V = Params->TryGetField(TEXT("freckles_strength"))).IsValid())   WriteScalar(TEXT("SkinSettings.Freckles.Strength"), V);
+	if ((V = Params->TryGetField(TEXT("freckles_saturation"))).IsValid()) WriteScalar(TEXT("SkinSettings.Freckles.Saturation"), V);
+	if ((V = Params->TryGetField(TEXT("freckles_tone_shift"))).IsValid()) WriteScalar(TEXT("SkinSettings.Freckles.ToneShift"), V);
+
+	static const TCHAR* AccentZones[] = {
+		TEXT("Scalp"), TEXT("Forehead"), TEXT("Nose"), TEXT("UnderEye"),
+		TEXT("Cheeks"), TEXT("Lips"), TEXT("Chin"), TEXT("Ears")
+	};
+
+	// Broadcast `redness` to every accent zone
+	if ((V = Params->TryGetField(TEXT("redness"))).IsValid())
+	{
+		for (const TCHAR* Zone : AccentZones)
+		{
+			WriteScalar(*FString::Printf(TEXT("SkinSettings.Accents.%s.Redness"), Zone), V);
+		}
+	}
+
+	// Per-zone overrides via `zone` object
+	const TSharedPtr<FJsonObject>* ZoneObj = nullptr;
+	if (Params->TryGetObjectField(TEXT("zone"), ZoneObj) && ZoneObj && ZoneObj->IsValid())
+	{
+		for (const auto& Pair : (*ZoneObj)->Values)
+		{
+			const FString& ZoneName = Pair.Key;
+			bool bKnown = false;
+			for (const TCHAR* Z : AccentZones) { if (ZoneName.Equals(Z, ESearchCase::IgnoreCase)) { bKnown = true; break; } }
+			if (!bKnown)
+			{
+				Skipped.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("zone '%s' is not a known accent zone"), *ZoneName)));
+				continue;
+			}
+			const TSharedPtr<FJsonObject> Inner = Pair.Value.IsValid() ? Pair.Value->AsObject() : nullptr;
+			if (!Inner.IsValid()) continue;
+
+			TSharedPtr<FJsonValue> ZV;
+			if ((ZV = Inner->TryGetField(TEXT("redness"))).IsValid())
+				WriteScalar(*FString::Printf(TEXT("SkinSettings.Accents.%s.Redness"), *ZoneName), ZV);
+			if ((ZV = Inner->TryGetField(TEXT("saturation"))).IsValid())
+				WriteScalar(*FString::Printf(TEXT("SkinSettings.Accents.%s.Saturation"), *ZoneName), ZV);
+			if ((ZV = Inner->TryGetField(TEXT("lightness"))).IsValid())
+				WriteScalar(*FString::Printf(TEXT("SkinSettings.Accents.%s.Lightness"), *ZoneName), ZV);
+		}
+	}
+
+	if (Applied.Num() == 0 && Skipped.Num() == 0)
+	{
+		return FECACommandResult::Error(TEXT("No skin params provided. Pass at least one of: tone_u, tone_v, roughness, face_texture_index, body_texture_index, freckles_density, freckles_strength, freckles_saturation, freckles_tone_shift, redness, zone."));
+	}
+
+	Character->MarkPackageDirty();
+#if WITH_EDITOR
+	if (LastTouchedProp)
+	{
+		FPropertyChangedEvent Evt(LastTouchedProp);
+		Character->PostEditChangeProperty(Evt);
+	}
+#endif
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("character_path"), Character->GetPathName());
+	Result->SetArrayField(TEXT("applied"), Applied);
+	if (Skipped.Num() > 0)
+	{
+		Result->SetArrayField(TEXT("skipped"), Skipped);
+	}
+	Result->SetStringField(TEXT("note"), TEXT("Properties written. Call refresh_metahuman_preview to re-render the editor viewport."));
 	return FECACommandResult::Success(Result);
 }
 

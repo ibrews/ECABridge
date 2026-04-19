@@ -71,6 +71,39 @@ public:
 };
 
 /**
+ * Friendly wrapper over the SkinSettings sub-struct on UMetaHumanCharacter.
+ * All params optional — only provided ones get written. Saves the chain of
+ * 8+ set_metahuman_property calls a fresh client would otherwise have to make.
+ */
+class FECACommand_SetMetaHumanSkinParams : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_metahuman_skin_params"); }
+	virtual FString GetDescription() const override { return TEXT("Set continuous skin params on a MetaHumanCharacter in one call. All params optional in [0,1] unless noted. Writes to SkinSettings.{Skin,Freckles,Accents} sub-structs via reflection. Call refresh_metahuman_preview after to see the result."); }
+	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("character_path"),       TEXT("string"), TEXT("Content path to the MetaHumanCharacter"), true },
+			{ TEXT("tone_u"),               TEXT("number"), TEXT("Skin atlas U coord [0,1] (rough: 0=very pale, 1=very dark)"), false },
+			{ TEXT("tone_v"),               TEXT("number"), TEXT("Skin atlas V coord [0,1]"), false },
+			{ TEXT("roughness"),            TEXT("number"), TEXT("Skin roughness multiplier (~1.0 default, higher = matte)"), false },
+			{ TEXT("face_texture_index"),   TEXT("number"), TEXT("Integer index into the face texture variant list"), false },
+			{ TEXT("body_texture_index"),   TEXT("number"), TEXT("Integer index into the body texture variant list"), false },
+			{ TEXT("freckles_density"),     TEXT("number"), TEXT("Freckle density [0,1]"), false },
+			{ TEXT("freckles_strength"),    TEXT("number"), TEXT("Freckle visibility/strength [0,1]"), false },
+			{ TEXT("freckles_saturation"),  TEXT("number"), TEXT("Freckle color saturation [0,1]"), false },
+			{ TEXT("freckles_tone_shift"),  TEXT("number"), TEXT("Freckle hue/tone shift [0,1]"), false },
+			{ TEXT("redness"),              TEXT("number"), TEXT("Broadcast redness [0,1] to all 8 accent zones (Scalp, Forehead, Nose, UnderEye, Cheeks, Lips, Chin, Ears)"), false },
+			{ TEXT("zone"),                 TEXT("object"), TEXT("Per-zone overrides: { 'Cheeks': { 'redness': 0.7, 'saturation': 0.6, 'lightness': 0.5 }, ... }. Zones: Scalp, Forehead, Nose, UnderEye, Cheeks, Lips, Chin, Ears."), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
  * Open the MetaHuman Character editor for an asset (triggers the preview viewport).
  * Works for any asset class — generic asset editor opener.
  */
@@ -390,14 +423,14 @@ class FECACommand_AttachMetaHumanGroom : public IECACommand
 {
 public:
 	virtual FString GetName() const override { return TEXT("attach_metahuman_groom"); }
-	virtual FString GetDescription() const override { return TEXT("Attach a UMetaHumanWardrobeItem (hair groom, outfit, etc.) to a MetaHumanCharacter. The wardrobe item must be a pre-made asset. Writes to the character's WardrobeIndividualAssets map under the given slot name. Common slot names: 'Hair', 'Eyebrows', 'Beard', 'Eyelashes', 'Outfit'."); }
+	virtual FString GetDescription() const override { return TEXT("Attach a UMetaHumanWardrobeItem (groom or outfit) to a MetaHumanCharacter slot. Slot names are SINGULAR even when the source folder is plural (e.g. /Bindings/Beards/ items go in slot 'Beard'). Valid slots: Hair, Eyebrows, Eyelashes, Beard, Mustache, Peachfuzz, Outfit. Performs the Collection+Instance flow that the editor's Wardrobe UI uses internally — call refresh_metahuman_preview after to see the result."); }
 	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
 			{ TEXT("character_path"), TEXT("string"), TEXT("Content path to the MetaHumanCharacter"), true },
-			{ TEXT("slot_name"), TEXT("string"), TEXT("Slot name (Hair, Eyebrows, Beard, Eyelashes, Outfit, etc.)"), true },
+			{ TEXT("slot_name"), TEXT("string"), TEXT("Singular slot name: Hair, Eyebrows, Eyelashes, Beard, Mustache, Peachfuzz, or Outfit"), true },
 			{ TEXT("wardrobe_item_path"), TEXT("string"), TEXT("Content path to a UMetaHumanWardrobeItem asset"), true }
 		};
 	}
