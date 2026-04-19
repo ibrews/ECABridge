@@ -160,6 +160,8 @@ create_level_sequence → add_sequence_camera → add_sequence_transform_key →
 
 22 commands that drive Epic's MetaHuman Character pipeline end-to-end from natural-language prompts. No UI clicks required (after Epic sign-in).
 
+> **Extending MetaHuman support?** Read [`docs/METAHUMAN.md`](./docs/METAHUMAN.md) first — it points to the canonical technical reference with the reflection patterns, the Collection+Instance groom flow, the `EMetaHumanCharacterSkinPreviewMaterial` enum inversion gotcha, Epic sign-in requirements, and every 5.7 API pitfall we've already walked into. Copy the patterns; don't reinvent them.
+
 **The full pipeline:**
 
 ```bash
