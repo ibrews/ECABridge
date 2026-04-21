@@ -43,6 +43,14 @@
 #include "Components/ShapeComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/ActorComponent.h"
+#include "Components/SkinnedMeshComponent.h"
+#include "Components/ChildActorComponent.h"
+#include "Blueprint/UserWidget.h"
+#include "Components/Widget.h"
+#include "Components/TextBlock.h"
+#include "Components/Button.h"
+#include "Components/Image.h"
+#include "Kismet/KismetTextLibrary.h"
 #include "BlueprintAutoLayout.h"
 #include "K2Node_MakeArray.h"
 #include "K2Node_GetArrayItem.h"
@@ -3204,7 +3212,16 @@ static UEdGraphPin* ResolveLispExpression(const FLispNodePtr& Expr, FLispToBPCon
 				USceneComponent::StaticClass(),
 				UPrimitiveComponent::StaticClass(),
 				Ctx.Blueprint->ParentClass,
-				Ctx.Blueprint->GeneratedClass
+				Ctx.Blueprint->GeneratedClass,
+				UKismetTextLibrary::StaticClass(),
+				USkinnedMeshComponent::StaticClass(),
+				USkeletalMeshComponent::StaticClass(),
+				UChildActorComponent::StaticClass(),
+				UUserWidget::StaticClass(),
+				UWidget::StaticClass(),
+				UTextBlock::StaticClass(),
+				UButton::StaticClass(),
+				UImage::StaticClass(),
 			};
 			
 			// Add Geometry Script classes for procedural mesh functions
@@ -3355,7 +3372,16 @@ static UEdGraphPin* ResolveLispExpression(const FLispNodePtr& Expr, FLispToBPCon
 				AActor::StaticClass(),
 				APawn::StaticClass(),
 				ACharacter::StaticClass(),
-				Ctx.Blueprint->ParentClass
+				Ctx.Blueprint->ParentClass,
+				UKismetTextLibrary::StaticClass(),
+				USkinnedMeshComponent::StaticClass(),
+				USkeletalMeshComponent::StaticClass(),
+				UChildActorComponent::StaticClass(),
+				UUserWidget::StaticClass(),
+				UWidget::StaticClass(),
+				UTextBlock::StaticClass(),
+				UButton::StaticClass(),
+				UImage::StaticClass(),
 			};
 			
 			// Add Geometry Script classes for procedural mesh functions
@@ -4022,7 +4048,16 @@ static UEdGraphNode* ConvertLispFormToNode(const FLispNodePtr& Form, FLispToBPCo
 			USceneComponent::StaticClass(),
 			UActorComponent::StaticClass(),
 			Ctx.Blueprint->ParentClass,
-			Ctx.Blueprint->GeneratedClass
+			Ctx.Blueprint->GeneratedClass,
+				UKismetTextLibrary::StaticClass(),
+				USkinnedMeshComponent::StaticClass(),
+				USkeletalMeshComponent::StaticClass(),
+				UChildActorComponent::StaticClass(),
+				UUserWidget::StaticClass(),
+				UWidget::StaticClass(),
+				UTextBlock::StaticClass(),
+				UButton::StaticClass(),
+				UImage::StaticClass(),
 		};
 		
 		// Add Geometry Script classes for procedural mesh functions
@@ -5467,7 +5502,16 @@ static UEdGraphNode* ConvertLispFormToNode(const FLispNodePtr& Form, FLispToBPCo
 			AActor::StaticClass(),
 			APawn::StaticClass(),
 			ACharacter::StaticClass(),
-			Ctx.Blueprint->ParentClass
+			Ctx.Blueprint->ParentClass,
+				UKismetTextLibrary::StaticClass(),
+				USkinnedMeshComponent::StaticClass(),
+				USkeletalMeshComponent::StaticClass(),
+				UChildActorComponent::StaticClass(),
+				UUserWidget::StaticClass(),
+				UWidget::StaticClass(),
+				UTextBlock::StaticClass(),
+				UButton::StaticClass(),
+				UImage::StaticClass(),
 		};
 		
 		// Add Geometry Script classes for procedural mesh functions

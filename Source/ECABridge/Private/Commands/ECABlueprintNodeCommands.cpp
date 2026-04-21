@@ -35,6 +35,14 @@
 #include "Kismet/KismetArrayLibrary.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
+#include "Components/SkinnedMeshComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/ChildActorComponent.h"
+#include "Blueprint/UserWidget.h"
+#include "Components/Widget.h"
+#include "Components/TextBlock.h"
+#include "Components/Button.h"
+#include "Components/Image.h"
 #include "Engine/SimpleConstructionScript.h"
 #include "Engine/SCS_Node.h"
 #include "Kismet/GameplayStatics.h"
@@ -631,10 +639,33 @@ FECACommandResult FECACommand_AddBlueprintFunctionNode::Execute(const TSharedPtr
 	
 	if (!TargetClass.IsEmpty())
 	{
-		UClass* SpecificClass = FindObject<UClass>(nullptr, *FString::Printf(TEXT("/Script/Engine.%s"), *TargetClass));
+		UClass* SpecificClass = nullptr;
+		// Try as a fully-qualified path first
+		SpecificClass = FindObject<UClass>(nullptr, *TargetClass);
 		if (!SpecificClass)
 		{
-			SpecificClass = FindObject<UClass>(nullptr, *FString::Printf(TEXT("/Script/CoreUObject.%s"), *TargetClass));
+			SpecificClass = LoadObject<UClass>(nullptr, *TargetClass);
+		}
+		// Otherwise try well-known script modules
+		static const TCHAR* ScriptModulePrefixes[] = {
+			TEXT("/Script/Engine."),
+			TEXT("/Script/CoreUObject."),
+			TEXT("/Script/UMG."),
+			TEXT("/Script/UMGEditor."),
+			TEXT("/Script/AIModule."),
+			TEXT("/Script/GameplayAbilities."),
+			TEXT("/Script/EnhancedInput."),
+			TEXT("/Script/NavigationSystem."),
+		};
+		for (const TCHAR* Prefix : ScriptModulePrefixes)
+		{
+			if (SpecificClass) break;
+			FString Candidate = FString(Prefix) + TargetClass;
+			SpecificClass = FindObject<UClass>(nullptr, *Candidate);
+			if (!SpecificClass)
+			{
+				SpecificClass = LoadObject<UClass>(nullptr, *Candidate);
+			}
 		}
 		if (SpecificClass)
 		{
@@ -689,6 +720,14 @@ FECACommandResult FECACommand_AddBlueprintFunctionNode::Execute(const TSharedPtr
 	ClassesToSearch.Add(ACharacter::StaticClass());
 	ClassesToSearch.Add(USceneComponent::StaticClass());
 	ClassesToSearch.Add(UPrimitiveComponent::StaticClass());
+	ClassesToSearch.Add(USkinnedMeshComponent::StaticClass());
+	ClassesToSearch.Add(USkeletalMeshComponent::StaticClass());
+	ClassesToSearch.Add(UChildActorComponent::StaticClass());
+	ClassesToSearch.Add(UUserWidget::StaticClass());
+	ClassesToSearch.Add(UWidget::StaticClass());
+	ClassesToSearch.Add(UTextBlock::StaticClass());
+	ClassesToSearch.Add(UButton::StaticClass());
+	ClassesToSearch.Add(UImage::StaticClass());
 	ClassesToSearch.Add(Blueprint->ParentClass);
 	
 	// Add Geometry Script library classes for procedural mesh operations
