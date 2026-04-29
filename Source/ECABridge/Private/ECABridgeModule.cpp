@@ -30,17 +30,26 @@
 void FECABridgeModule::StartupModule()
 {
 	UE_LOG(LogTemp, Log, TEXT("[ECABridge] Module starting..."));
-	
+
+	// Skip server + handler registration in commandlet/cook/build runs.
+	// The HTTP server fights for ports 3000/3010 with the live editor and
+	// drives a non-zero editor exit code that UAT reports as "Cook failed."
+	if (IsRunningCommandlet() || IsRunningCookCommandlet() || IsRunningDedicatedServer())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[ECABridge] Commandlet/cook/server detected — skipping server startup"));
+		return;
+	}
+
 	// Create and initialize the bridge with the transient package as outer
 	Bridge = NewObject<UECABridge>(GetTransientPackage(), NAME_None, RF_Transient);
 	Bridge->Initialize();
-	
+
 	// Register console commands
 	RegisterConsoleCommands();
-	
+
 	// Register editor event handlers
 	RegisterEditorEventHandlers();
-	
+
 	UE_LOG(LogTemp, Log, TEXT("[ECABridge] Module ready"));
 }
 
