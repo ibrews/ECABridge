@@ -105,16 +105,16 @@ class FECACommand_BindWidgetEvent : public IECACommand
 {
 public:
 	virtual FString GetName() const override { return TEXT("bind_widget_event"); }
-	virtual FString GetDescription() const override { return TEXT("Bind an event to a widget (e.g., OnClicked for buttons)"); }
+	virtual FString GetDescription() const override { return TEXT("Bind a Widget Blueprint event (OnClicked, OnHovered, OnTextChanged, etc.) to a Blueprint function. The function must already exist on the Widget Blueprint. If function_name is omitted, the widget is just marked as a variable so you can wire it up manually in the editor. Pass either the bare event name ('OnClicked') or the actual delegate property ('OnClickedEvent') — both resolve."); }
 	virtual FString GetCategory() const override { return TEXT("UMG"); }
-	
+
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
 			{ TEXT("widget_path"), TEXT("string"), TEXT("Path to the Widget Blueprint"), true },
-			{ TEXT("widget_name"), TEXT("string"), TEXT("Name of the widget to bind"), true },
-			{ TEXT("event_name"), TEXT("string"), TEXT("Name of the event (OnClicked, OnHovered, etc.)"), true },
-			{ TEXT("function_name"), TEXT("string"), TEXT("Name of the function to call"), false }
+			{ TEXT("widget_name"), TEXT("string"), TEXT("Name of the widget element to bind on (e.g., 'StartButton')"), true },
+			{ TEXT("event_name"), TEXT("string"), TEXT("Event name. Examples: 'OnClicked' (Button), 'OnHovered', 'OnTextChanged' (EditableText), 'OnValueChanged' (Slider). The bare name is auto-resolved to the underlying delegate (e.g., 'OnClicked' -> 'OnClickedEvent')."), true },
+			{ TEXT("function_name"), TEXT("string"), TEXT("Name of the Blueprint function to call when the event fires. Function must already exist on the Widget Blueprint. Omit to only mark the widget as a variable."), false }
 		};
 	}
 	
@@ -140,6 +140,28 @@ public:
 		};
 	}
 	
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * List available UMG widget classes (subclasses of UWidget) — discover what you can pass
+ * to add_widget_element's widget_type. Filtered to non-abstract classes by default.
+ */
+class FECACommand_ListWidgetClasses : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("list_widget_classes"); }
+	virtual FString GetDescription() const override { return TEXT("List available UMG widget classes (UWidget subclasses) — what you can pass as 'widget_type' to add_widget_element. Returns name, full class path, and is_panel flag (panels can host children). Optional name_filter for substring matching."); }
+	virtual FString GetCategory() const override { return TEXT("UMG"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("name_filter"), TEXT("string"), TEXT("Optional substring (case-insensitive) to filter class names"), false },
+			{ TEXT("include_abstract"), TEXT("boolean"), TEXT("Include abstract classes (default false)"), false, TEXT("false") }
+		};
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 

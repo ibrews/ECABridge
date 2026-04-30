@@ -14,6 +14,7 @@
 #include "Components/CanvasPanelSlot.h"
 #include "Components/PanelWidget.h"
 #include "Components/ContentWidget.h"
+#include "UObject/UObjectIterator.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -28,6 +29,7 @@ REGISTER_ECA_COMMAND(FECACommand_BindWidgetEvent)
 REGISTER_ECA_COMMAND(FECACommand_SetTextBlockBinding)
 REGISTER_ECA_COMMAND(FECACommand_AddImageToWidget)
 REGISTER_ECA_COMMAND(FECACommand_AddWidgetElement)
+REGISTER_ECA_COMMAND(FECACommand_ListWidgetClasses)
 REGISTER_ECA_COMMAND(FECACommand_GetWidgetInfo)
 
 //------------------------------------------------------------------------------
@@ -405,48 +407,116 @@ FECACommandResult FECACommand_BindWidgetEvent::Execute(const TSharedPtr<FJsonObj
 	{
 		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
 	}
-	
+
 	FString WidgetName;
 	if (!GetStringParam(Params, TEXT("widget_name"), WidgetName))
 	{
 		return FECACommandResult::Error(TEXT("Missing required parameter: widget_name"));
 	}
-	
+
 	FString EventName;
 	if (!GetStringParam(Params, TEXT("event_name"), EventName))
 	{
 		return FECACommandResult::Error(TEXT("Missing required parameter: event_name"));
 	}
-	
+
+	FString FunctionName;
+	const bool bHasFunction = GetStringParam(Params, TEXT("function_name"), FunctionName, false) && !FunctionName.IsEmpty();
+
 	UWidgetBlueprint* WidgetBlueprint = LoadUMGWidgetBlueprintByPath(WidgetPath);
 	if (!WidgetBlueprint)
 	{
 		return FECACommandResult::Error(FString::Printf(TEXT("Widget Blueprint not found: %s"), *WidgetPath));
 	}
-	
-	// Find the widget in the tree
+
 	UWidgetTree* WidgetTree = WidgetBlueprint->WidgetTree;
 	if (!WidgetTree)
 	{
 		return FECACommandResult::Error(TEXT("Widget Blueprint has no widget tree"));
 	}
-	
+
 	UWidget* TargetWidget = WidgetTree->FindWidget(FName(*WidgetName));
 	if (!TargetWidget)
 	{
 		return FECACommandResult::Error(FString::Printf(TEXT("Widget not found: %s"), *WidgetName));
 	}
-	
-	// For now, just mark the widget as a variable so it can be bound in Blueprints
+
 	TargetWidget->bIsVariable = true;
-	
+
+	bool bAddedBinding = false;
+	FString ResolvedDelegateName;
+	if (bHasFunction)
+	{
+		// Resolve the delegate property name. Conventions:
+		//   - User passes "OnClicked" — actual property is "OnClickedEvent"
+		//   - User passes "OnHovered" — actual property is "OnHovered"
+		//   - User passes "OnClickedEvent" — use as-is.
+		// Try the literal name first, then with "Event" suffix.
+		FProperty* DelegateProp = TargetWidget->GetClass()->FindPropertyByName(FName(*EventName));
+		if (!DelegateProp)
+		{
+			DelegateProp = TargetWidget->GetClass()->FindPropertyByName(FName(*(EventName + TEXT("Event"))));
+		}
+		if (!DelegateProp)
+		{
+			return FECACommandResult::Error(FString::Printf(
+				TEXT("Event '%s' not found on widget class '%s'. Try the actual delegate property name (e.g., 'OnClickedEvent' on Button) or omit function_name to fall back to mark-as-variable mode."),
+				*EventName, *TargetWidget->GetClass()->GetName()));
+		}
+
+		// Verify the function exists on the BP. We look at SkeletonGeneratedClass since
+		// the function might not be in the runtime class until next compile.
+		UClass* BPClass = WidgetBlueprint->SkeletonGeneratedClass
+			? WidgetBlueprint->SkeletonGeneratedClass.Get()
+			: WidgetBlueprint->GeneratedClass.Get();
+		if (BPClass && !BPClass->FindFunctionByName(FName(*FunctionName)))
+		{
+			return FECACommandResult::Error(FString::Printf(
+				TEXT("Function '%s' does not exist on Widget Blueprint '%s'. Create the function first (e.g., add_blueprint_function), then call this with function_name set."),
+				*FunctionName, *WidgetBlueprint->GetName()));
+		}
+
+		// Build the binding. Avoid duplicating an existing entry for the same widget+event.
+		FDelegateEditorBinding NewBinding;
+		NewBinding.ObjectName = WidgetName;
+		NewBinding.PropertyName = DelegateProp->GetFName();
+		NewBinding.FunctionName = FName(*FunctionName);
+		NewBinding.Kind = EBindingKind::Function;
+
+		const int32 ExistingIdx = WidgetBlueprint->Bindings.IndexOfByKey(NewBinding);
+		if (ExistingIdx == INDEX_NONE)
+		{
+			WidgetBlueprint->Bindings.Add(NewBinding);
+			bAddedBinding = true;
+		}
+		else
+		{
+			// Update the FunctionName to match — operator== compares only ObjectName + PropertyName.
+			WidgetBlueprint->Bindings[ExistingIdx].FunctionName = FName(*FunctionName);
+			WidgetBlueprint->Bindings[ExistingIdx].Kind = EBindingKind::Function;
+			bAddedBinding = true;
+		}
+
+		ResolvedDelegateName = DelegateProp->GetName();
+	}
+
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(WidgetBlueprint);
-	
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetStringField(TEXT("widget_name"), WidgetName);
 	Result->SetStringField(TEXT("event_name"), EventName);
 	Result->SetBoolField(TEXT("is_variable"), true);
-	Result->SetStringField(TEXT("note"), TEXT("Widget marked as variable. Use Blueprint editor to complete event binding."));
+	if (bHasFunction)
+	{
+		Result->SetStringField(TEXT("function_name"), FunctionName);
+		Result->SetStringField(TEXT("delegate_property"), ResolvedDelegateName);
+		Result->SetBoolField(TEXT("binding_added"), bAddedBinding);
+		Result->SetStringField(TEXT("note"), TEXT("Binding stored in WidgetBlueprint->Bindings. compile_blueprint to bake it into the runtime class."));
+	}
+	else
+	{
+		Result->SetStringField(TEXT("note"), TEXT("Widget marked as variable. Pass function_name to also wire a delegate binding (function must already exist on the Widget Blueprint)."));
+	}
 	return FECACommandResult::Success(Result);
 }
 
@@ -503,6 +573,50 @@ FECACommandResult FECACommand_SetTextBlockBinding::Execute(const TSharedPtr<FJso
 	Result->SetStringField(TEXT("binding_function"), BindingFunction);
 	Result->SetBoolField(TEXT("is_variable"), true);
 	Result->SetStringField(TEXT("note"), TEXT("Text Block marked as variable. Create binding function in Blueprint editor."));
+	return FECACommandResult::Success(Result);
+}
+
+//------------------------------------------------------------------------------
+// ListWidgetClasses
+//------------------------------------------------------------------------------
+
+FECACommandResult FECACommand_ListWidgetClasses::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString NameFilter;
+	GetStringParam(Params, TEXT("name_filter"), NameFilter, false);
+
+	bool bIncludeAbstract = false;
+	GetBoolParam(Params, TEXT("include_abstract"), bIncludeAbstract, false);
+
+	TArray<TSharedPtr<FJsonValue>> ClassesArray;
+	for (TObjectIterator<UClass> It; It; ++It)
+	{
+		UClass* C = *It;
+		if (!C || !C->IsChildOf(UWidget::StaticClass())) continue;
+		if (!bIncludeAbstract && C->HasAnyClassFlags(CLASS_Abstract)) continue;
+
+		const FString ClassName = C->GetName();
+		if (!NameFilter.IsEmpty() && !ClassName.Contains(NameFilter, ESearchCase::IgnoreCase))
+		{
+			continue;
+		}
+
+		TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+		Entry->SetStringField(TEXT("name"), ClassName);
+		Entry->SetStringField(TEXT("class_path"), C->GetPathName());
+		Entry->SetBoolField(TEXT("is_panel"), C->IsChildOf(UPanelWidget::StaticClass()));
+		Entry->SetBoolField(TEXT("is_content"), C->IsChildOf(UContentWidget::StaticClass()));
+		ClassesArray.Add(MakeShared<FJsonValueObject>(Entry));
+	}
+
+	// Sort by name for stable output.
+	ClassesArray.Sort([](const TSharedPtr<FJsonValue>& A, const TSharedPtr<FJsonValue>& B) {
+		return A->AsObject()->GetStringField(TEXT("name")) < B->AsObject()->GetStringField(TEXT("name"));
+	});
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetArrayField(TEXT("classes"), ClassesArray);
+	Result->SetNumberField(TEXT("count"), ClassesArray.Num());
 	return FECACommandResult::Success(Result);
 }
 
