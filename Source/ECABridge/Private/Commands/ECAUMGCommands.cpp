@@ -27,6 +27,7 @@ REGISTER_ECA_COMMAND(FECACommand_AddWidgetToViewport)
 REGISTER_ECA_COMMAND(FECACommand_BindWidgetEvent)
 REGISTER_ECA_COMMAND(FECACommand_SetTextBlockBinding)
 REGISTER_ECA_COMMAND(FECACommand_AddImageToWidget)
+REGISTER_ECA_COMMAND(FECACommand_AddWidgetElement)
 REGISTER_ECA_COMMAND(FECACommand_GetWidgetInfo)
 
 //------------------------------------------------------------------------------
@@ -502,6 +503,207 @@ FECACommandResult FECACommand_SetTextBlockBinding::Execute(const TSharedPtr<FJso
 	Result->SetStringField(TEXT("binding_function"), BindingFunction);
 	Result->SetBoolField(TEXT("is_variable"), true);
 	Result->SetStringField(TEXT("note"), TEXT("Text Block marked as variable. Create binding function in Blueprint editor."));
+	return FECACommandResult::Success(Result);
+}
+
+//------------------------------------------------------------------------------
+// AddWidgetElement (generic)
+//------------------------------------------------------------------------------
+
+FECACommandResult FECACommand_AddWidgetElement::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString WidgetPath;
+	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+	}
+
+	FString WidgetType;
+	if (!GetStringParam(Params, TEXT("widget_type"), WidgetType))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: widget_type"));
+	}
+
+	FString ElementName;
+	if (!GetStringParam(Params, TEXT("element_name"), ElementName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: element_name"));
+	}
+
+	UWidgetBlueprint* WidgetBlueprint = LoadUMGWidgetBlueprintByPath(WidgetPath);
+	if (!WidgetBlueprint)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Widget Blueprint not found: %s"), *WidgetPath));
+	}
+
+	UWidgetTree* WidgetTree = WidgetBlueprint->WidgetTree;
+	if (!WidgetTree)
+	{
+		return FECACommandResult::Error(TEXT("Widget Blueprint has no widget tree"));
+	}
+
+	// Resolve widget class. Try common locations: /Script/UMG.X, fully qualified path, then LoadObject.
+	UClass* WidgetClass = nullptr;
+	if (!WidgetType.Contains(TEXT(".")) && !WidgetType.Contains(TEXT("/")))
+	{
+		WidgetClass = FindObject<UClass>(nullptr, *FString::Printf(TEXT("/Script/UMG.%s"), *WidgetType));
+	}
+	if (!WidgetClass)
+	{
+		WidgetClass = FindObject<UClass>(nullptr, *WidgetType);
+	}
+	if (!WidgetClass)
+	{
+		WidgetClass = LoadObject<UClass>(nullptr, *WidgetType);
+	}
+	if (!WidgetClass || !WidgetClass->IsChildOf(UWidget::StaticClass()))
+	{
+		return FECACommandResult::Error(FString::Printf(
+			TEXT("Widget class '%s' not found or is not a UWidget subclass. Try the unqualified UMG name (e.g., 'ProgressBar', 'VerticalBox')."),
+			*WidgetType));
+	}
+	if (WidgetClass->HasAnyClassFlags(CLASS_Abstract))
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Widget class '%s' is abstract and cannot be instantiated"), *WidgetClass->GetName()));
+	}
+
+	UWidget* NewWidget = WidgetTree->ConstructWidget<UWidget>(WidgetClass, FName(*ElementName));
+	if (!NewWidget)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Failed to construct widget of class %s"), *WidgetClass->GetName()));
+	}
+
+	// Find the parent panel.
+	UPanelWidget* ParentPanel = nullptr;
+	FString ParentName;
+	if (GetStringParam(Params, TEXT("parent_name"), ParentName, false) && !ParentName.IsEmpty())
+	{
+		UWidget* ParentWidget = WidgetTree->FindWidget(FName(*ParentName));
+		ParentPanel = Cast<UPanelWidget>(ParentWidget);
+		if (!ParentPanel)
+		{
+			return FECACommandResult::Error(FString::Printf(TEXT("Parent '%s' not found or not a panel widget"), *ParentName));
+		}
+	}
+	else
+	{
+		ParentPanel = Cast<UPanelWidget>(WidgetTree->RootWidget);
+	}
+
+	bool bMadeRoot = false;
+	UPanelSlot* AddedSlot = nullptr;
+	if (!ParentPanel)
+	{
+		// Tree has no root yet (or root isn't a panel) — promote this widget to root if it's a panel.
+		if (UPanelWidget* AsPanel = Cast<UPanelWidget>(NewWidget))
+		{
+			WidgetTree->RootWidget = AsPanel;
+			bMadeRoot = true;
+		}
+		else
+		{
+			return FECACommandResult::Error(TEXT("Widget Blueprint has no panel root to attach to. Add a CanvasPanel/VerticalBox/etc. first, or pass a non-panel widget as parent_name."));
+		}
+	}
+	else
+	{
+		AddedSlot = ParentPanel->AddChild(NewWidget);
+		if (!AddedSlot)
+		{
+			return FECACommandResult::Error(FString::Printf(TEXT("Failed to add widget to parent '%s' (the parent may have a fixed slot count or refuse this child)"), *ParentPanel->GetName()));
+		}
+	}
+
+	// If parent is a CanvasPanel, apply optional position and size to the slot.
+	if (UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(AddedSlot))
+	{
+		const TSharedPtr<FJsonObject>* PosObj = nullptr;
+		if (Params->TryGetObjectField(TEXT("position"), PosObj) && PosObj && PosObj->IsValid())
+		{
+			FVector2D Position(0, 0);
+			(*PosObj)->TryGetNumberField(TEXT("x"), Position.X);
+			(*PosObj)->TryGetNumberField(TEXT("y"), Position.Y);
+			CanvasSlot->SetPosition(Position);
+		}
+
+		const TSharedPtr<FJsonObject>* SizeObj = nullptr;
+		if (Params->TryGetObjectField(TEXT("size"), SizeObj) && SizeObj && SizeObj->IsValid())
+		{
+			FVector2D Size(200, 50);
+			(*SizeObj)->TryGetNumberField(TEXT("width"), Size.X);
+			(*SizeObj)->TryGetNumberField(TEXT("height"), Size.Y);
+			CanvasSlot->SetSize(Size);
+		}
+	}
+
+	// Apply optional properties via reflection.
+	int32 PropertiesSet = 0;
+	TArray<FString> FailedProperties;
+	const TSharedPtr<FJsonObject>* PropsObj = nullptr;
+	if (Params->TryGetObjectField(TEXT("properties"), PropsObj) && PropsObj && PropsObj->IsValid())
+	{
+		for (const auto& KV : (*PropsObj)->Values)
+		{
+			FProperty* Prop = WidgetClass->FindPropertyByName(FName(*KV.Key));
+			if (!Prop)
+			{
+				FailedProperties.Add(FString::Printf(TEXT("%s: not found"), *KV.Key));
+				continue;
+			}
+
+			void* ValPtr = Prop->ContainerPtrToValuePtr<void>(NewWidget);
+			FString ValStr;
+
+			if (KV.Value->Type == EJson::String)
+			{
+				ValStr = KV.Value->AsString();
+			}
+			else if (KV.Value->Type == EJson::Number)
+			{
+				ValStr = FString::SanitizeFloat(KV.Value->AsNumber());
+			}
+			else if (KV.Value->Type == EJson::Boolean)
+			{
+				ValStr = KV.Value->AsBool() ? TEXT("True") : TEXT("False");
+			}
+			else
+			{
+				FailedProperties.Add(FString::Printf(TEXT("%s: unsupported JSON value type"), *KV.Key));
+				continue;
+			}
+
+			if (Prop->ImportText_Direct(*ValStr, ValPtr, NewWidget, PPF_None))
+			{
+				PropertiesSet++;
+			}
+			else
+			{
+				FailedProperties.Add(FString::Printf(TEXT("%s: import failed for value '%s'"), *KV.Key, *ValStr));
+			}
+		}
+	}
+
+	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(WidgetBlueprint);
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("element_name"), ElementName);
+	Result->SetStringField(TEXT("widget_type"), WidgetClass->GetName());
+	Result->SetStringField(TEXT("widget_class_path"), WidgetClass->GetPathName());
+	Result->SetBoolField(TEXT("is_root"), bMadeRoot);
+	if (ParentPanel)
+	{
+		Result->SetStringField(TEXT("parent"), ParentPanel->GetName());
+	}
+	Result->SetNumberField(TEXT("properties_set"), PropertiesSet);
+	if (FailedProperties.Num() > 0)
+	{
+		TArray<TSharedPtr<FJsonValue>> FailedArr;
+		for (const FString& F : FailedProperties)
+		{
+			FailedArr.Add(MakeShared<FJsonValueString>(F));
+		}
+		Result->SetArrayField(TEXT("properties_failed"), FailedArr);
+	}
 	return FECACommandResult::Success(Result);
 }
 

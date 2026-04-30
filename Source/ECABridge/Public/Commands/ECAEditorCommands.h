@@ -174,7 +174,47 @@ public:
 	virtual FString GetName() const override { return TEXT("save_level"); }
 	virtual FString GetDescription() const override { return TEXT("Save the current level"); }
 	virtual FString GetCategory() const override { return TEXT("Editor"); }
-	
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Save a single asset by content path
+ */
+class FECACommand_SaveAsset : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("save_asset"); }
+	virtual FString GetDescription() const override { return TEXT("Save a single asset to disk by content path. Works for Blueprints, materials, Niagara systems, widgets, textures, and any UAsset. Use save_level for the current map."); }
+	virtual FString GetCategory() const override { return TEXT("Editor"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("asset_path"), TEXT("string"), TEXT("Content path to the asset (e.g., /Game/Blueprints/BP_Foo)"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Save all dirty (modified-in-memory) assets
+ */
+class FECACommand_SaveDirtyAssets : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("save_dirty_assets"); }
+	virtual FString GetDescription() const override { return TEXT("Save all modified-in-memory assets to disk. Like Save All but with no UI prompts. Useful as a one-shot persist after a batch of edits across multiple Blueprints/materials/widgets."); }
+	virtual FString GetCategory() const override { return TEXT("Editor"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("include_maps"), TEXT("boolean"), TEXT("Also save dirty map (level) packages (default false)"), false, TEXT("false") }
+		};
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 

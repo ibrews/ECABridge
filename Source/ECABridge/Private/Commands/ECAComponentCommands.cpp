@@ -250,9 +250,69 @@ FECACommandResult FECACommand_SetComponentProperty::Execute(const TSharedPtr<FJs
 	{
 		NameProp->SetPropertyValue(PropertyAddr, FName(*PropertyValue->AsString()));
 	}
+	else if (FClassProperty* ClassProp = CastField<FClassProperty>(Property))
+	{
+		// Object class reference (e.g., TSubclassOf<UUserWidget>, TSubclassOf<AActor>)
+		// Pass empty string to clear, otherwise an asset/class path.
+		FString ClassPath = PropertyValue->AsString();
+		UClass* LoadedClass = nullptr;
+		if (!ClassPath.IsEmpty())
+		{
+			UClass* Constraint = ClassProp->MetaClass.Get();
+			if (!Constraint) { Constraint = UObject::StaticClass(); }
+			LoadedClass = StaticLoadClass(Constraint, nullptr, *ClassPath);
+			if (!LoadedClass)
+			{
+				// Blueprint generated classes are stored at /Game/.../BP_Foo.BP_Foo_C
+				LoadedClass = StaticLoadClass(Constraint, nullptr, *(ClassPath + TEXT("_C")));
+			}
+			if (!LoadedClass)
+			{
+				return FECACommandResult::Error(FString::Printf(
+					TEXT("Failed to load class '%s' for property '%s' (expected child of %s)"),
+					*ClassPath, *PropertyName, *Constraint->GetName()));
+			}
+		}
+		ClassProp->SetObjectPropertyValue(PropertyAddr, LoadedClass);
+	}
+	else if (FSoftClassProperty* SoftClassProp = CastField<FSoftClassProperty>(Property))
+	{
+		// Soft class reference (TSoftClassPtr<>)
+		FString ClassPath = PropertyValue->AsString();
+		FSoftObjectPtr* PtrAddr = static_cast<FSoftObjectPtr*>(PropertyAddr);
+		*PtrAddr = FSoftObjectPath(ClassPath);
+	}
+	else if (FObjectProperty* ObjProp = CastField<FObjectProperty>(Property))
+	{
+		// Hard object reference (USoundBase*, UStaticMesh*, UMaterialInterface*, etc.)
+		FString AssetPath = PropertyValue->AsString();
+		UObject* AssetObject = nullptr;
+		if (!AssetPath.IsEmpty())
+		{
+			UClass* Constraint = ObjProp->PropertyClass.Get();
+			if (!Constraint) { Constraint = UObject::StaticClass(); }
+			AssetObject = StaticLoadObject(Constraint, nullptr, *AssetPath);
+			if (!AssetObject)
+			{
+				return FECACommandResult::Error(FString::Printf(
+					TEXT("Failed to load object '%s' for property '%s' (expected %s)"),
+					*AssetPath, *PropertyName, *Constraint->GetName()));
+			}
+		}
+		ObjProp->SetObjectPropertyValue(PropertyAddr, AssetObject);
+	}
+	else if (FSoftObjectProperty* SoftObjProp = CastField<FSoftObjectProperty>(Property))
+	{
+		// Soft object reference (TSoftObjectPtr<>)
+		FString AssetPath = PropertyValue->AsString();
+		FSoftObjectPtr* PtrAddr = static_cast<FSoftObjectPtr*>(PropertyAddr);
+		*PtrAddr = FSoftObjectPath(AssetPath);
+	}
 	else
 	{
-		return FECACommandResult::Error(FString::Printf(TEXT("Unsupported property type for: %s"), *PropertyName));
+		return FECACommandResult::Error(FString::Printf(
+			TEXT("Unsupported property type '%s' for property '%s'. Supported: bool, int, float, double, string, name, object reference, soft object, class reference, soft class."),
+			*Property->GetClass()->GetName(), *PropertyName));
 	}
 	
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);

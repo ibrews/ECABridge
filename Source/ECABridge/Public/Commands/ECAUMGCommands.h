@@ -144,6 +144,37 @@ public:
 };
 
 /**
+ * Add a generic UMG widget element of any UMG class.
+ * Use this for ProgressBar, VerticalBox, HorizontalBox, CanvasPanel, Border, Spacer, Overlay,
+ * ScrollBox, SizeBox, ScaleBox, Slider, CheckBox, GridPanel, UniformGridPanel, RichTextBlock,
+ * Throbber, CircularThrobber, NamedSlot, BackgroundBlur, RetainerBox, and any plugin widget.
+ * The dedicated commands (add_text_block_to_widget, add_button_to_widget, add_image_to_widget)
+ * remain for those specific types because they pre-fill richer initial settings.
+ */
+class FECACommand_AddWidgetElement : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("add_widget_element"); }
+	virtual FString GetDescription() const override { return TEXT("Add a UMG widget element of any class to a Widget Blueprint. Resolves widget_type as either an unqualified UMG class name (e.g., 'ProgressBar', 'VerticalBox', 'Border') or a fully qualified path (e.g., '/Script/UMG.ProgressBar'). If parent_name is omitted, attaches to the root canvas. Optional 'properties' is a JSON object of property names to values, applied via reflection (e.g., {Percent: 0.75} for ProgressBar)."); }
+	virtual FString GetCategory() const override { return TEXT("UMG"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("widget_path"), TEXT("string"), TEXT("Path to the Widget Blueprint"), true },
+			{ TEXT("widget_type"), TEXT("string"), TEXT("UMG class name (ProgressBar, VerticalBox, Border, etc.) or full /Script/UMG.X path"), true },
+			{ TEXT("element_name"), TEXT("string"), TEXT("Name for the new element"), true },
+			{ TEXT("parent_name"), TEXT("string"), TEXT("Optional name of an existing panel to attach to (defaults to the root)"), false },
+			{ TEXT("position"), TEXT("object"), TEXT("Position {x, y} when attached to a CanvasPanel"), false },
+			{ TEXT("size"), TEXT("object"), TEXT("Size {width, height} when attached to a CanvasPanel"), false },
+			{ TEXT("properties"), TEXT("object"), TEXT("Optional JSON properties to set on the new widget (e.g., {Percent: 0.5} for ProgressBar)"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
  * Add an Image widget to a Widget Blueprint
  */
 class FECACommand_AddImageToWidget : public IECACommand

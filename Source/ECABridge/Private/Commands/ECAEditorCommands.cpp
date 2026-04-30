@@ -35,6 +35,7 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/Texture2D.h"
 #include "UObject/UnrealType.h"
+#include "UObject/UObjectIterator.h"
 
 // Register all editor commands
 REGISTER_ECA_COMMAND(FECACommand_FocusViewport)
@@ -47,6 +48,8 @@ REGISTER_ECA_COMMAND(FECACommand_RunConsoleCommand)
 REGISTER_ECA_COMMAND(FECACommand_GetLevelInfo)
 REGISTER_ECA_COMMAND(FECACommand_OpenLevel)
 REGISTER_ECA_COMMAND(FECACommand_SaveLevel)
+REGISTER_ECA_COMMAND(FECACommand_SaveAsset)
+REGISTER_ECA_COMMAND(FECACommand_SaveDirtyAssets)
 REGISTER_ECA_COMMAND(FECACommand_PlayInEditor)
 REGISTER_ECA_COMMAND(FECACommand_StopPlayInEditor)
 REGISTER_ECA_COMMAND(FECACommand_GetPlayState)
@@ -702,6 +705,95 @@ FECACommandResult FECACommand_SaveLevel::Execute(const TSharedPtr<FJsonObject>& 
 	{
 		return FECACommandResult::Error(TEXT("Failed to save level"));
 	}
+}
+
+//------------------------------------------------------------------------------
+// SaveAsset
+//------------------------------------------------------------------------------
+
+FECACommandResult FECACommand_SaveAsset::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString AssetPath;
+	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+	}
+
+	UObject* Asset = StaticLoadObject(UObject::StaticClass(), nullptr, *AssetPath);
+	if (!Asset)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Asset not found: %s"), *AssetPath));
+	}
+
+	UPackage* Package = Asset->GetOutermost();
+	if (!Package)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Asset has no package: %s"), *AssetPath));
+	}
+
+	const bool bWasDirty = Package->IsDirty();
+
+	TArray<UPackage*> PackagesToSave;
+	PackagesToSave.Add(Package);
+
+	const FEditorFileUtils::EPromptReturnCode PromptResult = FEditorFileUtils::PromptForCheckoutAndSave(
+		PackagesToSave,
+		/*bCheckDirty=*/false,
+		/*bPromptToSave=*/false);
+
+	const bool bSaved = (PromptResult == FEditorFileUtils::PR_Success);
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("asset_path"), AssetPath);
+	Result->SetStringField(TEXT("package"), Package->GetName());
+	Result->SetBoolField(TEXT("saved"), bSaved);
+	Result->SetBoolField(TEXT("was_dirty"), bWasDirty);
+
+	if (!bSaved)
+	{
+		return FECACommandResult::Error(FString::Printf(
+			TEXT("Failed to save asset '%s' (PromptForCheckoutAndSave returned code %d)"), *AssetPath, (int32)PromptResult));
+	}
+
+	return FECACommandResult::Success(Result);
+}
+
+//------------------------------------------------------------------------------
+// SaveDirtyAssets
+//------------------------------------------------------------------------------
+
+FECACommandResult FECACommand_SaveDirtyAssets::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	bool bIncludeMaps = false;
+	GetBoolParam(Params, TEXT("include_maps"), bIncludeMaps, false);
+
+	// Walk packages and count what's dirty before save (so we can report it).
+	int32 DirtyContentCount = 0;
+	int32 DirtyMapCount = 0;
+	for (TObjectIterator<UPackage> It; It; ++It)
+	{
+		UPackage* Pkg = *It;
+		if (!Pkg || !Pkg->IsDirty()) continue;
+		const bool bIsMap = Pkg->ContainsMap();
+		if (bIsMap) DirtyMapCount++;
+		else        DirtyContentCount++;
+	}
+
+	const bool bSuccess = FEditorFileUtils::SaveDirtyPackages(
+		/*bPromptUserToSave=*/false,
+		/*bSaveMapPackages=*/bIncludeMaps,
+		/*bSaveContentPackages=*/true,
+		/*bFastSave=*/false,
+		/*bNotifyNoPackagesSaved=*/false,
+		/*bCanBeDeclined=*/false);
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetBoolField(TEXT("saved"), bSuccess);
+	Result->SetNumberField(TEXT("dirty_content_packages"), DirtyContentCount);
+	Result->SetNumberField(TEXT("dirty_map_packages"), DirtyMapCount);
+	Result->SetBoolField(TEXT("included_maps"), bIncludeMaps);
+
+	return FECACommandResult::Success(Result);
 }
 
 //------------------------------------------------------------------------------
