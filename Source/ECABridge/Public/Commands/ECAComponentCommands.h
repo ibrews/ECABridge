@@ -128,15 +128,16 @@ class FECACommand_GetBlueprintComponents : public IECACommand
 {
 public:
 	virtual FString GetName() const override { return TEXT("get_blueprint_components"); }
-	virtual FString GetDescription() const override { return TEXT("Get all components in a Blueprint"); }
+	virtual FString GetDescription() const override { return TEXT("Get all components in a Blueprint, with optional per-component overrides — properties whose template values differ from their class defaults. Use include_overrides=true to debug 'why does my component not behave like a fresh one' problems."); }
 	virtual FString GetCategory() const override { return TEXT("Component"); }
-	
+
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
-			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Path to the Blueprint asset"), true }
+			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Path to the Blueprint asset"), true },
+			{ TEXT("include_overrides"), TEXT("boolean"), TEXT("Include each component's property overrides (values that differ from class defaults). Default false."), false, TEXT("false") }
 		};
 	}
-	
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };

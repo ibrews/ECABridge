@@ -520,47 +520,82 @@ FECACommandResult FECACommand_GetBlueprintComponents::Execute(const TSharedPtr<F
 	{
 		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
 	}
-	
+
+	bool bIncludeOverrides = false;
+	GetBoolParam(Params, TEXT("include_overrides"), bIncludeOverrides, false);
+
 	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
 	if (!Blueprint)
 	{
 		return FECACommandResult::Error(FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintPath));
 	}
-	
+
 	TArray<TSharedPtr<FJsonValue>> ComponentsArray;
-	
+
 	if (Blueprint->SimpleConstructionScript)
 	{
 		TArray<USCS_Node*> AllNodes = Blueprint->SimpleConstructionScript->GetAllNodes();
-		
+
 		for (USCS_Node* Node : AllNodes)
 		{
 			if (!Node || !Node->ComponentTemplate)
 			{
 				continue;
 			}
-			
+
 			TSharedPtr<FJsonObject> CompJson = MakeShared<FJsonObject>();
 			CompJson->SetStringField(TEXT("name"), Node->GetVariableName().ToString());
 			CompJson->SetStringField(TEXT("class"), Node->ComponentClass ? Node->ComponentClass->GetName() : TEXT("None"));
-			
-			// Check if it's a scene component and get transform
+
 			USceneComponent* SceneComp = Cast<USceneComponent>(Node->ComponentTemplate);
 			if (SceneComp)
 			{
 				CompJson->SetObjectField(TEXT("relative_transform"), TransformToJson(SceneComp->GetRelativeTransform()));
 			}
-			
-			// Get parent node name if any
+
 			if (Node->ParentComponentOrVariableName != NAME_None)
 			{
 				CompJson->SetStringField(TEXT("parent"), Node->ParentComponentOrVariableName.ToString());
 			}
-			
+
+			// Optionally enumerate properties whose template value differs from the class default.
+			if (bIncludeOverrides && Node->ComponentTemplate && Node->ComponentClass)
+			{
+				UActorComponent* Template = Node->ComponentTemplate;
+				UObject* ClassDefault = Node->ComponentClass->GetDefaultObject();
+				TSharedPtr<FJsonObject> OverridesJson = MakeShared<FJsonObject>();
+				int32 OverrideCount = 0;
+
+				for (TFieldIterator<FProperty> PropIt(Node->ComponentClass); PropIt; ++PropIt)
+				{
+					FProperty* Prop = *PropIt;
+					if (!Prop->HasAnyPropertyFlags(CPF_Edit)) continue;
+					if (Prop->HasAnyPropertyFlags(CPF_Transient | CPF_DuplicateTransient)) continue;
+
+					const void* TemplatePtr = Prop->ContainerPtrToValuePtr<void>(Template);
+					const void* DefaultPtr = ClassDefault ? Prop->ContainerPtrToValuePtr<void>(ClassDefault) : nullptr;
+					if (DefaultPtr && Prop->Identical(TemplatePtr, DefaultPtr))
+					{
+						continue;
+					}
+
+					FString ValueStr;
+					Prop->ExportTextItem_Direct(ValueStr, TemplatePtr, DefaultPtr, Template, PPF_None);
+					OverridesJson->SetStringField(Prop->GetName(), ValueStr);
+					OverrideCount++;
+				}
+
+				if (OverrideCount > 0)
+				{
+					CompJson->SetObjectField(TEXT("overrides"), OverridesJson);
+					CompJson->SetNumberField(TEXT("override_count"), OverrideCount);
+				}
+			}
+
 			ComponentsArray.Add(MakeShared<FJsonValueObject>(CompJson));
 		}
 	}
-	
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetArrayField(TEXT("components"), ComponentsArray);
 	Result->SetNumberField(TEXT("count"), ComponentsArray.Num());
