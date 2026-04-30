@@ -21,6 +21,7 @@
 #include "NiagaraNodeOutput.h"
 #include "NiagaraNodeFunctionCall.h"
 #include "ViewModels/Stack/NiagaraStackGraphUtilities.h"
+#include "NiagaraParameterMapHistory.h"
 #include "NiagaraSystemEditorData.h"
 #include "NiagaraSpriteRendererProperties.h"
 #include "NiagaraMeshRendererProperties.h"
@@ -74,6 +75,7 @@ REGISTER_ECA_COMMAND(FECACommand_AddNiagaraRenderer)
 REGISTER_ECA_COMMAND(FECACommand_SetNiagaraMaterial)
 REGISTER_ECA_COMMAND(FECACommand_SetNiagaraCurve)
 REGISTER_ECA_COMMAND(FECACommand_SetNiagaraDynamicInput)
+REGISTER_ECA_COMMAND(FECACommand_ListModuleInputs)
 
 //------------------------------------------------------------------------------
 // Helper functions
@@ -283,14 +285,13 @@ FECACommandResult FECACommand_CreateNiagaraSystem::Execute(const TSharedPtr<FJso
 	{
 		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
 	}
-	
-	FString Template = TEXT("empty");
+
+	FString Template = TEXT("default");
 	GetStringParam(Params, TEXT("template"), Template, false);
-	
-	// Parse path into package and asset name
+
+	// Parse path into package and asset name.
 	FString PackagePath;
 	FString AssetName;
-	
 	int32 LastSlash;
 	if (AssetPath.FindLastChar('/', LastSlash))
 	{
@@ -299,78 +300,92 @@ FECACommandResult FECACommand_CreateNiagaraSystem::Execute(const TSharedPtr<FJso
 	}
 	else
 	{
-		return FECACommandResult::Error(TEXT("Invalid asset path format. Expected format: /Game/Path/AssetName"));
+		return FECACommandResult::Error(TEXT("Invalid asset path format. Expected: /Game/Path/AssetName"));
 	}
-	
-	// Remove NS_ prefix for cleaner asset name if present
-	FString CleanAssetName = AssetName;
+
 	if (!AssetName.StartsWith(TEXT("NS_")))
 	{
-		// Add NS_ prefix if not present for consistency
-		AssetName = FString::Printf(TEXT("NS_%s"), *CleanAssetName);
+		AssetName = FString::Printf(TEXT("NS_%s"), *AssetName);
 	}
-	
-	// Create the package
-	FString FullPackagePath = PackagePath / AssetName;
-	UPackage* Package = CreatePackage(*FullPackagePath);
-	if (!Package)
+
+	// Resolve the template. Earlier 5.7 ECABridge versions used UNiagaraSystemFactoryNew directly,
+	// which produced systems that compiled cleanly but never emitted particles (is_active stayed
+	// false even after force-activate). Duplicating a known-good system bypasses that bug entirely.
+	FString TemplatePath;
+	if (Template.StartsWith(TEXT("/")))
 	{
-		return FECACommandResult::Error(FString::Printf(TEXT("Failed to create package at: %s"), *FullPackagePath));
-	}
-	
-	Package->FullyLoad();
-	
-	// Create the Niagara system using AssetTools
-	IAssetTools& AssetTools = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools").Get();
-	
-	// Find and use the Niagara system factory
-	TArray<UFactory*> Factories = AssetTools.GetNewAssetFactories();
-	UFactory* NiagaraFactory = nullptr;
-	
-	for (UFactory* Factory : Factories)
-	{
-		if (Factory && Factory->SupportedClass == UNiagaraSystem::StaticClass())
-		{
-			NiagaraFactory = Factory;
-			break;
-		}
-	}
-	
-	UObject* NewAsset = nullptr;
-	
-	if (NiagaraFactory)
-	{
-		NewAsset = AssetTools.CreateAsset(AssetName, PackagePath, UNiagaraSystem::StaticClass(), NiagaraFactory);
+		// Caller passed a full asset path — duplicate that.
+		TemplatePath = Template;
 	}
 	else
 	{
-		// Fallback: Create directly without factory
-		NewAsset = NewObject<UNiagaraSystem>(Package, FName(*AssetName), RF_Public | RF_Standalone);
+		// Map keyword to a known-working built-in system. /Niagara/DefaultAssets/DefaultSystem
+		// ships with the engine in 5.7 and contains a working sprite emitter.
+		if (Template.Equals(TEXT("default"), ESearchCase::IgnoreCase) ||
+			Template.Equals(TEXT("empty"), ESearchCase::IgnoreCase) ||
+			Template.Equals(TEXT("sprite"), ESearchCase::IgnoreCase) ||
+			Template.Equals(TEXT("fountain"), ESearchCase::IgnoreCase))
+		{
+			TemplatePath = TEXT("/Niagara/DefaultAssets/DefaultSystem.DefaultSystem");
+		}
+		else
+		{
+			return FECACommandResult::Error(FString::Printf(
+				TEXT("Unknown template keyword '%s'. Pass a full asset path (e.g. '/Game/.../NS_Working') or use 'default'."),
+				*Template));
+		}
 	}
-	
+
+	UNiagaraSystem* SourceSystem = LoadObject<UNiagaraSystem>(nullptr, *TemplatePath);
+	if (!SourceSystem)
+	{
+		return FECACommandResult::Error(FString::Printf(
+			TEXT("Failed to load template Niagara system at '%s'. If using a /Game/ path, confirm the asset exists; for built-in templates pass 'default'."),
+			*TemplatePath));
+	}
+
+	// Refuse to duplicate over an existing asset.
+	const FString FullPath = PackagePath / AssetName;
+	if (UObject* Existing = StaticLoadObject(UObject::StaticClass(), nullptr, *FullPath))
+	{
+		return FECACommandResult::Error(FString::Printf(
+			TEXT("Asset already exists at '%s' (class %s). Choose a different asset_path or delete the existing asset first."),
+			*FullPath, *Existing->GetClass()->GetName()));
+	}
+
+	IAssetTools& AssetTools = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools").Get();
+	UObject* NewAsset = AssetTools.DuplicateAsset(AssetName, PackagePath, SourceSystem);
 	if (!NewAsset)
 	{
-		return FECACommandResult::Error(FString::Printf(TEXT("Failed to create Niagara system at: %s"), *AssetPath));
+		return FECACommandResult::Error(FString::Printf(
+			TEXT("Failed to duplicate '%s' to '%s/%s'."),
+			*TemplatePath, *PackagePath, *AssetName));
 	}
-	
-	// Mark package dirty
+
+	UPackage* Package = NewAsset->GetOutermost();
 	Package->MarkPackageDirty();
-	
-	// Notify asset registry
 	FAssetRegistryModule::AssetCreated(NewAsset);
-	
-	// Save the asset
-	FString PackageFileName = FPackageName::LongPackageNameToFilename(FullPackagePath, FPackageName::GetAssetPackageExtension());
+
+	if (UNiagaraSystem* NewSystem = Cast<UNiagaraSystem>(NewAsset))
+	{
+		NewSystem->RequestCompile(false);
+		NewSystem->PostEditChange();
+	}
+
+	const FString PackageFileName = FPackageName::LongPackageNameToFilename(
+		FullPath, FPackageName::GetAssetPackageExtension());
 	FSavePackageArgs SaveArgs;
 	SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
 	UPackage::SavePackage(Package, NewAsset, *PackageFileName, SaveArgs);
-	
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetStringField(TEXT("asset_name"), NewAsset->GetName());
 	Result->SetStringField(TEXT("asset_path"), NewAsset->GetPathName());
 	Result->SetStringField(TEXT("package_path"), PackagePath);
 	Result->SetStringField(TEXT("template"), Template);
-	
+	Result->SetStringField(TEXT("template_source"), TemplatePath);
+	Result->SetStringField(TEXT("note"), TEXT("Created by duplicating template. Inherits its emitters and modules — use list_emitter_modules / list_module_inputs to inspect, then add_niagara_module / set_niagara_module_input to modify."));
+
 	return FECACommandResult::Success(Result);
 }
 
@@ -1175,135 +1190,256 @@ FECACommandResult FECACommand_SetNiagaraModuleInput::Execute(const TSharedPtr<FJ
 	{
 		return FECACommandResult::Error(TEXT("Missing required parameter: system_path"));
 	}
-	
+
 	FString EmitterName;
 	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName))
 	{
 		return FECACommandResult::Error(TEXT("Missing required parameter: emitter_name"));
 	}
-	
+
 	FString ModuleName;
 	if (!GetStringParam(Params, TEXT("module_name"), ModuleName))
 	{
 		return FECACommandResult::Error(TEXT("Missing required parameter: module_name"));
 	}
-	
+
 	FString InputName;
 	if (!GetStringParam(Params, TEXT("input_name"), InputName))
 	{
 		return FECACommandResult::Error(TEXT("Missing required parameter: input_name"));
 	}
-	
+
 	FString ScriptUsageStr;
 	if (!GetStringParam(Params, TEXT("script_usage"), ScriptUsageStr))
 	{
 		return FECACommandResult::Error(TEXT("Missing required parameter: script_usage"));
 	}
-	
-	// Load the system
+
 	UNiagaraSystem* NiagaraSystem = LoadObject<UNiagaraSystem>(nullptr, *SystemPath);
 	if (!NiagaraSystem)
 	{
 		return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Niagara system: %s"), *SystemPath));
 	}
-	
-	// Find the emitter
+
 	FNiagaraEmitterHandle* EmitterHandle = FindEmitterHandleByName(NiagaraSystem, EmitterName);
 	if (!EmitterHandle)
 	{
 		return FECACommandResult::Error(FString::Printf(TEXT("Emitter not found: %s"), *EmitterName));
 	}
-	
+
 	FVersionedNiagaraEmitterData* EmitterData = EmitterHandle->GetEmitterData();
 	if (!EmitterData)
 	{
 		return FECACommandResult::Error(TEXT("Emitter has no data"));
 	}
-	
-	ENiagaraScriptUsage ScriptUsage = ParseScriptUsage(ScriptUsageStr);
-	
+
 	UNiagaraScriptSource* ScriptSource = Cast<UNiagaraScriptSource>(EmitterData->GraphSource);
 	if (!ScriptSource || !ScriptSource->NodeGraph)
 	{
 		return FECACommandResult::Error(TEXT("Emitter has no script source"));
 	}
-	
+
 	UNiagaraGraph* Graph = ScriptSource->NodeGraph;
-	
-	// Find the module node
+	const ENiagaraScriptUsage ScriptUsage = ParseScriptUsage(ScriptUsageStr);
+
+	// Find the function call node — match BOTH name and script_usage so we don't
+	// pick the wrong stage when the same module appears in spawn and update.
 	UNiagaraNodeFunctionCall* ModuleNode = nullptr;
 	TArray<UNiagaraNodeFunctionCall*> FunctionNodes;
 	Graph->GetNodesOfClass<UNiagaraNodeFunctionCall>(FunctionNodes);
-	
 	for (UNiagaraNodeFunctionCall* FuncNode : FunctionNodes)
 	{
-		if (FuncNode->GetFunctionName().Equals(ModuleName, ESearchCase::IgnoreCase))
+		if (!FuncNode->GetFunctionName().Equals(ModuleName, ESearchCase::IgnoreCase))
+		{
+			continue;
+		}
+		const ENiagaraScriptUsage NodeUsage = FNiagaraStackGraphUtilities::GetOutputNodeUsage(*FuncNode);
+		if (NodeUsage == ScriptUsage)
 		{
 			ModuleNode = FuncNode;
 			break;
 		}
 	}
-	
 	if (!ModuleNode)
 	{
-		return FECACommandResult::Error(FString::Printf(TEXT("Module not found: %s"), *ModuleName));
+		return FECACommandResult::Error(FString::Printf(
+			TEXT("Module '%s' not found in script_usage '%s'. Use list_module_inputs or get_niagara_modules to see what's available."),
+			*ModuleName, *ScriptUsageStr));
 	}
-	
-	// Find the input pin
-	UEdGraphPin* InputPin = nullptr;
-	for (UEdGraphPin* Pin : ModuleNode->Pins)
+
+	// Look up the user-facing input via GetStackFunctionInputs — this is what the
+	// Niagara stack panel sees, NOT the function-call node's inner pins. The previous
+	// implementation iterated FuncNode->Pins, which is why most input names returned
+	// "Input not found" (SpawnRate, Loop Duration, Gravity, sprite size, etc.).
+	FCompileConstantResolver Resolver(EmitterHandle->GetInstance(), ScriptUsage);
+	TArray<FNiagaraVariable> InputVariables;
+	TSet<FNiagaraVariable> HiddenVariables;
+	FNiagaraStackGraphUtilities::GetStackFunctionInputs(
+		*ModuleNode, InputVariables, HiddenVariables, Resolver,
+		FNiagaraStackGraphUtilities::ENiagaraGetStackFunctionInputPinsOptions::ModuleInputsOnly,
+		/*bIgnoreDisabled=*/false);
+
+	// Match input by short name (e.g. "SpawnRate") OR full handle name (e.g. "Module.SpawnRate").
+	const FNiagaraVariable* MatchedVar = nullptr;
+	for (const FNiagaraVariable& Var : InputVariables)
 	{
-		if (Pin->Direction == EGPD_Input && Pin->PinName.ToString().Equals(InputName, ESearchCase::IgnoreCase))
+		const FString FullName = Var.GetName().ToString();
+		FString ShortName = FullName;
+		int32 LastDot;
+		if (FullName.FindLastChar('.', LastDot))
 		{
-			InputPin = Pin;
+			ShortName = FullName.Mid(LastDot + 1);
+		}
+		if (FullName.Equals(InputName, ESearchCase::IgnoreCase) || ShortName.Equals(InputName, ESearchCase::IgnoreCase))
+		{
+			MatchedVar = &Var;
 			break;
 		}
 	}
-	
-	if (!InputPin)
+	if (!MatchedVar)
 	{
-		return FECACommandResult::Error(FString::Printf(TEXT("Input not found: %s"), *InputName));
+		FString Available;
+		for (const FNiagaraVariable& V : InputVariables)
+		{
+			if (!Available.IsEmpty()) Available += TEXT(", ");
+			Available += V.GetName().ToString();
+		}
+		return FECACommandResult::Error(FString::Printf(
+			TEXT("Input '%s' not found in module '%s'. Available inputs: [%s]. Tip: use list_module_inputs to discover names."),
+			*InputName, *ModuleName, *Available));
 	}
-	
-	// Set the value based on type
-	// For now, we'll set the default value string which works for simple types
-	double FloatValue;
-	int32 IntValue;
-	bool BoolValue;
-	FVector VectorValue;
-	
-	if (GetFloatParam(Params, TEXT("value"), FloatValue, false))
+
+	const FNiagaraTypeDefinition InputType = MatchedVar->GetType();
+	const FName InputFName = MatchedVar->GetName();
+
+	// Build a temp FNiagaraVariable carrying the user's value, typed by the actual input type.
+	FNiagaraVariable TempVariable(InputType, NAME_None);
+
+	if (InputType == FNiagaraTypeDefinition::GetFloatDef())
 	{
-		InputPin->DefaultValue = FString::SanitizeFloat(FloatValue);
+		double V;
+		if (!GetFloatParam(Params, TEXT("value"), V))
+		{
+			return FECACommandResult::Error(FString::Printf(TEXT("Input '%s' is float — pass numeric 'value'"), *InputName));
+		}
+		const float Vf = static_cast<float>(V);
+		TempVariable.SetValue(Vf);
 	}
-	else if (GetIntParam(Params, TEXT("value"), IntValue, false))
+	else if (InputType == FNiagaraTypeDefinition::GetIntDef())
 	{
-		InputPin->DefaultValue = FString::FromInt(IntValue);
+		int32 V;
+		if (!GetIntParam(Params, TEXT("value"), V))
+		{
+			return FECACommandResult::Error(FString::Printf(TEXT("Input '%s' is int — pass integer 'value'"), *InputName));
+		}
+		TempVariable.SetValue(V);
 	}
-	else if (GetBoolParam(Params, TEXT("value"), BoolValue, false))
+	else if (InputType == FNiagaraTypeDefinition::GetBoolDef())
 	{
-		InputPin->DefaultValue = BoolValue ? TEXT("true") : TEXT("false");
+		bool V;
+		if (!GetBoolParam(Params, TEXT("value"), V))
+		{
+			return FECACommandResult::Error(FString::Printf(TEXT("Input '%s' is bool — pass boolean 'value'"), *InputName));
+		}
+		FNiagaraBool NB;
+		NB.SetValue(V);
+		TempVariable.SetValue(NB);
 	}
-	else if (GetVectorParam(Params, TEXT("value"), VectorValue, false))
+	else if (InputType == FNiagaraTypeDefinition::GetVec3Def() || InputType == FNiagaraTypeDefinition::GetPositionDef())
 	{
-		InputPin->DefaultValue = FString::Printf(TEXT("%f,%f,%f"), VectorValue.X, VectorValue.Y, VectorValue.Z);
+		FVector V;
+		if (!GetVectorParam(Params, TEXT("value"), V))
+		{
+			return FECACommandResult::Error(FString::Printf(TEXT("Input '%s' is vector3 — pass {x,y,z} 'value'"), *InputName));
+		}
+		const FVector3f Vf(static_cast<float>(V.X), static_cast<float>(V.Y), static_cast<float>(V.Z));
+		TempVariable.SetValue(Vf);
+	}
+	else if (InputType == FNiagaraTypeDefinition::GetVec2Def())
+	{
+		FVector V;
+		if (!GetVectorParam(Params, TEXT("value"), V))
+		{
+			return FECACommandResult::Error(FString::Printf(TEXT("Input '%s' is vector2 — pass {x,y} 'value'"), *InputName));
+		}
+		const FVector2f Vf(static_cast<float>(V.X), static_cast<float>(V.Y));
+		TempVariable.SetValue(Vf);
+	}
+	else if (InputType == FNiagaraTypeDefinition::GetColorDef())
+	{
+		const TSharedPtr<FJsonObject>* ColorObj = nullptr;
+		if (!GetObjectParam(Params, TEXT("value"), ColorObj) || !ColorObj || !(*ColorObj).IsValid())
+		{
+			return FECACommandResult::Error(FString::Printf(TEXT("Input '%s' is color — pass {r,g,b,a} 'value' (0-1)"), *InputName));
+		}
+		FLinearColor C;
+		C.R = static_cast<float>((*ColorObj)->GetNumberField(TEXT("r")));
+		C.G = static_cast<float>((*ColorObj)->GetNumberField(TEXT("g")));
+		C.B = static_cast<float>((*ColorObj)->GetNumberField(TEXT("b")));
+		C.A = (*ColorObj)->HasField(TEXT("a")) ? static_cast<float>((*ColorObj)->GetNumberField(TEXT("a"))) : 1.0f;
+		TempVariable.SetValue(C);
 	}
 	else
 	{
-		return FECACommandResult::Error(TEXT("Could not parse value parameter"));
+		return FECACommandResult::Error(FString::Printf(
+			TEXT("Input '%s' has type '%s' which is not yet supported by set_niagara_module_input. Supported types: float, int, bool, vector2, vector3, position, color."),
+			*InputName, *InputType.GetName()));
 	}
-	
-	// Mark as modified
+
+	// Convert the typed variable to the pin-default string the schema expects.
+	const UEdGraphSchema_Niagara* Schema = GetDefault<UEdGraphSchema_Niagara>();
+	FString PinDefaultValue;
+	if (!Schema || !Schema->TryGetPinDefaultValueFromNiagaraVariable(TempVariable, PinDefaultValue))
+	{
+		return FECACommandResult::Error(FString::Printf(
+			TEXT("Type %s does not support default value serialization"), *InputType.GetName()));
+	}
+
+	// Build the aliased parameter handle (Module.X → Particles.Foo.Module.X form),
+	// then get/create the override pin on the parent override-map node.
+	const FString FullName = InputFName.ToString();
+	FString ShortName = FullName;
+	int32 LastDot;
+	if (FullName.FindLastChar('.', LastDot))
+	{
+		ShortName = FullName.Mid(LastDot + 1);
+	}
+	const FNiagaraParameterHandle BaseHandle = FNiagaraParameterHandle::CreateModuleParameterHandle(FName(*ShortName));
+	const FNiagaraParameterHandle AliasedHandle = FNiagaraParameterHandle::CreateAliasedModuleParameterHandle(BaseHandle, ModuleNode);
+
+	UEdGraphPin& OverridePin = FNiagaraStackGraphUtilities::GetOrCreateStackFunctionInputOverridePin(
+		*ModuleNode, AliasedHandle, InputType, FGuid(), FGuid());
+
+	// Take a transaction so this is undoable from the editor.
+	FScopedTransaction Transaction(NSLOCTEXT("ECABridge", "SetNiagaraModuleInput", "Set Niagara Module Input"));
+	OverridePin.Modify();
+
+	// If the override pin currently points at a dynamic input or other linked node, drop those.
+	// The user is setting a literal value so the linked override is no longer relevant.
+	if (OverridePin.LinkedTo.Num() > 0)
+	{
+		RemoveOverridePinConnections(OverridePin, Graph);
+	}
+
+	OverridePin.DefaultValue = PinDefaultValue;
+	if (UNiagaraNode* OwningNiagaraNode = Cast<UNiagaraNode>(OverridePin.GetOwningNode()))
+	{
+		OwningNiagaraNode->MarkNodeRequiresSynchronization(TEXT("ECABridge: SetNiagaraModuleInput"), true);
+	}
+
 	Graph->NotifyGraphChanged();
 	NiagaraSystem->MarkPackageDirty();
 	NiagaraSystem->RequestCompile(false);
 	NiagaraSystem->PostEditChange();
-	
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("system_path"), SystemPath);
+	Result->SetStringField(TEXT("emitter_name"), EmitterName);
 	Result->SetStringField(TEXT("module_name"), ModuleName);
-	Result->SetStringField(TEXT("input_name"), InputName);
-	Result->SetStringField(TEXT("value"), InputPin->DefaultValue);
-	
+	Result->SetStringField(TEXT("input_name"), InputFName.ToString());
+	Result->SetStringField(TEXT("input_type"), InputType.GetName());
+	Result->SetStringField(TEXT("script_usage"), ScriptUsageStr);
+	Result->SetStringField(TEXT("set_value"), PinDefaultValue);
 	return FECACommandResult::Success(Result);
 }
 
@@ -4377,5 +4513,148 @@ FECACommandResult FECACommand_DumpNiagaraSystem::Execute(const TSharedPtr<FJsonO
 	Result->SetArrayField(TEXT("emitters"), EmittersArray);
 	Result->SetNumberField(TEXT("emitter_count"), EmittersArray.Num());
 
+	return FECACommandResult::Success(Result);
+}
+
+//------------------------------------------------------------------------------
+// ListModuleInputs (C4 — introspection of a Niagara module's user-facing inputs)
+//------------------------------------------------------------------------------
+
+FECACommandResult FECACommand_ListModuleInputs::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SystemPath, EmitterName, ModuleName, ScriptUsageStr;
+	if (!GetStringParam(Params, TEXT("system_path"), SystemPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: system_path"));
+	}
+	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: emitter_name"));
+	}
+	if (!GetStringParam(Params, TEXT("module_name"), ModuleName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: module_name"));
+	}
+	if (!GetStringParam(Params, TEXT("script_usage"), ScriptUsageStr))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: script_usage"));
+	}
+
+	bool bIncludeHidden = false;
+	GetBoolParam(Params, TEXT("include_hidden"), bIncludeHidden, false);
+
+	UNiagaraSystem* NiagaraSystem = LoadObject<UNiagaraSystem>(nullptr, *SystemPath);
+	if (!NiagaraSystem)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Niagara system: %s"), *SystemPath));
+	}
+
+	FNiagaraEmitterHandle* EmitterHandle = FindEmitterHandleByName(NiagaraSystem, EmitterName);
+	if (!EmitterHandle)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Emitter not found: %s"), *EmitterName));
+	}
+
+	FVersionedNiagaraEmitterData* EmitterData = EmitterHandle->GetEmitterData();
+	if (!EmitterData)
+	{
+		return FECACommandResult::Error(TEXT("Emitter has no data"));
+	}
+
+	UNiagaraScriptSource* ScriptSource = Cast<UNiagaraScriptSource>(EmitterData->GraphSource);
+	if (!ScriptSource || !ScriptSource->NodeGraph)
+	{
+		return FECACommandResult::Error(TEXT("Emitter has no script source"));
+	}
+
+	UNiagaraGraph* Graph = ScriptSource->NodeGraph;
+	const ENiagaraScriptUsage ScriptUsage = ParseScriptUsage(ScriptUsageStr);
+
+	// Find the module function call node — match name AND script usage so duplicates
+	// across stages (e.g., the same module used in spawn and update) are disambiguated.
+	UNiagaraNodeFunctionCall* ModuleNode = nullptr;
+	TArray<UNiagaraNodeFunctionCall*> FunctionNodes;
+	Graph->GetNodesOfClass<UNiagaraNodeFunctionCall>(FunctionNodes);
+	for (UNiagaraNodeFunctionCall* FuncNode : FunctionNodes)
+	{
+		if (!FuncNode->GetFunctionName().Equals(ModuleName, ESearchCase::IgnoreCase))
+		{
+			continue;
+		}
+		const ENiagaraScriptUsage NodeUsage = FNiagaraStackGraphUtilities::GetOutputNodeUsage(*FuncNode);
+		if (NodeUsage == ScriptUsage)
+		{
+			ModuleNode = FuncNode;
+			break;
+		}
+	}
+	if (!ModuleNode)
+	{
+		return FECACommandResult::Error(FString::Printf(
+			TEXT("Module '%s' not found in script_usage '%s' (try get_niagara_modules to list valid module names)"),
+			*ModuleName, *ScriptUsageStr));
+	}
+
+	// Build a constant resolver scoped to this emitter + usage so static-switch
+	// constants resolve correctly when GetStackFunctionInputs evaluates pin visibility.
+	FCompileConstantResolver Resolver(EmitterHandle->GetInstance(), ScriptUsage);
+
+	TArray<FNiagaraVariable> InputVariables;
+	TSet<FNiagaraVariable> HiddenVariables;
+	FNiagaraStackGraphUtilities::GetStackFunctionInputs(
+		*ModuleNode,
+		InputVariables,
+		HiddenVariables,
+		Resolver,
+		FNiagaraStackGraphUtilities::ENiagaraGetStackFunctionInputPinsOptions::ModuleInputsOnly,
+		/*bIgnoreDisabled=*/false);
+
+	TArray<TSharedPtr<FJsonValue>> InputsArray;
+	for (const FNiagaraVariable& Var : InputVariables)
+	{
+		const bool bHidden = HiddenVariables.Contains(Var);
+		if (bHidden && !bIncludeHidden)
+		{
+			continue;
+		}
+
+		TSharedPtr<FJsonObject> InputJson = MakeShared<FJsonObject>();
+		const FString VarName = Var.GetName().ToString();
+		InputJson->SetStringField(TEXT("name"), VarName);
+		InputJson->SetStringField(TEXT("type"), Var.GetType().GetName());
+		InputJson->SetBoolField(TEXT("hidden"), bHidden);
+
+		// Map type to a 'value_type' hint matching set_niagara_module_input parsing.
+		const FNiagaraTypeDefinition& Type = Var.GetType();
+		FString ValueTypeHint = TEXT("other");
+		if (Type == FNiagaraTypeDefinition::GetFloatDef())             ValueTypeHint = TEXT("float");
+		else if (Type == FNiagaraTypeDefinition::GetIntDef())          ValueTypeHint = TEXT("int");
+		else if (Type == FNiagaraTypeDefinition::GetBoolDef())         ValueTypeHint = TEXT("bool");
+		else if (Type == FNiagaraTypeDefinition::GetVec2Def())         ValueTypeHint = TEXT("vector2");
+		else if (Type == FNiagaraTypeDefinition::GetVec3Def())         ValueTypeHint = TEXT("vector");
+		else if (Type == FNiagaraTypeDefinition::GetVec4Def())         ValueTypeHint = TEXT("vector4");
+		else if (Type == FNiagaraTypeDefinition::GetColorDef())        ValueTypeHint = TEXT("color");
+		else if (Type == FNiagaraTypeDefinition::GetPositionDef())     ValueTypeHint = TEXT("position");
+		else if (Type == FNiagaraTypeDefinition::GetQuatDef())         ValueTypeHint = TEXT("quat");
+		InputJson->SetStringField(TEXT("value_type"), ValueTypeHint);
+
+		// (Override-pin lookup omitted — GetStackFunctionInputOverridePin is not in
+		// the exported NIAGARAEDITOR_API surface. Use dump_niagara_system if you need
+		// the current override values.)
+
+		InputsArray.Add(MakeShared<FJsonValueObject>(InputJson));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("system_path"), SystemPath);
+	Result->SetStringField(TEXT("emitter_name"), EmitterName);
+	Result->SetStringField(TEXT("module_name"), ModuleName);
+	Result->SetStringField(TEXT("script_usage"), ScriptUsageStr);
+	Result->SetArrayField(TEXT("inputs"), InputsArray);
+	Result->SetNumberField(TEXT("count"), InputsArray.Num());
+	if (HiddenVariables.Num() > 0 && !bIncludeHidden)
+	{
+		Result->SetNumberField(TEXT("hidden_excluded"), HiddenVariables.Num());
+	}
 	return FECACommandResult::Success(Result);
 }

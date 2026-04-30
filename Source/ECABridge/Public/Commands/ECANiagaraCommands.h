@@ -551,3 +551,31 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+/**
+ * List the user-facing input variables for a Niagara module — these are the inputs
+ * shown in the stack panel of the Niagara editor (SpawnRate, Loop Duration, Gravity,
+ * sprite size, etc.). Function-call node pins as listed by get_niagara_modules are
+ * the wrong source — they are the inner plumbing pins. Use this command to discover
+ * the correct input_name to pass to set_niagara_module_input.
+ */
+class FECACommand_ListModuleInputs : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("list_module_inputs"); }
+	virtual FString GetDescription() const override { return TEXT("List the user-facing module inputs for a Niagara module — what you see in the stack panel of the Niagara editor (SpawnRate, Loop Duration, Gravity, sprite size, etc.). Returns each input's name, type, hidden flag, and whether an override is currently set. Use the names returned here as 'input_name' for set_niagara_module_input."); }
+	virtual FString GetCategory() const override { return TEXT("Niagara"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("system_path"), TEXT("string"), TEXT("Path to the Niagara system asset"), true },
+			{ TEXT("emitter_name"), TEXT("string"), TEXT("Emitter handle name within the system"), true },
+			{ TEXT("module_name"), TEXT("string"), TEXT("Module function name (as returned by get_niagara_modules)"), true },
+			{ TEXT("script_usage"), TEXT("string"), TEXT("Script usage of the stage hosting this module: particle_spawn, particle_update, emitter_spawn, emitter_update, system_spawn, system_update"), true },
+			{ TEXT("include_hidden"), TEXT("boolean"), TEXT("Include inputs that are hidden by static-switch defaults (default false)"), false, TEXT("false") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};

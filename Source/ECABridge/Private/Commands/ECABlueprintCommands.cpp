@@ -8,6 +8,8 @@
 #include "Engine/BlueprintGeneratedClass.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Kismet2/BlueprintEditorUtils.h"
+#include "Kismet2/CompilerResultsLog.h"
+#include "Logging/TokenizedMessage.h"
 #include "Engine/SimpleConstructionScript.h"
 #include "Engine/SCS_Node.h"
 #include "Components/StaticMeshComponent.h"
@@ -200,11 +202,62 @@ static UClass* GetComponentClassFromString(const FString& ComponentType)
 	{
 		return USceneComponent::StaticClass();
 	}
-	else
+
+	// Module-prefix fallback lookups — covers Niagara, UMG (Widget), Paper2D, etc.
+	// without requiring an explicit case for every plugin component.
 	{
-		// Try to load as a class path
-		return LoadObject<UClass>(nullptr, *ComponentType);
+		// Pairs of (module prefix, suffix). Suffix is empty when the user passed the full
+		// "FooComponent" name; non-empty when they passed the short "Foo" form.
+		struct FModulePattern { const TCHAR* Prefix; const TCHAR* Suffix; };
+		static const FModulePattern CommonModulePatterns[] = {
+			{ TEXT("/Script/Engine."),         TEXT("Component") },
+			{ TEXT("/Script/Engine."),         TEXT("") },
+			{ TEXT("/Script/Niagara."),        TEXT("Component") },
+			{ TEXT("/Script/Niagara."),        TEXT("") },
+			{ TEXT("/Script/UMG."),            TEXT("Component") },
+			{ TEXT("/Script/UMG."),            TEXT("") },
+			{ TEXT("/Script/MovieScene."),     TEXT("Component") },
+			{ TEXT("/Script/CinematicCamera."), TEXT("") },
+			{ TEXT("/Script/Paper2D."),        TEXT("Component") },
+			{ TEXT("/Script/Paper2D."),        TEXT("") },
+		};
+
+		for (const FModulePattern& P : CommonModulePatterns)
+		{
+			const FString FullPath = FString(P.Prefix) + ComponentType + FString(P.Suffix);
+			if (UClass* Found = FindObject<UClass>(nullptr, *FullPath))
+			{
+				if (Found->IsChildOf(UActorComponent::StaticClass()))
+				{
+					return Found;
+				}
+			}
+		}
 	}
+
+	// Last resort: treat the input as a fully qualified class path or short name.
+	if (UClass* Direct = LoadObject<UClass>(nullptr, *ComponentType))
+	{
+		return Direct;
+	}
+
+	// Brute-force search across all loaded classes by short name. This is slower
+	// but catches classes whose module path the patterns above don't cover.
+	const FString WantedExact = ComponentType;
+	const FString WantedWithSuffix = ComponentType + TEXT("Component");
+	for (TObjectIterator<UClass> It; It; ++It)
+	{
+		UClass* C = *It;
+		if (!C || !C->IsChildOf(UActorComponent::StaticClass())) continue;
+		const FString ClassName = C->GetName();
+		if (ClassName.Equals(WantedExact, ESearchCase::IgnoreCase) ||
+		    ClassName.Equals(WantedWithSuffix, ESearchCase::IgnoreCase))
+		{
+			return C;
+		}
+	}
+
+	return nullptr;
 }
 
 //------------------------------------------------------------------------------
@@ -392,22 +445,61 @@ FECACommandResult FECACommand_CompileBlueprint::Execute(const TSharedPtr<FJsonOb
 	{
 		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
 	}
-	
+
 	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
 	if (!Blueprint)
 	{
 		return FECACommandResult::Error(FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintPath));
 	}
-	
-	FKismetEditorUtilities::CompileBlueprint(Blueprint);
-	
-	// Check compilation result
-	bool bHasErrors = Blueprint->Status == BS_Error;
-	
+
+	// Compile with our own results log so we can capture per-message details.
+	FCompilerResultsLog ResultsLog;
+	ResultsLog.bSilentMode = true;
+	FKismetEditorUtilities::CompileBlueprint(Blueprint, EBlueprintCompileOptions::None, &ResultsLog);
+
+	const bool bHasErrors = (Blueprint->Status == BS_Error);
+	const bool bHasWarnings = (Blueprint->Status == BS_UpToDateWithWarnings);
+
+	TArray<TSharedPtr<FJsonValue>> Errors;
+	TArray<TSharedPtr<FJsonValue>> Warnings;
+	for (const TSharedRef<FTokenizedMessage>& Msg : ResultsLog.Messages)
+	{
+		const FString Text = Msg->ToText().ToString();
+		switch (Msg->GetSeverity())
+		{
+			case EMessageSeverity::Error:
+				Errors.Add(MakeShared<FJsonValueString>(Text));
+				break;
+			case EMessageSeverity::Warning:
+			case EMessageSeverity::PerformanceWarning:
+				Warnings.Add(MakeShared<FJsonValueString>(Text));
+				break;
+			default:
+				break;
+		}
+	}
+
+	FString StatusStr;
+	switch (Blueprint->Status)
+	{
+		case BS_UpToDate:                StatusStr = TEXT("UpToDate"); break;
+		case BS_UpToDateWithWarnings:    StatusStr = TEXT("UpToDateWithWarnings"); break;
+		case BS_Error:                   StatusStr = TEXT("Error"); break;
+		case BS_Dirty:                   StatusStr = TEXT("Dirty"); break;
+		case BS_Unknown:                 StatusStr = TEXT("Unknown"); break;
+		default:                         StatusStr = TEXT("Other"); break;
+	}
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("blueprint_path"), BlueprintPath);
 	Result->SetBoolField(TEXT("compiled"), true);
 	Result->SetBoolField(TEXT("has_errors"), bHasErrors);
-	Result->SetStringField(TEXT("status"), bHasErrors ? TEXT("Error") : TEXT("Success"));
+	Result->SetBoolField(TEXT("has_warnings"), bHasWarnings);
+	Result->SetStringField(TEXT("status"), StatusStr);
+	Result->SetNumberField(TEXT("error_count"), Errors.Num());
+	Result->SetNumberField(TEXT("warning_count"), Warnings.Num());
+	if (Errors.Num() > 0)   Result->SetArrayField(TEXT("errors"), Errors);
+	if (Warnings.Num() > 0) Result->SetArrayField(TEXT("warnings"), Warnings);
 	return FECACommandResult::Success(Result);
 }
 

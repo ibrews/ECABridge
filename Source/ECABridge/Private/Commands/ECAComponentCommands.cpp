@@ -18,6 +18,7 @@ REGISTER_ECA_COMMAND(FECACommand_SetPhysicsProperties)
 REGISTER_ECA_COMMAND(FECACommand_SetComponentProperty)
 REGISTER_ECA_COMMAND(FECACommand_SetComponentTransform)
 REGISTER_ECA_COMMAND(FECACommand_GetBlueprintComponents)
+REGISTER_ECA_COMMAND(FECACommand_GetComponentProperty)
 
 //------------------------------------------------------------------------------
 // Helper: Find SCS Node by name
@@ -252,7 +253,7 @@ FECACommandResult FECACommand_SetComponentProperty::Execute(const TSharedPtr<FJs
 	}
 	else if (FClassProperty* ClassProp = CastField<FClassProperty>(Property))
 	{
-		// Object class reference (e.g., TSubclassOf<UUserWidget>, TSubclassOf<AActor>)
+		// Object class reference (e.g., TSubclassOf<UUserWidget>, TSubclassOf<AActor>).
 		// Pass empty string to clear, otherwise an asset/class path.
 		FString ClassPath = PropertyValue->AsString();
 		UClass* LoadedClass = nullptr;
@@ -260,10 +261,28 @@ FECACommandResult FECACommand_SetComponentProperty::Execute(const TSharedPtr<FJs
 		{
 			UClass* Constraint = ClassProp->MetaClass.Get();
 			if (!Constraint) { Constraint = UObject::StaticClass(); }
+
+			// Try the path as given.
 			LoadedClass = StaticLoadClass(Constraint, nullptr, *ClassPath);
 			if (!LoadedClass)
 			{
-				// Blueprint generated classes are stored at /Game/.../BP_Foo.BP_Foo_C
+				// Blueprint generated classes are at "/Game/Path/BP_Foo.BP_Foo_C".
+				// If the user passed only the asset path without `.AssetName_C`,
+				// expand it.
+				if (!ClassPath.Contains(TEXT(".")))
+				{
+					int32 LastSlash;
+					if (ClassPath.FindLastChar('/', LastSlash))
+					{
+						const FString AssetName = ClassPath.Mid(LastSlash + 1);
+						const FString Expanded = ClassPath + TEXT(".") + AssetName + TEXT("_C");
+						LoadedClass = StaticLoadClass(Constraint, nullptr, *Expanded);
+					}
+				}
+			}
+			if (!LoadedClass)
+			{
+				// Older fallback: append `_C` to the raw path. Rare but inexpensive.
 				LoadedClass = StaticLoadClass(Constraint, nullptr, *(ClassPath + TEXT("_C")));
 			}
 			if (!LoadedClass)
@@ -320,6 +339,110 @@ FECACommandResult FECACommand_SetComponentProperty::Execute(const TSharedPtr<FJs
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetStringField(TEXT("component_name"), ComponentName);
 	Result->SetStringField(TEXT("property_name"), PropertyName);
+	return FECACommandResult::Success(Result);
+}
+
+//------------------------------------------------------------------------------
+// GetComponentProperty
+//------------------------------------------------------------------------------
+
+FECACommandResult FECACommand_GetComponentProperty::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString BlueprintPath;
+	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+	}
+
+	FString ComponentName;
+	if (!GetStringParam(Params, TEXT("component_name"), ComponentName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: component_name"));
+	}
+
+	FString PropertyName;
+	if (!GetStringParam(Params, TEXT("property_name"), PropertyName))
+	{
+		return FECACommandResult::Error(TEXT("Missing required parameter: property_name"));
+	}
+
+	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
+	if (!Blueprint)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintPath));
+	}
+
+	USCS_Node* Node = FindSCSNodeByName(Blueprint, ComponentName);
+	if (!Node || !Node->ComponentTemplate)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Component not found: %s"), *ComponentName));
+	}
+
+	UActorComponent* Component = Node->ComponentTemplate;
+	FProperty* Property = Component->GetClass()->FindPropertyByName(*PropertyName);
+	if (!Property)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Property not found: %s"), *PropertyName));
+	}
+
+	const void* PropertyAddr = Property->ContainerPtrToValuePtr<void>(Component);
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("component_name"), ComponentName);
+	Result->SetStringField(TEXT("property_name"), PropertyName);
+	Result->SetStringField(TEXT("property_type"), Property->GetClass()->GetName());
+
+	// Typed JSON value for primitives that have natural JSON representations.
+	if (FBoolProperty* BoolProp = CastField<FBoolProperty>(Property))
+	{
+		Result->SetBoolField(TEXT("value"), BoolProp->GetPropertyValue(PropertyAddr));
+	}
+	else if (FIntProperty* IntProp = CastField<FIntProperty>(Property))
+	{
+		Result->SetNumberField(TEXT("value"), IntProp->GetPropertyValue(PropertyAddr));
+	}
+	else if (FFloatProperty* FloatProp = CastField<FFloatProperty>(Property))
+	{
+		Result->SetNumberField(TEXT("value"), FloatProp->GetPropertyValue(PropertyAddr));
+	}
+	else if (FDoubleProperty* DoubleProp = CastField<FDoubleProperty>(Property))
+	{
+		Result->SetNumberField(TEXT("value"), DoubleProp->GetPropertyValue(PropertyAddr));
+	}
+	else if (FStrProperty* StrProp = CastField<FStrProperty>(Property))
+	{
+		Result->SetStringField(TEXT("value"), StrProp->GetPropertyValue(PropertyAddr));
+	}
+	else if (FNameProperty* NameProp = CastField<FNameProperty>(Property))
+	{
+		Result->SetStringField(TEXT("value"), NameProp->GetPropertyValue(PropertyAddr).ToString());
+	}
+	else if (FObjectProperty* ObjProp = CastField<FObjectProperty>(Property))
+	{
+		UObject* Obj = ObjProp->GetObjectPropertyValue(PropertyAddr);
+		Result->SetStringField(TEXT("value"), Obj ? Obj->GetPathName() : FString());
+	}
+	else if (FSoftObjectProperty* SoftObjProp = CastField<FSoftObjectProperty>(Property))
+	{
+		const FSoftObjectPtr* Ptr = static_cast<const FSoftObjectPtr*>(PropertyAddr);
+		Result->SetStringField(TEXT("value"), Ptr->ToString());
+	}
+	else if (FClassProperty* ClassProp = CastField<FClassProperty>(Property))
+	{
+		UClass* Cls = Cast<UClass>(ClassProp->GetObjectPropertyValue(PropertyAddr));
+		Result->SetStringField(TEXT("value"), Cls ? Cls->GetPathName() : FString());
+	}
+	else if (FSoftClassProperty* SoftClassProp = CastField<FSoftClassProperty>(Property))
+	{
+		const FSoftObjectPtr* Ptr = static_cast<const FSoftObjectPtr*>(PropertyAddr);
+		Result->SetStringField(TEXT("value"), Ptr->ToString());
+	}
+
+	// Always include the Unreal-text-format export — handles structs, arrays, enums, etc.
+	FString ExportText;
+	Property->ExportTextItem_Direct(ExportText, PropertyAddr, nullptr, Component, PPF_None);
+	Result->SetStringField(TEXT("value_text"), ExportText);
+
 	return FECACommandResult::Success(Result);
 }
 

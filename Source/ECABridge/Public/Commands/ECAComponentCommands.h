@@ -76,6 +76,28 @@ public:
 };
 
 /**
+ * Read a property value from a Blueprint component template (read complement to set_component_property).
+ */
+class FECACommand_GetComponentProperty : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("get_component_property"); }
+	virtual FString GetDescription() const override { return TEXT("Read a property value from a Blueprint component template — the same default value that set_component_property writes. Returns the value as a string (Unreal property text format) plus a typed JSON field for primitives. Useful for verifying that a write took effect or inspecting an existing component."); }
+	virtual FString GetCategory() const override { return TEXT("Component"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Path to the Blueprint asset"), true },
+			{ TEXT("component_name"), TEXT("string"), TEXT("Name of the component"), true },
+			{ TEXT("property_name"), TEXT("string"), TEXT("Property name to read"), true }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
  * Set component transform (relative)
  */
 class FECACommand_SetComponentTransform : public IECACommand
