@@ -30,8 +30,6 @@ The plugin builds and loads cleanly on both UE 5.7 and UE 5.8 from the same `mai
 
 If you find a third API divergence in the future, the recipe is the same: wrap it in the same `ENGINE_MAJOR_VERSION` / `ENGINE_MINOR_VERSION` guard and document it here.
 
-### Architectural improvement vs the pre-5.8 line
-
 ### Structurally optional Mutable + MovieRenderPipeline
 
 When ECABridge was first ported, the missing-dependent-DLL load failure (`GetLastError=126`) was solved by adding `Mutable` and `MovieRenderPipeline` to the `.uplugin`'s required Plugins list. That worked but forced every project using ECABridge to enable both upstream plugins — even projects that don't use character customization or offline rendering. This branch refactors that into a structurally optional dependency:
