@@ -47,6 +47,19 @@ public:
 		};
 	}
 
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("character_path"), TEXT("string"), TEXT("Path of the MetaHumanCharacter asset") },
+			{ TEXT("body_type"),      TEXT("string"), TEXT("Body preset (m/f + height + weight)") },
+			{ TEXT("skin"),           TEXT("object"), TEXT("Skin settings: tone, freckles, accents") },
+			{ TEXT("eyes"),           TEXT("object"), TEXT("Eye settings: color, shape") },
+			{ TEXT("makeup"),         TEXT("object"), TEXT("Makeup settings: lipstick, blush, eyeshadow, eyeliner") },
+			{ TEXT("rigging_state"),  TEXT("string"), TEXT("Rigging stage (Unrigged/Rigged/RiggedAndAssembled)") },
+			{ TEXT("wardrobe"),       TEXT("array"),  TEXT("Attached wardrobe items per slot"), TEXT("object") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 

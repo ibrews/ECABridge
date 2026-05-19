@@ -400,5 +400,17 @@ public:
 		};
 	}
 
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("material_path"),    TEXT("string"), TEXT("Path of the Material asset") },
+			{ TEXT("nodes"),            TEXT("array"),  TEXT("Material expression nodes"), TEXT("object") },
+			{ TEXT("connections"),      TEXT("array"),  TEXT("Pin-to-pin connections"), TEXT("object") },
+			{ TEXT("material_inputs"),  TEXT("object"), TEXT("BaseColor, Normal, Roughness etc. connections") },
+			{ TEXT("properties"),       TEXT("object"), TEXT("BlendMode, ShadingModel, TwoSided, etc.") },
+			{ TEXT("compilation_errors"),TEXT("array"), TEXT("Compile errors as strings"), TEXT("string") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };

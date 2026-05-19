@@ -21,6 +21,16 @@ public:
 		};
 	}
 
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("graph_path"), TEXT("string"), TEXT("Path of the PCGGraph asset") },
+			{ TEXT("nodes"),      TEXT("array"),  TEXT("Graph nodes: {id, class, title, inputs, outputs}"), TEXT("object") },
+			{ TEXT("edges"),      TEXT("array"),  TEXT("Edges between node pins"), TEXT("object") },
+			{ TEXT("parameters"), TEXT("array"),  TEXT("Graph-level parameters"), TEXT("object") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -40,6 +50,16 @@ public:
 		return {
 			{ TEXT("rig_path"), TEXT("string"), TEXT("Content path to the Control Rig blueprint"), true }
 		};
+	}
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("rig_path"),  TEXT("string"), TEXT("Path of the Control Rig asset") },
+			{ TEXT("hierarchy"), TEXT("array"),  TEXT("Rig elements: bones, controls, nulls, curves"), TEXT("object") },
+			{ TEXT("graph"),     TEXT("object"), TEXT("Rig graph: nodes, links, variables") },
+			{ TEXT("variables"), TEXT("array"),  TEXT("Rig variables: {name, type, default}"), TEXT("object") }
+		});
 	}
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
@@ -62,6 +82,17 @@ public:
 		return {
 			{ TEXT("asset_path"), TEXT("string"), TEXT("Content path to a GameplayAbility, GameplayEffect, or AttributeSet blueprint"), true }
 		};
+	}
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("asset_path"),  TEXT("string"), TEXT("Path of the GAS asset") },
+			{ TEXT("asset_class"), TEXT("string"), TEXT("Specific class (GameplayAbility, GameplayEffect, AttributeSet)") },
+			{ TEXT("tags"),        TEXT("array"),  TEXT("Gameplay tags relevant to this asset"), TEXT("string") },
+			{ TEXT("modifiers"),   TEXT("array"),  TEXT("Effect modifiers (for GameplayEffect)"), TEXT("object") },
+			{ TEXT("attributes"),  TEXT("array"),  TEXT("Attribute definitions (for AttributeSet)"), TEXT("object") }
+		});
 	}
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;

@@ -274,6 +274,18 @@ public:
 		};
 	}
 
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("sequence_path"),    TEXT("string"), TEXT("Path of the Level Sequence") },
+			{ TEXT("frame_rate"),       TEXT("object"), TEXT("Display rate: {numerator, denominator}") },
+			{ TEXT("playback_range"),   TEXT("object"), TEXT("Playback range: {start, end, duration_seconds, duration_frames}") },
+			{ TEXT("bindings"),         TEXT("array"),  TEXT("Actor/object bindings with tracks/sections/keyframes"), TEXT("object") },
+			{ TEXT("master_tracks"),    TEXT("array"),  TEXT("Top-level tracks not bound to actors"), TEXT("object") },
+			{ TEXT("camera_cut_track"), TEXT("array"),  TEXT("Camera cut track sections (if present)"), TEXT("object") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 

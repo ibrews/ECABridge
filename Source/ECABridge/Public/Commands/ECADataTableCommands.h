@@ -90,6 +90,18 @@ public:
 		};
 	}
 
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("asset_path"),  TEXT("string"),  TEXT("Path of the DataTable asset") },
+			{ TEXT("row_struct"),  TEXT("string"),  TEXT("UScriptStruct name backing each row") },
+			{ TEXT("schema"),      TEXT("array"),   TEXT("Row struct fields: {name, type}"), TEXT("object") },
+			{ TEXT("rows"),        TEXT("array"),   TEXT("Row data: {row_name, fields}"), TEXT("object") },
+			{ TEXT("row_count"),   TEXT("integer"), TEXT("Total rows in the table") },
+			{ TEXT("truncated"),   TEXT("boolean"), TEXT("True if row_count > max_rows") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 

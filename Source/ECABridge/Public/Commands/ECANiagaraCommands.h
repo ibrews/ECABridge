@@ -15,7 +15,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_niagara_systems"); }
 	virtual FString GetDescription() const override { return TEXT("Get all available Niagara systems in the project"); }
 	virtual FString GetCategory() const override { return TEXT("Niagara"); }
-	
+
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
@@ -23,7 +23,15 @@ public:
 			{ TEXT("name_filter"), TEXT("string"), TEXT("Filter systems by name (partial match)"), false }
 		};
 	}
-	
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("systems"), TEXT("array"),   TEXT("Niagara systems: {path, name}"), TEXT("object") },
+			{ TEXT("count"),   TEXT("integer"), TEXT("Number of systems returned") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -83,14 +91,22 @@ public:
 	virtual FString GetName() const override { return TEXT("get_niagara_actors"); }
 	virtual FString GetDescription() const override { return TEXT("Get all Niagara effect actors in the current level"); }
 	virtual FString GetCategory() const override { return TEXT("Niagara"); }
-	
+
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
 			{ TEXT("system_filter"), TEXT("string"), TEXT("Filter by system name (partial match)"), false }
 		};
 	}
-	
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("actors"), TEXT("array"),   TEXT("Niagara actors in the level: {name, path, system, location}"), TEXT("object") },
+			{ TEXT("count"),  TEXT("integer"), TEXT("Number of Niagara actors returned") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -147,7 +163,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_niagara_parameters"); }
 	virtual FString GetDescription() const override { return TEXT("Get user-exposed parameters of a Niagara system"); }
 	virtual FString GetCategory() const override { return TEXT("Niagara"); }
-	
+
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
@@ -155,7 +171,15 @@ public:
 			{ TEXT("system_path"), TEXT("string"), TEXT("Path to the Niagara system asset"), false }
 		};
 	}
-	
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("system_path"), TEXT("string"), TEXT("Path of the Niagara system inspected") },
+			{ TEXT("parameters"),  TEXT("array"),  TEXT("User parameters: {name, type, default}"), TEXT("object") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -549,6 +573,16 @@ public:
 			{ TEXT("system_path"), TEXT("string"), TEXT("Path to the Niagara system asset"), true },
 			{ TEXT("include_module_inputs"), TEXT("boolean"), TEXT("Include all module input pin values (default true)"), false, TEXT("true") }
 		};
+	}
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("system_path"), TEXT("string"), TEXT("Path of the Niagara system") },
+			{ TEXT("emitters"),    TEXT("array"),  TEXT("Emitters with module stacks per stage and renderers"), TEXT("object") },
+			{ TEXT("parameters"),  TEXT("array"),  TEXT("User parameters: {name, type, default}"), TEXT("object") },
+			{ TEXT("settings"),    TEXT("object"), TEXT("System-level settings") }
+		});
 	}
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;

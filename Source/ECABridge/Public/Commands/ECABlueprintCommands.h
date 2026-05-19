@@ -158,7 +158,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_blueprints"); }
 	virtual FString GetDescription() const override { return TEXT("List all Blueprint assets in a path"); }
 	virtual FString GetCategory() const override { return TEXT("Blueprint"); }
-	
+
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
@@ -166,7 +166,15 @@ public:
 			{ TEXT("recursive"), TEXT("boolean"), TEXT("Search recursively"), false, TEXT("true") }
 		};
 	}
-	
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("blueprints"), TEXT("array"),   TEXT("Blueprint assets: {path, name, parent_class}"), TEXT("object") },
+			{ TEXT("count"),      TEXT("integer"), TEXT("Number of Blueprints returned") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 

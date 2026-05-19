@@ -13,7 +13,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_actors_in_level"); }
 	virtual FString GetDescription() const override { return TEXT("Get all actors in the current level with optional class filtering"); }
 	virtual FString GetCategory() const override { return TEXT("Actor"); }
-	
+
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
@@ -21,7 +21,15 @@ public:
 			{ TEXT("include_hidden"), TEXT("boolean"), TEXT("Include hidden actors"), false, TEXT("false") }
 		};
 	}
-	
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("actors"), TEXT("array"),   TEXT("Actors in the current level: {name, class, path, location, hidden}"), TEXT("object") },
+			{ TEXT("count"),  TEXT("integer"), TEXT("Number of actors returned") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 

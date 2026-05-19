@@ -99,14 +99,28 @@ public:
 	virtual FString GetName() const override { return TEXT("get_texture_info"); }
 	virtual FString GetDescription() const override { return TEXT("Get technical info about a texture (resolution, format, mips). NOTE: For visual description of what a texture looks like, use get_asset_thumbnail + analyze_image instead."); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
-	
+
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
 			{ TEXT("texture_path"), TEXT("string"), TEXT("Path to the texture asset"), true }
 		};
 	}
-	
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("texture_path"),         TEXT("string"),  TEXT("Path of the inspected texture") },
+			{ TEXT("width"),                TEXT("integer"), TEXT("Texture width in pixels") },
+			{ TEXT("height"),               TEXT("integer"), TEXT("Texture height in pixels") },
+			{ TEXT("format"),               TEXT("string"),  TEXT("Pixel format (e.g. BGRA8, BC7)") },
+			{ TEXT("compression_settings"), TEXT("string"),  TEXT("UE compression preset") },
+			{ TEXT("srgb"),                 TEXT("boolean"), TEXT("Whether sRGB color space is enabled") },
+			{ TEXT("mip_count"),            TEXT("integer"), TEXT("Number of mipmap levels") },
+			{ TEXT("lod_group"),            TEXT("string"),  TEXT("LOD group classification") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -119,14 +133,26 @@ public:
 	virtual FString GetName() const override { return TEXT("get_material_info"); }
 	virtual FString GetDescription() const override { return TEXT("Get technical info about a material (nodes, parameters). NOTE: For visual description of what a material looks like, use get_asset_thumbnail + analyze_image instead."); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
-	
+
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
 			{ TEXT("material_path"), TEXT("string"), TEXT("Path to the material asset"), true }
 		};
 	}
-	
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("material_path"), TEXT("string"),  TEXT("Path of the inspected material") },
+			{ TEXT("shading_model"), TEXT("string"),  TEXT("Material shading model (DefaultLit, Unlit, ...)") },
+			{ TEXT("blend_mode"),    TEXT("string"),  TEXT("Blend mode (Opaque, Masked, Translucent, ...)") },
+			{ TEXT("two_sided"),     TEXT("boolean"), TEXT("Whether the material is two-sided") },
+			{ TEXT("parameters"),    TEXT("array"),   TEXT("Scalar/vector/texture parameter definitions"), TEXT("object") },
+			{ TEXT("node_count"),    TEXT("integer"), TEXT("Number of expression nodes in the material graph") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -139,7 +165,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_textures"); }
 	virtual FString GetDescription() const override { return TEXT("List all texture assets in a path. TIP: For visual descriptions, use get_asset_thumbnail + analyze_image to describe what textures look like."); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
-	
+
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
@@ -147,7 +173,15 @@ public:
 			{ TEXT("recursive"), TEXT("boolean"), TEXT("Search recursively"), false, TEXT("true") }
 		};
 	}
-	
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("textures"), TEXT("array"),   TEXT("Texture assets: {path, name, class}"), TEXT("object") },
+			{ TEXT("count"),    TEXT("integer"), TEXT("Number of textures returned") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -160,7 +194,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_materials"); }
 	virtual FString GetDescription() const override { return TEXT("List all material assets in a path. TIP: For visual descriptions, use get_asset_thumbnail + analyze_image to describe what materials look like."); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
-	
+
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
@@ -168,7 +202,15 @@ public:
 			{ TEXT("recursive"), TEXT("boolean"), TEXT("Search recursively"), false, TEXT("true") }
 		};
 	}
-	
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("materials"), TEXT("array"),   TEXT("Material assets: {path, name, class}"), TEXT("object") },
+			{ TEXT("count"),     TEXT("integer"), TEXT("Number of materials returned") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -226,14 +268,22 @@ public:
 	virtual FString GetName() const override { return TEXT("get_actor_materials"); }
 	virtual FString GetDescription() const override { return TEXT("Get all materials currently assigned to an actor's mesh components"); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
-	
+
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
 			{ TEXT("actor_name"), TEXT("string"), TEXT("Name of the actor in the level"), true }
 		};
 	}
-	
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("actor_name"), TEXT("string"), TEXT("Name of the actor inspected") },
+			{ TEXT("components"), TEXT("array"),  TEXT("Mesh components with their assigned materials: {component, materials[]}"), TEXT("object") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -448,7 +498,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_asset_property"); }
 	virtual FString GetDescription() const override { return TEXT("Get UPROPERTY values from any asset using reflection. Returns all editable properties if no specific property is requested."); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
-	
+
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
@@ -456,7 +506,16 @@ public:
 			{ TEXT("property"), TEXT("string"), TEXT("Specific property name to get (optional - returns all editable properties if not specified)"), false }
 		};
 	}
-	
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("asset_path"), TEXT("string"), TEXT("Path of the asset inspected") },
+			{ TEXT("asset_class"),TEXT("string"), TEXT("UClass of the asset") },
+			{ TEXT("properties"), TEXT("object"), TEXT("Map of property name -> serialized value (or single value if 'property' filter set)") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -469,7 +528,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_asset_properties"); }
 	virtual FString GetDescription() const override { return TEXT("List all editable UPROPERTY fields on an asset, organized by category. Useful for discovering what properties can be set."); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
-	
+
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
@@ -478,7 +537,17 @@ public:
 			{ TEXT("search"), TEXT("string"), TEXT("Search filter for property names (optional)"), false }
 		};
 	}
-	
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("asset_path"), TEXT("string"), TEXT("Path of the asset inspected") },
+			{ TEXT("asset_class"),TEXT("string"), TEXT("UClass of the asset") },
+			{ TEXT("categories"), TEXT("object"), TEXT("Map of category -> array of {name, type, editable, value}") },
+			{ TEXT("count"),      TEXT("integer"), TEXT("Total properties returned") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -746,6 +815,15 @@ public:
 		};
 	}
 
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("asset_path"),   TEXT("string"), TEXT("Path of the asset inspected") },
+			{ TEXT("dependencies"), TEXT("array"),  TEXT("Asset paths this one references"), TEXT("string") },
+			{ TEXT("referencers"),  TEXT("array"),  TEXT("Asset paths that reference this one"), TEXT("string") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -786,6 +864,17 @@ public:
 			{ TEXT("include_children"), TEXT("boolean"), TEXT("Include direct child classes (default true)"), false, TEXT("true") },
 			{ TEXT("include_functions"), TEXT("boolean"), TEXT("Include BlueprintCallable functions (default false — can be verbose)"), false, TEXT("false") }
 		};
+	}
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("class_name"),  TEXT("string"), TEXT("Resolved class name") },
+			{ TEXT("parent_chain"),TEXT("array"),  TEXT("UClass names from this class up to UObject"), TEXT("string") },
+			{ TEXT("interfaces"),  TEXT("array"),  TEXT("Implemented interface names"), TEXT("string") },
+			{ TEXT("children"),    TEXT("array"),  TEXT("Direct subclasses"), TEXT("string") },
+			{ TEXT("functions"),   TEXT("array"),  TEXT("BlueprintCallable functions (only if requested)"), TEXT("object") }
+		});
 	}
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;

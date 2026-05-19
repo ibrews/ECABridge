@@ -94,6 +94,18 @@ public:
 		};
 	}
 
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Path of the Blueprint inspected") },
+			{ TEXT("component_name"), TEXT("string"), TEXT("Component this property was read from") },
+			{ TEXT("property_name"),  TEXT("string"), TEXT("Property name") },
+			{ TEXT("property_type"),  TEXT("string"), TEXT("UE property type (StrProperty, ObjectProperty, ...)") },
+			{ TEXT("value_text"),     TEXT("string"), TEXT("UE property text representation") },
+			{ TEXT("value"),          TEXT("string"), TEXT("Typed JSON value for primitives (string|number|boolean|object)") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -137,6 +149,15 @@ public:
 			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Path to the Blueprint asset"), true },
 			{ TEXT("include_overrides"), TEXT("boolean"), TEXT("Include each component's property overrides (values that differ from class defaults). Default false."), false, TEXT("false") }
 		};
+	}
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("blueprint_path"), TEXT("string"),  TEXT("Path of the Blueprint inspected") },
+			{ TEXT("components"),     TEXT("array"),   TEXT("Components: {name, class, parent, overrides?}"), TEXT("object") },
+			{ TEXT("count"),          TEXT("integer"), TEXT("Number of components returned") }
+		});
 	}
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;

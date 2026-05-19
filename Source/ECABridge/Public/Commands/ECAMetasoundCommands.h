@@ -15,7 +15,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_metasound_sources"); }
 	virtual FString GetDescription() const override { return TEXT("Get all available MetaSound source assets in the project"); }
 	virtual FString GetCategory() const override { return TEXT("Metasound"); }
-	
+
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
@@ -23,7 +23,15 @@ public:
 			{ TEXT("name_filter"), TEXT("string"), TEXT("Filter sources by name (partial match)"), false }
 		};
 	}
-	
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("sources"), TEXT("array"),   TEXT("MetaSound sources: {path, name}"), TEXT("object") },
+			{ TEXT("count"),   TEXT("integer"), TEXT("Number of sources returned") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -57,7 +65,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_metasound_nodes"); }
 	virtual FString GetDescription() const override { return TEXT("Get all nodes in a MetaSound source graph"); }
 	virtual FString GetCategory() const override { return TEXT("Metasound"); }
-	
+
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
@@ -65,7 +73,16 @@ public:
 			{ TEXT("include_details"), TEXT("boolean"), TEXT("Include detailed node information (pins, values)"), false, TEXT("false") }
 		};
 	}
-	
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("asset_path"), TEXT("string"),  TEXT("Path of the MetaSound source") },
+			{ TEXT("nodes"),      TEXT("array"),   TEXT("Nodes: {id, class_name, display_name, pins?}"), TEXT("object") },
+			{ TEXT("count"),      TEXT("integer"), TEXT("Number of nodes returned") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -345,6 +362,17 @@ public:
 		return {
 			{ TEXT("asset_path"), TEXT("string"), TEXT("Path to the MetaSound source asset"), true }
 		};
+	}
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("asset_path"),  TEXT("string"), TEXT("Path of the MetaSound source") },
+			{ TEXT("nodes"),       TEXT("array"),  TEXT("All nodes with pins"), TEXT("object") },
+			{ TEXT("connections"), TEXT("array"),  TEXT("Pin-to-pin connections"), TEXT("object") },
+			{ TEXT("inputs"),      TEXT("array"),  TEXT("Source-level inputs"), TEXT("object") },
+			{ TEXT("outputs"),     TEXT("array"),  TEXT("Source-level outputs"), TEXT("object") }
+		});
 	}
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
