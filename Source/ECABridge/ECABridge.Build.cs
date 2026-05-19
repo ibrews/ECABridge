@@ -110,7 +110,20 @@ public class ECABridge : ModuleRules
 			// Python sandbox - requires PythonScriptPlugin (the "Python Editor Script Plugin").
 			// Used by execute_script + get_execution_environment to invoke the Python
 			// interpreter and expose a UFUNCTION-backed execute_tool() helper to scripts.
-			"PythonScriptPlugin"
+			"PythonScriptPlugin",
+
+			// LiveLink interface - engine runtime module (NOT a plugin), always available.
+			// The LiveLink plugin provides the modular-feature implementation; if it's
+			// disabled, IsModularFeatureAvailable() returns false and the commands
+			// short-circuit with a clear "plugin not enabled" message. No DelayLoad
+			// needed because LiveLinkInterface ships in the engine itself.
+			"LiveLinkInterface",
+
+			// HeadMountedDisplay - engine module providing IXRTrackingSystem and
+			// UHeadMountedDisplayFunctionLibrary. Hard-linked because the module is
+			// always available; runtime probes (GEngine->XRSystem) determine whether
+			// an actual HMD is connected. Used by the OpenXR introspection commands.
+			"HeadMountedDisplay"
 		});
 
 		// ModelViewViewModelBlueprint include path - UBT doesn't resolve it via PrivateDependencyModuleNames
@@ -234,6 +247,38 @@ public class ECABridge : ModuleRules
 		else
 		{
 			PublicDefinitions.Add("WITH_ECA_GAMEPLAY_ABILITIES=0");
+		}
+
+		// DMX (lighting protocol, 2 read-only commands). Gates against the DMXEngine
+		// plugin which bundles the DMXRuntime module that owns UDMXLibrary +
+		// UDMXEntityFixturePatch. DMXProtocol is a sibling plugin but DMXRuntime
+		// only depends on DMXProtocol abstractly so we don't need to link both.
+		if (EngineHasPlugin("DMXEngine"))
+		{
+			PrivateDependencyModuleNames.Add("DMXRuntime");
+			PublicDelayLoadDLLs.Add("UnrealEditor-DMXRuntime.dll");
+			PublicDefinitions.Add("WITH_ECA_DMX=1");
+		}
+		else
+		{
+			PublicDefinitions.Add("WITH_ECA_DMX=0");
+		}
+
+		// nDisplay (multi-display rendering / virtual production, 2 read-only commands).
+		// Adds runtime introspection of the active cluster: operation mode, node id,
+		// peer counts, and DisplayClusterRootActor enumeration. Mutation (launch/stop)
+		// not yet wired — cluster lifecycle is best driven by nDisplayLauncher.exe
+		// out-of-process for now.
+		if (EngineHasPlugin("nDisplay"))
+		{
+			PrivateDependencyModuleNames.AddRange(new string[] { "DisplayCluster", "DisplayClusterConfiguration" });
+			PublicDelayLoadDLLs.Add("UnrealEditor-DisplayCluster.dll");
+			PublicDelayLoadDLLs.Add("UnrealEditor-DisplayClusterConfiguration.dll");
+			PublicDefinitions.Add("WITH_ECA_NDISPLAY=1");
+		}
+		else
+		{
+			PublicDefinitions.Add("WITH_ECA_NDISPLAY=0");
 		}
 
 		// DataValidation (stock editor plugin; powers validate_before_submit).

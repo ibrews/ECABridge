@@ -73,6 +73,16 @@
 			"Name": "DataValidation",
 			"Enabled": true,
 			"Optional": true
+		},
+		{
+			"Name": "nDisplay",
+			"Enabled": true,
+			"Optional": true
+		},
+		{
+			"Name": "DMXEngine",
+			"Enabled": true,
+			"Optional": true
 		}
 	]
 }
