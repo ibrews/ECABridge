@@ -133,7 +133,19 @@ public:
 			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Path to the Blueprint asset"), true }
 		};
 	}
-	
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("blueprint_path"),  TEXT("string"),  TEXT("Path of the Blueprint asset") },
+			{ TEXT("parent_class"),    TEXT("string"),  TEXT("Parent UClass name") },
+			{ TEXT("blueprint_type"),  TEXT("string"),  TEXT("Blueprint type (BPT_Normal, BPT_MacroLibrary, etc.)") },
+			{ TEXT("variable_count"),  TEXT("integer"), TEXT("Number of Blueprint variables") },
+			{ TEXT("function_count"),  TEXT("integer"), TEXT("Number of user-defined functions") },
+			{ TEXT("component_count"), TEXT("integer"), TEXT("Number of components in the SCS") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 

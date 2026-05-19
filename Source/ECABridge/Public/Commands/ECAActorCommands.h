@@ -111,7 +111,18 @@ public:
 			{ TEXT("properties"), TEXT("array"), TEXT("Specific property names to retrieve (optional, returns all if not specified)"), false }
 		};
 	}
-	
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("actor_name"),  TEXT("string"),  TEXT("Label of the actor inspected") },
+			{ TEXT("actor_class"), TEXT("string"),  TEXT("UClass name of the actor") },
+			{ TEXT("actor_path"),  TEXT("string"),  TEXT("Full path of the actor instance") },
+			{ TEXT("properties"),  TEXT("object"),  TEXT("Map of property name -> serialized value") },
+			{ TEXT("transform"),   TEXT("object"),  TEXT("Actor transform: location, rotation, scale") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -159,7 +170,15 @@ public:
 			{ TEXT("radius"), TEXT("number"), TEXT("Radius for location search"), false, TEXT("1000") }
 		};
 	}
-	
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("actors"), TEXT("array"),   TEXT("Matched actors: {name, class, path, location}"), TEXT("object") },
+			{ TEXT("count"),  TEXT("integer"), TEXT("Number of matched actors") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 

@@ -59,7 +59,15 @@ public:
 	virtual FString GetName() const override { return TEXT("get_selected_actors"); }
 	virtual FString GetDescription() const override { return TEXT("Get the currently selected actors"); }
 	virtual FString GetCategory() const override { return TEXT("Editor"); }
-	
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("actors"), TEXT("array"),   TEXT("Selected actors: name, path, class, location, rotation, scale"), TEXT("object") },
+			{ TEXT("count"),  TEXT("integer"), TEXT("Number of selected actors") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -141,7 +149,17 @@ public:
 	virtual FString GetName() const override { return TEXT("get_level_info"); }
 	virtual FString GetDescription() const override { return TEXT("Get information about the current level"); }
 	virtual FString GetCategory() const override { return TEXT("Editor"); }
-	
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("level_name"),   TEXT("string"),  TEXT("Map name of the loaded level") },
+			{ TEXT("level_path"),   TEXT("string"),  TEXT("Content path of the .umap") },
+			{ TEXT("total_actors"), TEXT("integer"), TEXT("Total actor count") },
+			{ TEXT("actor_counts"), TEXT("object"),  TEXT("Map of class name -> count") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 

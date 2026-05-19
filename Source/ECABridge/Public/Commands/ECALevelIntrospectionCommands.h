@@ -30,5 +30,17 @@ public:
 		};
 	}
 
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("level_name"),   TEXT("string"),  TEXT("Name of the dumped level") },
+			{ TEXT("level_path"),   TEXT("string"),  TEXT("Content path of the .umap") },
+			{ TEXT("actors"),       TEXT("array"),   TEXT("Per-actor entries with name, class, transform, components, tags, folder"), TEXT("object") },
+			{ TEXT("count"),        TEXT("integer"), TEXT("Number of actors included in the response") },
+			{ TEXT("total_actors"), TEXT("integer"), TEXT("Total actor count in the level (before filtering / max_actors)") },
+			{ TEXT("truncated"),    TEXT("boolean"), TEXT("True when max_actors limited the response") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };

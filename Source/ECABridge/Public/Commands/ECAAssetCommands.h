@@ -676,6 +676,19 @@ public:
 		};
 	}
 
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("asset_path"),   TEXT("string"),  TEXT("Path of the dumped asset") },
+			{ TEXT("asset_class"),  TEXT("string"),  TEXT("UClass of the asset") },
+			{ TEXT("properties"),   TEXT("object"),  TEXT("Map of property name -> serialized value") },
+			{ TEXT("sub_objects"),  TEXT("array"),   TEXT("Nested UObjects with their own properties"), TEXT("object") },
+			{ TEXT("references"),   TEXT("array"),   TEXT("Other assets this one depends on"), TEXT("string") },
+			{ TEXT("metadata"),     TEXT("object"),  TEXT("Asset metadata (tags, disk size, etc.)") },
+			{ TEXT("thumbnail"),    TEXT("string"),  TEXT("Base64 PNG thumbnail if include_thumbnail=true") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -700,6 +713,15 @@ public:
 			{ TEXT("max_results"), TEXT("number"), TEXT("Maximum results to return (default 100)"), false, TEXT("100") },
 			{ TEXT("include_metadata"), TEXT("boolean"), TEXT("Include disk size and class per result"), false, TEXT("false") }
 		};
+	}
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("assets"),     TEXT("array"),   TEXT("Matching assets, each with path/name/class"), TEXT("object") },
+			{ TEXT("count"),      TEXT("integer"), TEXT("Number of matching assets returned") },
+			{ TEXT("truncated"),  TEXT("boolean"), TEXT("True if more results exist than max_results allowed") }
+		});
 	}
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;

@@ -84,6 +84,32 @@ TSharedPtr<FJsonObject> FECACommandResult::MakeImageContent(const TArray<uint8>&
 	return Block;
 }
 
+TSharedPtr<FJsonObject> MakeECAObjectSchema(const TArray<FECASchemaField>& Fields)
+{
+	TSharedPtr<FJsonObject> Schema = MakeShared<FJsonObject>();
+	Schema->SetStringField(TEXT("type"), TEXT("object"));
+
+	TSharedPtr<FJsonObject> Properties = MakeShared<FJsonObject>();
+	for (const FECASchemaField& F : Fields)
+	{
+		TSharedPtr<FJsonObject> Prop = MakeShared<FJsonObject>();
+		Prop->SetStringField(TEXT("type"), F.Type);
+		if (!F.Description.IsEmpty())
+		{
+			Prop->SetStringField(TEXT("description"), F.Description);
+		}
+		if (F.Type == TEXT("array") && !F.ItemsType.IsEmpty())
+		{
+			TSharedPtr<FJsonObject> Items = MakeShared<FJsonObject>();
+			Items->SetStringField(TEXT("type"), F.ItemsType);
+			Prop->SetObjectField(TEXT("items"), Items);
+		}
+		Properties->SetObjectField(F.Name, Prop);
+	}
+	Schema->SetObjectField(TEXT("properties"), Properties);
+	return Schema;
+}
+
 TSharedPtr<FJsonObject> IECACommand::GetInputSchemaJson() const
 {
 	TSharedPtr<FJsonObject> InputSchema = MakeShared<FJsonObject>();

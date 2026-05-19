@@ -609,6 +609,18 @@ public:
 		};
 	}
 
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("blueprint_path"),  TEXT("string"),  TEXT("Path of the dumped Blueprint asset") },
+			{ TEXT("blueprint_class"), TEXT("string"),  TEXT("Parent class of the Blueprint") },
+			{ TEXT("graphs"),          TEXT("array"),   TEXT("All graphs (event/function/macro) with nodes and connections"), TEXT("object") },
+			{ TEXT("variables"),       TEXT("array"),   TEXT("Blueprint variables with type and default value"), TEXT("object") },
+			{ TEXT("components"),      TEXT("array"),   TEXT("Components attached in the Blueprint construction script"), TEXT("object") },
+			{ TEXT("functions"),       TEXT("array"),   TEXT("User-defined function names"), TEXT("string") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 

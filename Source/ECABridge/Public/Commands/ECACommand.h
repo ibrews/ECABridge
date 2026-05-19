@@ -67,6 +67,22 @@ struct FECACommandParam
 };
 
 /**
+ * Description of a single field in an output schema. Used by GetOutputSchema()
+ * implementations to declare the shape of a successful result.
+ */
+struct FECASchemaField
+{
+	FString Name;
+	FString Type;         // JSON Schema type: string, number, integer, boolean, object, array
+	FString Description;
+	FString ItemsType;    // For type=array: element type (string, number, object, ...). Optional.
+};
+
+/** Build a JSON Schema (draft-07-ish) object from a flat list of fields.
+ *  Helper for GetOutputSchema() overrides — minimal, no nested object schemas. */
+ECABRIDGE_API TSharedPtr<FJsonObject> MakeECAObjectSchema(const TArray<FECASchemaField>& Fields);
+
+/**
  * Base class for all ECA commands
  * 
  * Subclass this to create new commands. Commands are automatically registered

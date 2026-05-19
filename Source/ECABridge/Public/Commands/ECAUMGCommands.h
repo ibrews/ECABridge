@@ -242,6 +242,15 @@ public:
 		};
 	}
 
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("widget_path"), TEXT("string"),  TEXT("Path of the dumped Widget Blueprint") },
+			{ TEXT("root"),        TEXT("object"),  TEXT("Hierarchical widget node: class, name, slot properties, children[]") },
+			{ TEXT("widget_count"),TEXT("integer"), TEXT("Total widgets in the tree") }
+		});
+	}
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
