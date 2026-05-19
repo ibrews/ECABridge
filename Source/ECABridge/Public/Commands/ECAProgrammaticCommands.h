@@ -25,6 +25,16 @@ public:
 	 *  {success: bool, result?: object, error?: string}. */
 	UFUNCTION(BlueprintCallable, Category = "ECABridge")
 	static FString ExecuteToolJson(const FString& ToolName, const FString& ArgsJson);
+
+	/** Sink for the return value of an execute_script user's `run() -> dict`. The
+	 *  preamble footer calls this with a JSON-serialized version of run()'s return.
+	 *  FECACommand_ExecuteScript clears it before each invocation and reads it
+	 *  back into command_result after Python returns. */
+	UFUNCTION(BlueprintCallable, Category = "ECABridge")
+	static void SetCommandResult(const FString& JsonValue);
+
+	/** Read and clear the slot set by SetCommandResult. */
+	static FString ConsumeCommandResult();
 };
 
 /**

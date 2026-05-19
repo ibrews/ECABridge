@@ -14,6 +14,17 @@ REGISTER_ECA_COMMAND(FECACommand_GetExecutionEnvironment)
 // Exposed to Python as `unreal.ECABridgeProgrammatic.execute_tool_json(name, args_json)`.
 // ---------------------------------------------------------------------------
 
+namespace
+{
+	// Per-call slot for the JSON-serialized return value of a user's run() function.
+	// The preamble footer writes to it; FECACommand_ExecuteScript clears it before
+	// invocation and consumes it afterward. Lives in process-static storage because
+	// the UFUNCTION shape must be a free static; execute_script calls are serialized
+	// through the editor's main thread (Python plugin requirement) so there's no
+	// concurrency risk here in practice.
+	static FString GLastCommandResultJson;
+}
+
 FString UECABridgeProgrammatic::ExecuteToolJson(const FString& ToolName, const FString& ArgsJson)
 {
 	TSharedPtr<FJsonObject> Args;
@@ -34,6 +45,18 @@ FString UECABridgeProgrammatic::ExecuteToolJson(const FString& ToolName, const F
 	return Result.ToJsonString();
 }
 
+void UECABridgeProgrammatic::SetCommandResult(const FString& JsonValue)
+{
+	GLastCommandResultJson = JsonValue;
+}
+
+FString UECABridgeProgrammatic::ConsumeCommandResult()
+{
+	FString Value = MoveTemp(GLastCommandResultJson);
+	GLastCommandResultJson.Empty();
+	return Value;
+}
+
 // ---------------------------------------------------------------------------
 // FECACommand_ExecuteScript
 // ---------------------------------------------------------------------------
@@ -43,6 +66,14 @@ FString UECABridgeProgrammatic::ExecuteToolJson(const FString& ToolName, const F
 // auto-translates `ExecuteToolJson` to `execute_tool_json` on the class.
 static const TCHAR* GExecuteScriptPreamble = TEXT(R"PY(import json as _eca_json
 import unreal as _eca_unreal
+
+# IPythonScriptPlugin reuses the interpreter's module-level namespace across calls,
+# so prior scripts' `run` definitions would leak into a follow-up script that
+# doesn't define one. Wipe it on entry so the footer only acts on a fresh run().
+try:
+    del run  # noqa: F821
+except NameError:
+    pass
 
 def execute_tool(toolset, tool, json_input=None):
     """Call any registered ECABridge command by name and return its parsed result.
@@ -73,6 +104,34 @@ def execute_tool(toolset, tool, json_input=None):
 # ---- user script begins below ----
 )PY");
 
+// Footer appended after the user script. If the user defined a `run` callable at
+// module scope, invoke it and JSON-serialize the return value into the C++ side
+// so command_result carries structured data. Failures are caught and logged so
+// they don't break the existing print()-based fallback. Skipped silently if no
+// `run` is defined - print() scripts keep working unchanged.
+static const TCHAR* GExecuteScriptFooter = TEXT(R"PY(
+# ---- ECABridge: capture run() return value, if defined ----
+try:
+    _eca_run_fn = run  # type: ignore[name-defined]
+except NameError:
+    _eca_run_fn = None
+
+if _eca_run_fn is not None and callable(_eca_run_fn):
+    try:
+        _eca_run_result = _eca_run_fn()
+    except Exception as _eca_err:
+        import traceback as _eca_tb
+        print("[ECABridge] run() raised: " + repr(_eca_err))
+        _eca_tb.print_exc()
+    else:
+        if _eca_run_result is not None:
+            try:
+                _eca_payload = _eca_json.dumps(_eca_run_result, default=str)
+                _eca_unreal.ECABridgeProgrammatic.set_command_result(_eca_payload)
+            except Exception as _eca_dump_err:
+                print("[ECABridge] failed to JSON-serialize run() return: " + repr(_eca_dump_err))
+)PY");
+
 FECACommandResult FECACommand_ExecuteScript::Execute(const TSharedPtr<FJsonObject>& Params)
 {
 	FString Script;
@@ -87,7 +146,11 @@ FECACommandResult FECACommand_ExecuteScript::Execute(const TSharedPtr<FJsonObjec
 		return FECACommandResult::Error(TEXT("PythonScriptPlugin is not available. Make sure 'Python Editor Script Plugin' is enabled in this project."));
 	}
 
-	const FString FullScript = FString::Printf(TEXT("%s\n%s"), GExecuteScriptPreamble, *Script);
+	// Clear any prior run() return value before invoking — otherwise a script
+	// that doesn't define run() would inherit the last one's payload.
+	UECABridgeProgrammatic::ConsumeCommandResult();
+
+	const FString FullScript = FString::Printf(TEXT("%s\n%s\n%s"), GExecuteScriptPreamble, *Script, GExecuteScriptFooter);
 
 	FPythonCommandEx Cmd;
 	Cmd.Command = FullScript;
@@ -98,7 +161,29 @@ FECACommandResult FECACommand_ExecuteScript::Execute(const TSharedPtr<FJsonObjec
 
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetBoolField(TEXT("success"), bOk);
-	Result->SetStringField(TEXT("command_result"), Cmd.CommandResult);
+
+	// Prefer the structured run() return value when present; fall back to whatever
+	// ExecPythonCommandEx put into Cmd.CommandResult (typically the value of the
+	// last expression statement, or an empty string for ExecuteFile mode).
+	const FString RunReturnJson = UECABridgeProgrammatic::ConsumeCommandResult();
+	if (!RunReturnJson.IsEmpty())
+	{
+		TSharedPtr<FJsonValue> Parsed;
+		TSharedRef<TJsonReader<TCHAR>> Reader = TJsonReaderFactory<TCHAR>::Create(RunReturnJson);
+		if (FJsonSerializer::Deserialize(Reader, Parsed) && Parsed.IsValid())
+		{
+			Result->SetField(TEXT("command_result"), Parsed);
+		}
+		else
+		{
+			// Failed to parse — surface the raw string so the caller can still see it.
+			Result->SetStringField(TEXT("command_result"), RunReturnJson);
+		}
+	}
+	else
+	{
+		Result->SetStringField(TEXT("command_result"), Cmd.CommandResult);
+	}
 
 	TArray<TSharedPtr<FJsonValue>> Logs;
 	for (const FPythonLogOutputEntry& Entry : Cmd.LogOutput)
@@ -144,7 +229,7 @@ FECACommandResult FECACommand_GetExecutionEnvironment::Execute(const TSharedPtr<
 	TSharedPtr<FJsonObject> Result = MakeResult();
 
 	Result->SetStringField(TEXT("instructions"),
-		TEXT("execute_script runs your Python source after an injected preamble that exposes the helper `execute_tool(toolset, tool, json_input)`. Use it to chain any number of ECABridge command calls server-side, then `print(json.dumps(result))` your aggregated result so it shows up in log_output. Example: `assets = execute_tool('asset', 'find_assets', {'path_filter':'/Game/'}); print(len(assets['result']['assets']))`. The `toolset` first argument is informational - ECABridge uses flat command names. Result of execute_tool is a parsed dict {success, result|error}."));
+		TEXT("execute_script runs your Python source after a preamble that exposes `execute_tool(toolset, tool, json_input)`. Use it to chain any number of ECABridge command calls server-side. PREFERRED return path: define `def run() -> dict:` at module scope; the preamble's footer will call it and JSON-serialize the return value into the response's `command_result` field. Example: `def run(): assets = execute_tool('asset', 'find_assets', {'path_filter':'/Game/'}); return {'count': len(assets['result']['assets'])}`. FALLBACK: any `print()` output is captured in `log_output` (use `print(json.dumps(result))` for structured fallback). The `toolset` first argument is informational - ECABridge uses flat command names. Result of execute_tool is a parsed dict {success, result|error}."));
 
 	Result->SetStringField(TEXT("preamble"), GExecuteScriptPreamble);
 
