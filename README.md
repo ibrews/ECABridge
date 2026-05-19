@@ -4,6 +4,38 @@
 
 > **Using this with an AI agent?** Pair it with **[ue5-mcp](https://github.com/ibrews/ue5-mcp)** — a Claude Code / Cowork skill that loads the hard-won knowledge your agent needs to use these tools without crashing the editor or wasting hours on silent-fail APIs. ECABridge is the plugin (what tools exist); ue5-mcp is the field manual (which calls actually work, which crash, and the workarounds). Install both.
 
+## On UE 5.8: ECABridge alongside Epic's native MCP plugin
+
+UE 5.8 Preview ships an official MCP server from Epic (plugin name `ModelContextProtocol`, browser label "Unreal MCP") on `http://127.0.0.1:8000/mcp`. That's great news — MCP is now the blessed AI↔engine protocol. But the native plugin is brand new and covers far less surface than ECABridge does today. Run both side by side until Epic's catches up.
+
+**What the native 5.8 plugin gives you:**
+
+- Core editor toolsets: actor, mesh, material, blueprint, asset, scene, object, primitive, texture, data table, curve table, data asset, string table, skeletal mesh, static mesh, material instance
+- A `ProgrammaticToolset` Python sandbox that can call other toolsets — good for orchestrating multi-step tasks in one round trip
+- Lazy toolset loading via `list_toolsets` / `load_toolset` / `tools/list_changed`
+- Auto-generated client configs for Claude Code, Cursor, VSCode, Gemini, Codex
+
+**What's missing from the native plugin (and lives in ECABridge):**
+
+- Niagara, MetaSound, MetaHuman, Mutable / Customizable Objects
+- MVVM, Widget / UMG, Sequencer, Animation, Lighting, Movie Render Queue
+- PCG, Landscape, Control Rig, Gameplay Ability System, Niagara Data Channels, Enhanced Input
+- The Rosetta Stone JSON-dump commands (`dump_blueprint_graph`, `dump_level`, `dump_material_graph`, `dump_niagara_system`, `dump_level_sequence`, `dump_widget_tree`, `dump_animation_blueprint`, `dump_metasound_graph`, `dump_datatable`, `dump_pcg_graph`, `dump_control_rig`, `dump_landscape`)
+- Refactoring safety nets (`replace_asset_references`, `bulk_rename_assets`, `search_and_replace_property`, dry-run modes)
+- Async editor event streaming, undo batching (`batch_operation`), snapshot/diff
+
+**Run both at the same time:** the native plugin uses port `8000`, ECABridge uses port `3000`, so they don't collide. Register both with your MCP client:
+
+```bash
+# Claude Code — user scope
+claude mcp add --transport http --scope user unreal-engine     http://127.0.0.1:8000/mcp
+claude mcp add --transport http --scope user unreal-ecabridge  http://127.0.0.1:3000/mcp
+```
+
+You'll have both surfaces available and can pick per task. Future ECABridge work may consolidate toward "things Epic hasn't shipped yet" as the native plugin grows.
+
+> ⚠️ **Port collision with [Natfii/UnrealClaude](https://github.com/Natfii/UnrealClaude):** that plugin also defaults to `localhost:3000`. If you want to run both ECABridge and UnrealClaude in the same editor session, remap one of them. ECABridge and the Epic native plugin do **not** conflict.
+
 ## Features
 
 - **390+ MCP tools** organized by category
