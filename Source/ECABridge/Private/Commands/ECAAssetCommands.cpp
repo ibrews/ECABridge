@@ -2,6 +2,7 @@
 
 #include "Commands/ECAAssetCommands.h"
 #include "Commands/ECACommand.h"
+#include "Misc/EngineVersionComparison.h" // UE_VERSION_OLDER_THAN — for 5.7 vs 5.8 API guards
 #include "Editor.h"
 #include "Engine/Texture2D.h"
 #include "Materials/Material.h"
@@ -3966,7 +3967,11 @@ FECACommandResult FECACommand_DumpAsset::Execute(const TSharedPtr<FJsonObject>& 
 	if ((bAllSections || Sections.Contains(TEXT("sub_objects"))) && MaxDepth > 0)
 	{
 		TArray<UObject*> SubObjects;
+#if UE_VERSION_OLDER_THAN(5, 8, 0)
+		GetObjectsWithOuter(Asset, SubObjects, /*bIncludeNestedObjects=*/ false);
+#else
 		GetObjectsWithOuter(Asset, SubObjects, EGetObjectsFlags::None);
+#endif
 
 		TArray<TSharedPtr<FJsonValue>> SubObjArray;
 		for (UObject* SubObj : SubObjects)

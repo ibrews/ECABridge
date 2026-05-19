@@ -2,6 +2,7 @@
 
 #include "Commands/ECAMetaHumanCommands.h"
 #include "Commands/ECACommand.h"
+#include "Misc/EngineVersionComparison.h" // UE_VERSION_OLDER_THAN — for 5.7 vs 5.8 API guards
 
 #if WITH_ECA_METAHUMAN_CHARACTER
 
@@ -2270,7 +2271,11 @@ FECACommandResult FECACommand_SetMetaHumanSkinParams::Execute(const TSharedPtr<F
 	{
 		for (const auto& Pair : (*ZoneObj)->Values)
 		{
+#if UE_VERSION_OLDER_THAN(5, 8, 0)
+			const FString& ZoneName = Pair.Key;
+#else
 			const FString ZoneName(Pair.Key);
+#endif
 			bool bKnown = false;
 			for (const TCHAR* Z : AccentZones) { if (ZoneName.Equals(Z, ESearchCase::IgnoreCase)) { bKnown = true; break; } }
 			if (!bKnown)

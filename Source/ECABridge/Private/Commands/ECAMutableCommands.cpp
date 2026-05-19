@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Commands/ECAMutableCommands.h"
+#include "Misc/EngineVersionComparison.h" // UE_VERSION_OLDER_THAN — for 5.7 vs 5.8 API guards
 
 // Includes used by both the Mutable subsystem and the (always-compiled) MetaHuman
 // create command at the bottom of this file.
@@ -68,7 +69,11 @@ namespace MutableCommandHelpers
 
 		// Fallback: iterate sub-objects to find the UEdGraph
 		TArray<UObject*> SubObjects;
+#if UE_VERSION_OLDER_THAN(5, 8, 0)
+		GetObjectsWithOuter(CO, SubObjects, /*bIncludeNestedObjects=*/ false);
+#else
 		GetObjectsWithOuter(CO, SubObjects, EGetObjectsFlags::None);
+#endif
 		for (UObject* Sub : SubObjects)
 		{
 			if (UEdGraph* Graph = Cast<UEdGraph>(Sub))

@@ -1,6 +1,6 @@
 # ECABridge — AI-Powered Unreal Engine 5 MCP Plugin
 
-**402 MCP tools** for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent. Targets **UE 5.8** with an embedded Python sandbox for server-side multi-tool chaining and inline base64 PNG screenshots. For UE 5.7, check out commit `fcacc9f` or earlier.
+**402 MCP tools** for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent. **One branch supports UE 5.7 and UE 5.8** via engine-version guards, with an embedded Python sandbox for server-side multi-tool chaining and inline base64 PNG screenshots.
 
 > **Using this with an AI agent?** Pair it with **[ue5-mcp](https://github.com/ibrews/ue5-mcp)** — a Claude Code / Cowork skill that loads the hard-won knowledge your agent needs to use these tools without crashing the editor or wasting hours on silent-fail APIs. ECABridge is the plugin (what tools exist); ue5-mcp is the field manual (which calls actually work, which crash, and the workarounds). Install both.
 
@@ -13,16 +13,26 @@
 - **EDA integration.** [`docs/EDA_INTEGRATION.md`](docs/EDA_INTEGRATION.md) documents how to register ECABridge with Epic's `MCPClientToolset` so the Epic Developer Assistant panel can call ECABridge commands alongside Epic's built-in toolsets.
 - **Optional-dep gating** extended to MetaHumanCharacter, Niagara, MetaSound, ControlRig, GameplayAbilities (in addition to the existing Mutable / MovieRenderPipeline). Build.cs uses `EngineHasPlugin(name)` + `WITH_ECA_<FEATURE>=0|1` + `#if`-guarded command files. Custom engine forks that compile out any of these get a clean build automatically; relevant `.uplugin` Plugins[] entries are now `"Optional": true`.
 
-## What changed for 5.8 (vs the 5.7 line)
+## Engine compatibility: 5.7 and 5.8 supported from this single branch via engine-version guards
 
-Three small porting changes plus one architectural improvement (relative to commit `fcacc9f`, the last 5.7-compatible commit):
+The plugin builds and loads cleanly on both UE 5.7 and UE 5.8 from the same `main` codebase. No separate branches, no checkout-and-revert. The two real API divergences between the engines are handled with `ENGINE_MAJOR_VERSION` / `ENGINE_MINOR_VERSION` guards from `Runtime/Launch/Resources/Version.h`:
 
-### Porting changes (required for 5.8 to build)
+1. **`ECABridge.uplugin`** — `"EngineVersion": "5.7.0"`. UE treats this as a *minimum* for in-project (source-distributed) plugins, so 5.7, 5.8, and future 5.X+ all load it cleanly. (Marketplace/Fab distribution would treat this as strict; ECABridge is source-distributed, so this caveat does not apply.)
+2. **`Source/ECABridge/Private/Commands/ECAMetaHumanCommands.cpp:~2273`** — `FJsonObject::Values` is `TMap<FString,...>` in 5.7 but `TMap<UE::FSharedString,...>` in 5.8. The fix is a small `#if` selecting the right binding:
 
-1. **`ECABridge.uplugin`** — `EngineVersion` bumped from `5.7.0` to `5.8.0`.
-2. **`Source/ECABridge/Private/Commands/ECAMetaHumanCommands.cpp:2266`** — `const FString&` → `const FString` when reading `Pair.Key` out of `(*ZoneObj)->Values`. In 5.8, `FJsonObject::Values` is a `TMap<UE::FSharedString, ...>` rather than `TMap<FString, ...>`, so the reference bind no longer compiles. Value-construction from `FSharedString` works fine; the rest of the body is unchanged.
+    ```cpp
+    #if (ENGINE_MAJOR_VERSION > 5) || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 8)
+        const FString ZoneName(Pair.Key);   // 5.8+: value-construct from FSharedString
+    #else
+        const FString& ZoneName = Pair.Key; // 5.7:  direct reference binding
+    #endif
+    ```
 
-### Architectural improvement: structurally optional Mutable + MovieRenderPipeline
+If you find a third API divergence in the future, the recipe is the same: wrap it in the same `ENGINE_MAJOR_VERSION` / `ENGINE_MINOR_VERSION` guard and document it here.
+
+### Architectural improvement vs the pre-5.8 line
+
+### Structurally optional Mutable + MovieRenderPipeline
 
 When ECABridge was first ported, the missing-dependent-DLL load failure (`GetLastError=126`) was solved by adding `Mutable` and `MovieRenderPipeline` to the `.uplugin`'s required Plugins list. That worked but forced every project using ECABridge to enable both upstream plugins — even projects that don't use character customization or offline rendering. This branch refactors that into a structurally optional dependency:
 
@@ -123,7 +133,7 @@ You'll have both surfaces available and can pick per task. Future ECABridge work
 - **Schema-in-error responses** — every argument-validation failure returns the full input JSON Schema inline
 - **Output schemas** on the high-value `dump_*` / `find_*` / `get_*` commands via `tools/list`
 - **HTTP/SSE MCP server** on localhost:3000 (Streamable HTTP transport)
-- **UE 5.8 Preview compatible** (5.7 supported on commits up to `fcacc9f`)
+- **UE 5.7 and 5.8 supported from this single branch** (engine-version guards select the right API at compile time)
 - **No engine modifications** — drop-in plugin
 
 ## Rosetta Stone: Deep Introspection
