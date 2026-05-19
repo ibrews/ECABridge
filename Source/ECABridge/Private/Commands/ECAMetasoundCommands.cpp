@@ -483,8 +483,15 @@ FECACommandResult FECACommand_AddMetasoundNode::Execute(const TSharedPtr<FJsonOb
 	FMetasoundFrontendClassName FoundClassName;
 	
 #if WITH_EDITORONLY_DATA
+	// The new FindAllClasses(EResultVersion, bIncludeUnloaded) returns lightweight
+	// FMetaSoundClassInfo (ClassName + Version only), which doesn't carry the
+	// metadata fields we need below (DisplayName, Description, CategoryHierarchy).
+	// Until that metadata can be fetched separately per-class, keep the deprecated
+	// heavier overload and suppress the C4996.
+	PRAGMA_DISABLE_DEPRECATION_WARNINGS
 	TArray<FMetasoundFrontendClass> AllClasses = SearchEngine.FindAllClasses(false);
-	
+	PRAGMA_ENABLE_DEPRECATION_WARNINGS
+
 	for (const FMetasoundFrontendClass& ClassInfo : AllClasses)
 	{
 		const FMetasoundFrontendClassName& ClassFrontendName = ClassInfo.Metadata.GetClassName();
@@ -1458,7 +1465,11 @@ FECACommandResult FECACommand_GetMetasoundNodeTypes::Execute(const TSharedPtr<FJ
 	
 #if WITH_EDITORONLY_DATA
 	ISearchEngine& SearchEngine = ISearchEngine::Get();
+	// See note above: deprecated heavier overload kept because the new lightweight
+	// FMetaSoundClassInfo lacks display name, description, and category hierarchy.
+	PRAGMA_DISABLE_DEPRECATION_WARNINGS
 	TArray<FMetasoundFrontendClass> AllClasses = SearchEngine.FindAllClasses(false);
+	PRAGMA_ENABLE_DEPRECATION_WARNINGS
 	
 	for (const FMetasoundFrontendClass& ClassInfo : AllClasses)
 	{

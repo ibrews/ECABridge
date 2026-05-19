@@ -3966,7 +3966,7 @@ FECACommandResult FECACommand_DumpAsset::Execute(const TSharedPtr<FJsonObject>& 
 	if ((bAllSections || Sections.Contains(TEXT("sub_objects"))) && MaxDepth > 0)
 	{
 		TArray<UObject*> SubObjects;
-		GetObjectsWithOuter(Asset, SubObjects, false);
+		GetObjectsWithOuter(Asset, SubObjects, EGetObjectsFlags::None);
 
 		TArray<TSharedPtr<FJsonValue>> SubObjArray;
 		for (UObject* SubObj : SubObjects)

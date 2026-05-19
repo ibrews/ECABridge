@@ -65,7 +65,7 @@ namespace SequencerCommandHelpers
 	/** Find the binding GUID for an actor by name in the sequence's possessables */
 	static bool FindActorBinding(ULevelSequence* Seq, UMovieScene* MovieScene, const FString& ActorName, FGuid& OutGuid)
 	{
-		const TArray<FMovieSceneBinding>& Bindings = MovieScene->GetBindings();
+		const TArray<FMovieSceneBinding>& Bindings = static_cast<const UMovieScene*>(MovieScene)->GetBindings();
 		for (const FMovieSceneBinding& Binding : Bindings)
 		{
 			FString BindingName = MovieScene->GetObjectDisplayName(Binding.GetObjectGuid()).ToString();
@@ -540,7 +540,7 @@ FECACommandResult FECACommand_GetSequenceInfo::Execute(const TSharedPtr<FJsonObj
 
 	// Bindings (possessables)
 	TArray<TSharedPtr<FJsonValue>> BindingsArray;
-	const TArray<FMovieSceneBinding>& Bindings = MovieScene->GetBindings();
+	const TArray<FMovieSceneBinding>& Bindings = static_cast<const UMovieScene*>(MovieScene)->GetBindings();
 	for (const FMovieSceneBinding& Binding : Bindings)
 	{
 		TSharedPtr<FJsonObject> BindingObj = MakeShared<FJsonObject>();
@@ -1359,17 +1359,20 @@ FECACommandResult FECACommand_DumpLevelSequence::Execute(const TSharedPtr<FJsonO
 
 	// Bindings (actors bound to the sequence)
 	TArray<TSharedPtr<FJsonValue>> BindingsArray;
-	const TArray<FMovieSceneBinding>& Bindings = MovieScene->GetBindings();
+	const TArray<FMovieSceneBinding>& Bindings = static_cast<const UMovieScene*>(MovieScene)->GetBindings();
 	for (const FMovieSceneBinding& Binding : Bindings)
 	{
 		TSharedPtr<FJsonObject> BindObj = MakeShared<FJsonObject>();
-		BindObj->SetStringField(TEXT("name"), Binding.GetName());
 		BindObj->SetStringField(TEXT("binding_id"), Binding.GetObjectGuid().ToString());
 
-		// Check if possessable or spawnable
+		// Check if possessable or spawnable - and pull the binding's name from there
+		// (FMovieSceneBinding::GetName is deprecated in 5.7+; names live on the
+		// Possessable / Spawnable structs now).
+		FString BindingName;
 		FMovieScenePossessable* Possessable = MovieScene->FindPossessable(Binding.GetObjectGuid());
 		if (Possessable)
 		{
+			BindingName = Possessable->GetName();
 			BindObj->SetStringField(TEXT("binding_type"), TEXT("possessable"));
 			BindObj->SetStringField(TEXT("possessed_class"), Possessable->GetPossessedObjectClass() ?
 				Possessable->GetPossessedObjectClass()->GetName() : TEXT("Unknown"));
@@ -1379,9 +1382,15 @@ FECACommandResult FECACommand_DumpLevelSequence::Execute(const TSharedPtr<FJsonO
 			FMovieSceneSpawnable* Spawnable = MovieScene->FindSpawnable(Binding.GetObjectGuid());
 			if (Spawnable)
 			{
+				BindingName = Spawnable->GetName();
 				BindObj->SetStringField(TEXT("binding_type"), TEXT("spawnable"));
 			}
 		}
+		if (BindingName.IsEmpty())
+		{
+			BindingName = MovieScene->GetObjectDisplayName(Binding.GetObjectGuid()).ToString();
+		}
+		BindObj->SetStringField(TEXT("name"), BindingName);
 
 		// Tracks on this binding
 		BindObj->SetArrayField(TEXT("tracks"), DumpTracks(Binding.GetTracks()));

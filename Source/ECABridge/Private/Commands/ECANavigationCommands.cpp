@@ -271,8 +271,8 @@ FECACommandResult FECACommand_GetNavMeshInfo::Execute(const TSharedPtr<FJsonObje
 		{
 			Result->SetNumberField(TEXT("agent_radius"), RecastNavMesh->AgentRadius);
 			Result->SetNumberField(TEXT("agent_height"), RecastNavMesh->AgentHeight);
-			Result->SetNumberField(TEXT("cell_size"), RecastNavMesh->CellSize);
-			Result->SetNumberField(TEXT("cell_height"), RecastNavMesh->CellHeight);
+			Result->SetNumberField(TEXT("cell_size"), RecastNavMesh->GetCellSize(ENavigationDataResolution::Default));
+			Result->SetNumberField(TEXT("cell_height"), RecastNavMesh->GetCellHeight(ENavigationDataResolution::Default));
 			Result->SetNumberField(TEXT("tile_size_uu"), RecastNavMesh->TileSizeUU);
 			Result->SetNumberField(TEXT("max_agent_radius"), RecastNavMesh->AgentMaxSlope);
 		}

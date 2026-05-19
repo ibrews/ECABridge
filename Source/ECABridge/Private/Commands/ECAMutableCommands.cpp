@@ -68,7 +68,7 @@ namespace MutableCommandHelpers
 
 		// Fallback: iterate sub-objects to find the UEdGraph
 		TArray<UObject*> SubObjects;
-		GetObjectsWithOuter(CO, SubObjects, false);
+		GetObjectsWithOuter(CO, SubObjects, EGetObjectsFlags::None);
 		for (UObject* Sub : SubObjects)
 		{
 			if (UEdGraph* Graph = Cast<UEdGraph>(Sub))
