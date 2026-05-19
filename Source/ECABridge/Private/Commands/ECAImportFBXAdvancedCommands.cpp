@@ -5,7 +5,7 @@
 #include "AssetToolsModule.h"
 #include "IAssetTools.h"
 #include "Engine/SkeletalMesh.h"
-#include "Engine/Skeleton.h"
+#include "Animation/Skeleton.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/Texture.h"
 #include "Factories/FbxAnimSequenceImportData.h"

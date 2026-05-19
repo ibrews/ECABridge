@@ -3,7 +3,7 @@
 #include "Commands/ECADDCCommands.h"
 #include "DerivedDataCacheInterface.h"
 #include "DerivedDataCacheUsageStats.h"
-#include "HAL/IConsoleManager.h"
+#include "Engine/Engine.h"
 #include "Misc/OutputDeviceNull.h"
 #include "UObject/Package.h"
 #include "UObject/UObjectGlobals.h"
