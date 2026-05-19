@@ -240,6 +240,20 @@ public class ECABridge : ModuleRules
 			PublicDefinitions.Add("WITH_ECA_GAMEPLAY_ABILITIES=0");
 		}
 
+		// USD Importer / Exporter (.usd / .usda / .usdc / .usdz I/O).
+		// Optional: ships with the engine but disabled by default.
+		if (EngineHasPlugin("USDImporter"))
+		{
+			PrivateDependencyModuleNames.AddRange(new string[] { "USDStageImporter", "USDExporter" });
+			PublicDelayLoadDLLs.Add("UnrealEditor-USDStageImporter.dll");
+			PublicDelayLoadDLLs.Add("UnrealEditor-USDExporter.dll");
+			PublicDefinitions.Add("WITH_ECA_USD=1");
+		}
+		else
+		{
+			PublicDefinitions.Add("WITH_ECA_USD=0");
+		}
+
 		// DataValidation (stock editor plugin; powers validate_before_submit).
 		if (EngineHasPlugin("DataValidation"))
 		{

@@ -73,6 +73,11 @@
 			"Name": "DataValidation",
 			"Enabled": true,
 			"Optional": true
+		},
+		{
+			"Name": "USDImporter",
+			"Enabled": true,
+			"Optional": true
 		}
 	]
 }
