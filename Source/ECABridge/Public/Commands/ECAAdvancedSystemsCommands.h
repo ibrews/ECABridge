@@ -24,6 +24,7 @@ public:
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
+#if WITH_ECA_CONTROL_RIG
 /**
  * Dump a Control Rig: hierarchy elements (bones, controls, nulls), rig graph, and settings.
  */
@@ -43,7 +44,9 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+#endif // WITH_ECA_CONTROL_RIG
 
+#if WITH_ECA_GAMEPLAY_ABILITIES
 /**
  * Dump Gameplay Ability System data: abilities, effects, attribute sets, tags.
  */
@@ -63,3 +66,4 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+#endif // WITH_ECA_GAMEPLAY_ABILITIES

@@ -2,6 +2,9 @@
 
 #include "Commands/ECANiagaraCommands.h"
 #include "Commands/ECACommand.h"
+
+#if WITH_ECA_NIAGARA
+
 #include "Editor.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -4658,3 +4661,5 @@ FECACommandResult FECACommand_ListModuleInputs::Execute(const TSharedPtr<FJsonOb
 	}
 	return FECACommandResult::Success(Result);
 }
+
+#endif // WITH_ECA_NIAGARA

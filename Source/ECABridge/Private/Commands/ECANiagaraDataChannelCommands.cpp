@@ -2,6 +2,9 @@
 
 #include "Commands/ECANiagaraDataChannelCommands.h"
 #include "Commands/ECACommand.h"
+
+#if WITH_ECA_NIAGARA
+
 #include "NiagaraDataChannelAsset.h"
 #include "NiagaraDataChannel.h"
 #include "NiagaraDataChannel_Global.h"
@@ -455,3 +458,5 @@ FECACommandResult FECACommand_DumpNiagaraDataChannel::Execute(const TSharedPtr<F
 
 	return FECACommandResult::Success(Result);
 }
+
+#endif // WITH_ECA_NIAGARA

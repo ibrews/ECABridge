@@ -18,23 +18,31 @@
 #include "PCGPin.h"
 #include "PCGEdge.h"
 
+#if WITH_ECA_CONTROL_RIG
 // ControlRig - in UE5.7 UControlRigBlueprint lives in ControlRigBlueprintLegacy.h
 #include "ControlRigBlueprintLegacy.h"
 #include "ControlRig.h"
 #include "Rigs/RigHierarchy.h"
 #include "Rigs/RigHierarchyElements.h"
 #include "Rigs/RigHierarchyDefines.h"
+#endif // WITH_ECA_CONTROL_RIG
 
+#if WITH_ECA_GAMEPLAY_ABILITIES
 // Gameplay Ability System
 #include "Abilities/GameplayAbility.h"
 #include "GameplayEffect.h"
 #include "AttributeSet.h"
 #include "GameplayTagContainer.h"
+#endif // WITH_ECA_GAMEPLAY_ABILITIES
 
 // Register commands
 REGISTER_ECA_COMMAND(FECACommand_DumpPCGGraph)
+#if WITH_ECA_CONTROL_RIG
 REGISTER_ECA_COMMAND(FECACommand_DumpControlRig)
+#endif
+#if WITH_ECA_GAMEPLAY_ABILITIES
 REGISTER_ECA_COMMAND(FECACommand_DumpGameplayAbility)
+#endif
 
 //------------------------------------------------------------------------------
 // Helpers
@@ -248,6 +256,8 @@ FECACommandResult FECACommand_DumpPCGGraph::Execute(const TSharedPtr<FJsonObject
 	return FECACommandResult::Success(Result);
 }
 
+#if WITH_ECA_CONTROL_RIG
+
 //==============================================================================
 // FECACommand_DumpControlRig
 //==============================================================================
@@ -377,6 +387,10 @@ FECACommandResult FECACommand_DumpControlRig::Execute(const TSharedPtr<FJsonObje
 
 	return FECACommandResult::Success(Result);
 }
+
+#endif // WITH_ECA_CONTROL_RIG
+
+#if WITH_ECA_GAMEPLAY_ABILITIES
 
 //==============================================================================
 // FECACommand_DumpGameplayAbility
@@ -666,3 +680,5 @@ FECACommandResult FECACommand_DumpGameplayAbility::Execute(const TSharedPtr<FJso
 
 	return FECACommandResult::Success(Result);
 }
+
+#endif // WITH_ECA_GAMEPLAY_ABILITIES

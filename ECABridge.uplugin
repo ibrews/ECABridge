@@ -29,7 +29,8 @@
 		},
 		{
 			"Name": "Niagara",
-			"Enabled": true
+			"Enabled": true,
+			"Optional": true
 		},
 		{
 			"Name": "EditorScriptingUtilities",
@@ -37,7 +38,8 @@
 		},
 		{
 			"Name": "Metasound",
-			"Enabled": true
+			"Enabled": true,
+			"Optional": true
 		},
 		{
 			"Name": "GeometryScripting",
@@ -61,15 +63,18 @@
 		},
 		{
 			"Name": "ControlRig",
-			"Enabled": true
+			"Enabled": true,
+			"Optional": true
 		},
 		{
 			"Name": "GameplayAbilities",
-			"Enabled": true
+			"Enabled": true,
+			"Optional": true
 		},
 		{
 			"Name": "MetaHumanCharacter",
-			"Enabled": true
+			"Enabled": true,
+			"Optional": true
 		},
 		{
 			"Name": "EnhancedInput",

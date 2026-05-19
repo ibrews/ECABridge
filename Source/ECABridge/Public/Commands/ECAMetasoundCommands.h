@@ -4,6 +4,8 @@
 
 #include "Commands/ECACommand.h"
 
+#if WITH_ECA_METASOUND
+
 /**
  * Get available MetaSound sources in the project
  */
@@ -368,3 +370,5 @@ public:
 	
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+#endif // WITH_ECA_METASOUND

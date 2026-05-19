@@ -4,6 +4,8 @@
 
 #include "Commands/ECACommand.h"
 
+#if WITH_ECA_METAHUMAN_CHARACTER
+
 /**
  * Create a new MetaHuman Character asset with initial properties.
  * Requires the MetaHumanCharacter plugin.
@@ -481,3 +483,5 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+#endif // WITH_ECA_METAHUMAN_CHARACTER

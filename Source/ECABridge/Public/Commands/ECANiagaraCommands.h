@@ -4,6 +4,8 @@
 
 #include "Commands/ECACommand.h"
 
+#if WITH_ECA_NIAGARA
+
 /**
  * Get available Niagara systems in the project
  */
@@ -579,3 +581,5 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+#endif // WITH_ECA_NIAGARA

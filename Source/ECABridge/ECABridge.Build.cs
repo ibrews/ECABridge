@@ -41,10 +41,7 @@ public class ECABridge : ModuleRules
 		{
 			// Editor core
 			"UnrealEd",
-			
-			// MetaSound
-			"MetasoundEngine", "MetasoundEditor", "MetasoundFrontend", "MetasoundGraphCore", "MetasoundStandardNodes", "AudioExtensions",
-			
+
 			// Mesh import/manipulation
 			"MeshDescription", "StaticMeshDescription",
 			// GeometryScript - Modern procedural mesh API
@@ -53,34 +50,32 @@ public class ECABridge : ModuleRules
 			"ModelingComponentsEditorOnly", "ModelingOperators",
 			// ProceduralMeshComponent - Runtime procedural meshes
 			"ProceduralMeshComponent",
-			
-			// Niagara FX
-			"Niagara", "NiagaraCore", "NiagaraEditor", "NiagaraShader",
+
 			"EditorSubsystem", "EditorFramework", "LevelEditor",
-			
+
 			// UI/Slate
 			"Slate", "SlateCore", "UMG", "UMGEditor", "PropertyEditor", "InputCore",
 			// MVVM ViewModel binding
 			"ModelViewViewModel", "ModelViewViewModelBlueprint", "ModelViewViewModelEditor",
-			
+
 			// Blueprint manipulation
 			"BlueprintGraph", "Kismet", "KismetCompiler", "GraphEditor",
-			
+
 			// Asset management
 			"AssetTools", "AssetRegistry", "ContentBrowser", "EditorScriptingUtilities",  // For EditorAssetLibrary
 			"MaterialEditor",            // For material editing utilities
 			"DataTableEditor",           // For DataTable editor UI refresh (BroadcastPostChange)
-			
+
 			// Additional utilities
 			"Projects", "DeveloperSettings", "ToolMenus",
-			
+
 			// Image processing
 			"ImageWrapper",
-			
+
 			// Interchange framework for FBX import
 			"InterchangeCore",
 			"InterchangeEngine",
-			
+
 			// Rendering (for thumbnail generation)
 			"RenderCore",
 			"RHI",
@@ -96,30 +91,20 @@ public class ECABridge : ModuleRules
 			"NavigationSystem",
 			"AIModule",
 
-			// Landscape
+			// Landscape (engine module, always available)
 			"Landscape",
 			"LandscapeEditor",
 
 			// Source Control (always available in editor)
 			"SourceControl",
 
-			// PCG (Procedural Content Generation) - requires PCG plugin
+			// PCG - skipping the optional-dep gate here for now (only 1 command, and
+			// "PCG" is a non-Optional plugin in the .uplugin). If you want PCG to be
+			// truly optional, follow the WITH_ECA_NIAGARA pattern below.
 			"PCG",
 
-			// Control Rig - requires ControlRig plugin
-			"ControlRig",
-			"ControlRigDeveloper",
-
-			// Gameplay Ability System - requires GameplayAbilities plugin
-			"GameplayAbilities",
-			"GameplayTags",
-			"GameplayTasks",
-
-			// MetaHuman Character - requires MetaHumanCharacter plugin
-			"MetaHumanCharacter",
-			"MetaHumanCharacterPalette",
-
-			// Enhanced Input - requires EnhancedInput plugin
+			// Enhanced Input - hard dep, EnhancedInput ships with the engine and is
+			// non-Optional in the .uplugin.
 			"EnhancedInput",
 
 			// Python sandbox - requires PythonScriptPlugin (the "Python Editor Script Plugin").
@@ -160,6 +145,61 @@ public class ECABridge : ModuleRules
 		else
 		{
 			PublicDefinitions.Add("WITH_ECA_MOVIE_RENDER_PIPELINE=0");
+		}
+
+		// MetaHuman Character (procedural MetaHuman pipeline, 22 commands)
+		if (EngineHasPlugin("MetaHumanCharacter"))
+		{
+			PrivateDependencyModuleNames.AddRange(new string[] { "MetaHumanCharacter", "MetaHumanCharacterPalette" });
+			PublicDefinitions.Add("WITH_ECA_METAHUMAN_CHARACTER=1");
+		}
+		else
+		{
+			PublicDefinitions.Add("WITH_ECA_METAHUMAN_CHARACTER=0");
+		}
+
+		// Niagara VFX (25 emitter/system/module commands + 2 NiagaraDataChannel commands)
+		if (EngineHasPlugin("Niagara"))
+		{
+			PrivateDependencyModuleNames.AddRange(new string[] { "Niagara", "NiagaraCore", "NiagaraEditor", "NiagaraShader" });
+			PublicDefinitions.Add("WITH_ECA_NIAGARA=1");
+		}
+		else
+		{
+			PublicDefinitions.Add("WITH_ECA_NIAGARA=0");
+		}
+
+		// MetaSound procedural audio (16 commands)
+		if (EngineHasPlugin("Metasound"))
+		{
+			PrivateDependencyModuleNames.AddRange(new string[] { "MetasoundEngine", "MetasoundEditor", "MetasoundFrontend", "MetasoundGraphCore", "MetasoundStandardNodes", "AudioExtensions" });
+			PublicDefinitions.Add("WITH_ECA_METASOUND=1");
+		}
+		else
+		{
+			PublicDefinitions.Add("WITH_ECA_METASOUND=0");
+		}
+
+		// Control Rig (animation rigging, 1 dump command)
+		if (EngineHasPlugin("ControlRig"))
+		{
+			PrivateDependencyModuleNames.AddRange(new string[] { "ControlRig", "ControlRigDeveloper" });
+			PublicDefinitions.Add("WITH_ECA_CONTROL_RIG=1");
+		}
+		else
+		{
+			PublicDefinitions.Add("WITH_ECA_CONTROL_RIG=0");
+		}
+
+		// Gameplay Ability System (1 dump command)
+		if (EngineHasPlugin("GameplayAbilities"))
+		{
+			PrivateDependencyModuleNames.AddRange(new string[] { "GameplayAbilities", "GameplayTags", "GameplayTasks" });
+			PublicDefinitions.Add("WITH_ECA_GAMEPLAY_ABILITIES=1");
+		}
+		else
+		{
+			PublicDefinitions.Add("WITH_ECA_GAMEPLAY_ABILITIES=0");
 		}
 	}
 }

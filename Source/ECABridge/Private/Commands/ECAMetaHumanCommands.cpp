@@ -3,6 +3,8 @@
 #include "Commands/ECAMetaHumanCommands.h"
 #include "Commands/ECACommand.h"
 
+#if WITH_ECA_METAHUMAN_CHARACTER
+
 // MetaHuman plugin headers — these are included at compile time because the
 // MetaHumanCharacter module is listed in ECABridge.Build.cs. If the user has
 // disabled the plugin at runtime, FindObject<UClass> will return null and
@@ -2649,3 +2651,5 @@ FECACommandResult FECACommand_BuildMetaHuman::Execute(const TSharedPtr<FJsonObje
 	Result->SetBoolField(TEXT("triggered"), false);
 	return FECACommandResult::Success(Result);
 }
+
+#endif // WITH_ECA_METAHUMAN_CHARACTER

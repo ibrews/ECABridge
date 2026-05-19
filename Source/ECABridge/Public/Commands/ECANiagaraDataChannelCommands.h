@@ -4,6 +4,8 @@
 
 #include "Commands/ECACommand.h"
 
+#if WITH_ECA_NIAGARA
+
 /**
  * Create a new Niagara Data Channel asset.
  */
@@ -44,3 +46,5 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+#endif // WITH_ECA_NIAGARA
