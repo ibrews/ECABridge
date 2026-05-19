@@ -63,6 +63,7 @@ void FECABridgeModule::StartupModule()
 		{ TEXT("MetasoundEngine"),        TEXT("Metasound"),   TEXT("Metasound") },
 		{ TEXT("ControlRig"),             TEXT("ControlRig"),  TEXT("ControlRig") },
 		{ TEXT("GameplayAbilities"),      TEXT("GAS"),         TEXT("GameplayAbilities") },
+		{ TEXT("DataValidation"),         TEXT("SourceControlValidation"), TEXT("DataValidation") },
 	};
 	for (const FOptionalSubsystem& Subsystem : OptionalSubsystems)
 	{

@@ -235,5 +235,17 @@ public class ECABridge : ModuleRules
 		{
 			PublicDefinitions.Add("WITH_ECA_GAMEPLAY_ABILITIES=0");
 		}
+
+		// DataValidation (stock editor plugin; powers validate_before_submit).
+		if (EngineHasPlugin("DataValidation"))
+		{
+			PrivateDependencyModuleNames.Add("DataValidation");
+			PublicDelayLoadDLLs.Add("UnrealEditor-DataValidation.dll");
+			PublicDefinitions.Add("WITH_ECA_DATAVALIDATION=1");
+		}
+		else
+		{
+			PublicDefinitions.Add("WITH_ECA_DATAVALIDATION=0");
+		}
 	}
 }
