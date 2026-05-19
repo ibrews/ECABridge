@@ -550,6 +550,27 @@ create_niagara_data_channel(
 )
 ```
 
+## Smoke tests
+
+`scripts/smoke-test.py` is a standalone Python script that pokes the
+running MCP endpoint at `http://127.0.0.1:3000/mcp` and exercises ~20
+commands across actor, asset, blueprint, component, material, sequencer,
+niagara, metahuman, mutable, screenshot, and Python-sandbox categories
+(including both the `def run() -> dict` and legacy `print(json.dumps())`
+return paths). It asserts the response shape — `success: true`, no
+`isError`, and the expected top-level fields per command. Useful as a
+fast manual sanity check after a deploy; not CI-wired.
+
+```bash
+# Launch Test58 (or any project with ECABridge enabled), then:
+python scripts/smoke-test.py
+# Or against a different endpoint / blueprint:
+python scripts/smoke-test.py --url http://127.0.0.1:3000/mcp --asset /Game/MyBP
+```
+
+Exits non-zero if any check fails. Uses only Python stdlib (`urllib`,
+`json`) — no third-party deps.
+
 ## Requirements
 
 - Unreal Engine 5.7+

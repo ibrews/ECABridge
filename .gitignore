@@ -2,7 +2,8 @@ Binaries/
 Intermediate/
 DerivedDataCache/
 Saved/
-scripts/
+scripts/*
+!scripts/smoke-test.py
 *.pdb
 *.lib
 *.dll
