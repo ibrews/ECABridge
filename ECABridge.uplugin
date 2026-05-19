@@ -77,11 +77,13 @@
 		},
 		{
 			"Name": "Mutable",
-			"Enabled": true
+			"Enabled": true,
+			"Optional": true
 		},
 		{
 			"Name": "MovieRenderPipeline",
-			"Enabled": true
+			"Enabled": true,
+			"Optional": true
 		}
 	]
 }

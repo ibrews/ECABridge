@@ -4,6 +4,8 @@
 
 #include "Commands/ECACommand.h"
 
+#if WITH_ECA_MUTABLE
+
 // ─── get_co_info ────────────────────────────────────────────────
 // Returns high-level info about a Customizable Object: its nodes, parameters,
 // component count, and compilation state.
@@ -280,9 +282,14 @@ public:
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
+#endif // WITH_ECA_MUTABLE
+
 // ─── create_metahuman ──────────────────────────────────────────
 // Creates a new MetaHuman Character asset using runtime class discovery.
 // Gracefully fails if the MetaHuman plugins are not enabled.
+// NOTE: This lives here for historical reasons but has no Mutable dependency —
+// it uses FindObject<UClass> for runtime discovery, so it stays compiled in
+// regardless of WITH_ECA_MUTABLE.
 class FECACommand_CreateMetaHuman : public IECACommand
 {
 public:
