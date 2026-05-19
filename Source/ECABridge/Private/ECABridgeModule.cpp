@@ -44,6 +44,36 @@ void FECABridgeModule::StartupModule()
 	Bridge = NewObject<UECABridge>(GetTransientPackage(), NAME_None, RF_Transient);
 	Bridge->Initialize();
 
+	// Optional engine-plugin subsystems: when the primary module of an optional
+	// plugin isn't loaded (because the user disabled the plugin in .uproject),
+	// drop the matching command category so calls never reach the delay-loaded
+	// DLLs. The Build.cs DelayLoad entries make the binary load fine when these
+	// DLLs are absent; the runtime gate keeps us from ever touching them.
+	struct FOptionalSubsystem
+	{
+		const TCHAR* ModuleName;
+		const TCHAR* Category;
+		const TCHAR* DisplayName;
+	};
+	const FOptionalSubsystem OptionalSubsystems[] = {
+		{ TEXT("CustomizableObject"),     TEXT("Mutable"),     TEXT("Mutable") },
+		{ TEXT("MovieRenderPipelineCore"),TEXT("MovieRender"), TEXT("MovieRenderPipeline") },
+		{ TEXT("MetaHumanCharacter"),     TEXT("MetaHuman"),   TEXT("MetaHumanCharacter") },
+		{ TEXT("Niagara"),                TEXT("Niagara"),     TEXT("Niagara") },
+		{ TEXT("MetasoundEngine"),        TEXT("Metasound"),   TEXT("Metasound") },
+		{ TEXT("ControlRig"),             TEXT("ControlRig"),  TEXT("ControlRig") },
+		{ TEXT("GameplayAbilities"),      TEXT("GAS"),         TEXT("GameplayAbilities") },
+	};
+	for (const FOptionalSubsystem& Subsystem : OptionalSubsystems)
+	{
+		if (!FModuleManager::Get().IsModuleLoaded(FName(Subsystem.ModuleName)))
+		{
+			const int32 RemovedCount = FECACommandRegistry::Get().UnregisterByCategory(Subsystem.Category);
+			UE_LOG(LogTemp, Log, TEXT("[ECABridge] Optional subsystem '%s' not loaded; dropped %d commands in category '%s'"),
+				Subsystem.DisplayName, RemovedCount, Subsystem.Category);
+		}
+	}
+
 	// Register console commands
 	RegisterConsoleCommands();
 

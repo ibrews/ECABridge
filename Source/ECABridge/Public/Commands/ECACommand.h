@@ -156,9 +156,14 @@ public:
 	
 	/** Register a command */
 	void RegisterCommand(TSharedPtr<IECACommand> Command);
-	
+
 	/** Unregister a command by name */
 	void UnregisterCommand(const FString& Name);
+
+	/** Unregister all commands matching a category (case-sensitive). Returns the
+	 *  number of commands removed. Used by ECABridgeModule::StartupModule to drop
+	 *  command sets backed by optional engine plugins that aren't loaded. */
+	int32 UnregisterByCategory(const FString& Category);
 	
 	/** Get a command by name */
 	TSharedPtr<IECACommand> GetCommand(const FString& Name) const;

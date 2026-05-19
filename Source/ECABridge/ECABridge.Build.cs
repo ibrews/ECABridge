@@ -125,10 +125,19 @@ public class ECABridge : ModuleRules
 		// subsystems just doesn't enable the upstream engine plugin — ECABridge will
 		// load fine without them, with the relevant commands simply absent.
 
+		// Each block below: gates compile-time deps + WITH_ECA_<FEATURE>, AND adds
+		// PublicDelayLoadDLLs so the resulting binary loads even when the optional
+		// plugin is disabled in the consumer's .uproject. ECABridgeModule::StartupModule
+		// then probes each subsystem's primary module via FModuleManager::IsModuleLoaded
+		// and unregisters that category's commands when missing — so the lazily-resolved
+		// imports are never touched.
+
 		// Mutable / Customizable Object (character customization, 13 commands)
 		if (EngineHasPlugin("Mutable"))
 		{
 			PrivateDependencyModuleNames.AddRange(new string[] { "CustomizableObject", "CustomizableObjectEditor" });
+			PublicDelayLoadDLLs.Add("UnrealEditor-CustomizableObject.dll");
+			PublicDelayLoadDLLs.Add("UnrealEditor-CustomizableObjectEditor.dll");
 			PublicDefinitions.Add("WITH_ECA_MUTABLE=1");
 		}
 		else
@@ -140,6 +149,9 @@ public class ECABridge : ModuleRules
 		if (EngineHasPlugin("MovieRenderPipeline"))
 		{
 			PrivateDependencyModuleNames.AddRange(new string[] { "MovieRenderPipelineCore", "MovieRenderPipelineEditor", "MovieRenderPipelineRenderPasses" });
+			PublicDelayLoadDLLs.Add("UnrealEditor-MovieRenderPipelineCore.dll");
+			PublicDelayLoadDLLs.Add("UnrealEditor-MovieRenderPipelineEditor.dll");
+			PublicDelayLoadDLLs.Add("UnrealEditor-MovieRenderPipelineRenderPasses.dll");
 			PublicDefinitions.Add("WITH_ECA_MOVIE_RENDER_PIPELINE=1");
 		}
 		else
@@ -151,6 +163,8 @@ public class ECABridge : ModuleRules
 		if (EngineHasPlugin("MetaHumanCharacter"))
 		{
 			PrivateDependencyModuleNames.AddRange(new string[] { "MetaHumanCharacter", "MetaHumanCharacterPalette" });
+			PublicDelayLoadDLLs.Add("UnrealEditor-MetaHumanCharacter.dll");
+			PublicDelayLoadDLLs.Add("UnrealEditor-MetaHumanCharacterPalette.dll");
 			PublicDefinitions.Add("WITH_ECA_METAHUMAN_CHARACTER=1");
 		}
 		else
@@ -158,7 +172,13 @@ public class ECABridge : ModuleRules
 			PublicDefinitions.Add("WITH_ECA_METAHUMAN_CHARACTER=0");
 		}
 
-		// Niagara VFX (25 emitter/system/module commands + 2 NiagaraDataChannel commands)
+		// Niagara VFX (25 emitter/system/module commands + 2 NiagaraDataChannel commands).
+		// NOTE: Niagara is NOT delay-loaded — its DLLs export data symbols like
+		// FNiagaraTypeDefinition::FloatDef which the MSVC linker refuses to delay
+		// (LNK1194). The IsModuleLoaded gate in StartupModule still drops Niagara
+		// commands if the module happens to be missing, but a project that fully
+		// disables Niagara would also fail at PE-load time. Treated as load-time
+		// required when WITH_ECA_NIAGARA=1.
 		if (EngineHasPlugin("Niagara"))
 		{
 			PrivateDependencyModuleNames.AddRange(new string[] { "Niagara", "NiagaraCore", "NiagaraEditor", "NiagaraShader" });
@@ -169,10 +189,19 @@ public class ECABridge : ModuleRules
 			PublicDefinitions.Add("WITH_ECA_NIAGARA=0");
 		}
 
-		// MetaSound procedural audio (16 commands)
+		// MetaSound procedural audio (16 commands). MetasoundFrontend cannot be
+		// delay-loaded (exports static data symbol Metasound::FrontendInvalidID,
+		// LNK1194). MetasoundEngine is the module we gate on at runtime, so if
+		// either is absent the binary fails to load — the optionality story is
+		// best-effort for this subsystem (the runtime registry gate still works
+		// for "module unloaded after init").
 		if (EngineHasPlugin("Metasound"))
 		{
 			PrivateDependencyModuleNames.AddRange(new string[] { "MetasoundEngine", "MetasoundEditor", "MetasoundFrontend", "MetasoundGraphCore", "MetasoundStandardNodes", "AudioExtensions" });
+			PublicDelayLoadDLLs.Add("UnrealEditor-MetasoundEditor.dll");
+			PublicDelayLoadDLLs.Add("UnrealEditor-MetasoundGraphCore.dll");
+			PublicDelayLoadDLLs.Add("UnrealEditor-MetasoundStandardNodes.dll");
+			PublicDelayLoadDLLs.Add("UnrealEditor-AudioExtensions.dll");
 			PublicDefinitions.Add("WITH_ECA_METASOUND=1");
 		}
 		else
@@ -184,6 +213,8 @@ public class ECABridge : ModuleRules
 		if (EngineHasPlugin("ControlRig"))
 		{
 			PrivateDependencyModuleNames.AddRange(new string[] { "ControlRig", "ControlRigDeveloper" });
+			PublicDelayLoadDLLs.Add("UnrealEditor-ControlRig.dll");
+			PublicDelayLoadDLLs.Add("UnrealEditor-ControlRigDeveloper.dll");
 			PublicDefinitions.Add("WITH_ECA_CONTROL_RIG=1");
 		}
 		else
@@ -195,6 +226,9 @@ public class ECABridge : ModuleRules
 		if (EngineHasPlugin("GameplayAbilities"))
 		{
 			PrivateDependencyModuleNames.AddRange(new string[] { "GameplayAbilities", "GameplayTags", "GameplayTasks" });
+			PublicDelayLoadDLLs.Add("UnrealEditor-GameplayAbilities.dll");
+			PublicDelayLoadDLLs.Add("UnrealEditor-GameplayTags.dll");
+			PublicDelayLoadDLLs.Add("UnrealEditor-GameplayTasks.dll");
 			PublicDefinitions.Add("WITH_ECA_GAMEPLAY_ABILITIES=1");
 		}
 		else

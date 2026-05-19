@@ -465,6 +465,25 @@ void FECACommandRegistry::UnregisterCommand(const FString& Name)
 	Commands.Remove(Name);
 }
 
+int32 FECACommandRegistry::UnregisterByCategory(const FString& Category)
+{
+	FScopeLock Lock(&CommandsLock);
+
+	TArray<FString> ToRemove;
+	for (const auto& Pair : Commands)
+	{
+		if (Pair.Value.IsValid() && Pair.Value->GetCategory() == Category)
+		{
+			ToRemove.Add(Pair.Key);
+		}
+	}
+	for (const FString& Name : ToRemove)
+	{
+		Commands.Remove(Name);
+	}
+	return ToRemove.Num();
+}
+
 TSharedPtr<IECACommand> FECACommandRegistry::GetCommand(const FString& Name) const
 {
 	FScopeLock Lock(&CommandsLock);
