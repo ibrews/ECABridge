@@ -98,6 +98,10 @@ public class ECABridge : ModuleRules
 			// Source Control (always available in editor)
 			"SourceControl",
 
+			// Derived Data Cache (engine-internal, always available) — powers
+			// get_ddc_stats / purge_ddc / warm_ddc.
+			"DerivedDataCache",
+
 			// PCG - skipping the optional-dep gate here for now (only 1 command, and
 			// "PCG" is a non-Optional plugin in the .uplugin). If you want PCG to be
 			// truly optional, follow the WITH_ECA_NIAGARA pattern below.
@@ -279,6 +283,20 @@ public class ECABridge : ModuleRules
 		else
 		{
 			PublicDefinitions.Add("WITH_ECA_NDISPLAY=0");
+		}
+
+		// USD Importer / Exporter (.usd / .usda / .usdc / .usdz I/O).
+		// Optional: ships with the engine but disabled by default.
+		if (EngineHasPlugin("USDImporter"))
+		{
+			PrivateDependencyModuleNames.AddRange(new string[] { "USDStageImporter", "USDExporter" });
+			PublicDelayLoadDLLs.Add("UnrealEditor-USDStageImporter.dll");
+			PublicDelayLoadDLLs.Add("UnrealEditor-USDExporter.dll");
+			PublicDefinitions.Add("WITH_ECA_USD=1");
+		}
+		else
+		{
+			PublicDefinitions.Add("WITH_ECA_USD=0");
 		}
 
 		// DataValidation (stock editor plugin; powers validate_before_submit).

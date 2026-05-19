@@ -66,6 +66,7 @@ void FECABridgeModule::StartupModule()
 		{ TEXT("DataValidation"),         TEXT("SourceControlValidation"), TEXT("DataValidation") },
 		{ TEXT("DisplayCluster"),         TEXT("NDisplay"),    TEXT("nDisplay") },
 		{ TEXT("DMXRuntime"),             TEXT("DMX"),         TEXT("DMXEngine") },
+		{ TEXT("USDStageImporter"),       TEXT("USD"),         TEXT("USDImporter") },
 	};
 	for (const FOptionalSubsystem& Subsystem : OptionalSubsystems)
 	{
