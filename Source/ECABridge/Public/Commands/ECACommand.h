@@ -9,15 +9,23 @@
 class AActor;
 class UBlueprint;
 
+// Forward declaration
+class IECACommand;
+
 /**
  * Result of command execution
  */
-struct FECACommandResult
+struct ECABRIDGE_API FECACommandResult
 {
 	bool bSuccess = false;
 	FString ErrorMessage;
 	TSharedPtr<FJsonObject> ResultData;
-	
+
+	/** Pre-built MCP content blocks (e.g. inline images). If non-empty, the server
+	 *  emits these directly as the tool-call response `content` array, instead of
+	 *  serializing ResultData into a single text block. */
+	TArray<TSharedPtr<FJsonObject>> McpContent;
+
 	static FECACommandResult Success(TSharedPtr<FJsonObject> Data = nullptr)
 	{
 		FECACommandResult Result;
@@ -25,7 +33,7 @@ struct FECACommandResult
 		Result.ResultData = Data;
 		return Result;
 	}
-	
+
 	static FECACommandResult Error(const FString& Message)
 	{
 		FECACommandResult Result;
@@ -33,7 +41,15 @@ struct FECACommandResult
 		Result.ErrorMessage = Message;
 		return Result;
 	}
-	
+
+	/** Argument-validation error that embeds the command's input schema in the
+	 *  message so an LLM client can self-correct without an extra describe round trip. */
+	static FECACommandResult ValidationError(const IECACommand* Command, const FString& Reason);
+
+	/** Build an MCP image content block ({type:"image", mimeType, data:<base64>}). */
+	static TSharedPtr<FJsonObject> MakeImageContent(const TArray64<uint8>& Bytes, const FString& MimeType = TEXT("image/png"));
+	static TSharedPtr<FJsonObject> MakeImageContent(const TArray<uint8>& Bytes, const FString& MimeType = TEXT("image/png"));
+
 	/** Convert to JSON response string */
 	FString ToJsonString() const;
 };
@@ -72,7 +88,18 @@ public:
 	
 	/** Parameter definitions for documentation */
 	virtual TArray<FECACommandParam> GetParameters() const { return {}; }
-	
+
+	/** Optional output schema (JSON Schema draft-07) describing the shape of the
+	 *  result data this command returns on success. Default: nullptr (= no schema
+	 *  advertised; MCP clients will treat the result as opaque JSON-in-text).
+	 *  Override on dump_/find_/get_ style commands so tools/list can advertise
+	 *  the return shape via the `outputSchema` field. */
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const { return nullptr; }
+
+	/** Helper: serialize GetParameters() as a JSON Schema object (the same shape
+	 *  the MCP server publishes as `inputSchema`). Used by ValidationError. */
+	TSharedPtr<FJsonObject> GetInputSchemaJson() const;
+
 	/** Execute the command with given parameters */
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) = 0;
 	

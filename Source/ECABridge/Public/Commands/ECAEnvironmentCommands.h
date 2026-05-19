@@ -359,14 +359,14 @@ class FECACommand_TakeCameraScreenshot : public IECACommand
 {
 public:
 	virtual FString GetName() const override { return TEXT("take_camera_screenshot"); }
-	virtual FString GetDescription() const override { return TEXT("Capture a screenshot from a specific camera actor's perspective and save as PNG"); }
+	virtual FString GetDescription() const override { return TEXT("Capture a screenshot from a specific camera actor's perspective. If 'filename' is provided, saves PNG to Saved/Screenshots/. If omitted, returns the PNG inline as an MCP image content block."); }
 	virtual FString GetCategory() const override { return TEXT("Environment"); }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
 			{ TEXT("camera_name"), TEXT("string"), TEXT("Name or label of the camera actor to capture from"), true },
-			{ TEXT("filename"), TEXT("string"), TEXT("Output filename (saved to Saved/Screenshots/)"), true },
+			{ TEXT("filename"), TEXT("string"), TEXT("Output filename (saved to Saved/Screenshots/). If omitted, the PNG is returned inline as an MCP image content block."), false },
 			{ TEXT("resolution_x"), TEXT("number"), TEXT("Horizontal resolution in pixels (default: 1920)"), false, TEXT("1920") },
 			{ TEXT("resolution_y"), TEXT("number"), TEXT("Vertical resolution in pixels (default: 1080)"), false, TEXT("1080") }
 		};
@@ -766,7 +766,7 @@ public:
 			{ TEXT("radius"), TEXT("number"), TEXT("Orbit distance from the target (default: 300)"), false, TEXT("300") },
 			{ TEXT("count"), TEXT("number"), TEXT("Number of screenshots around the orbit (default: 8)"), false, TEXT("8") },
 			{ TEXT("height"), TEXT("number"), TEXT("Camera height above the target (default: 150)"), false, TEXT("150") },
-			{ TEXT("filename_prefix"), TEXT("string"), TEXT("Filename prefix for screenshots (default: sweep)"), false, TEXT("sweep") }
+			{ TEXT("filename_prefix"), TEXT("string"), TEXT("Filename prefix for screenshots saved to Saved/Screenshots/. If omitted, all N screenshots are returned inline as MCP image content blocks."), false }
 		};
 	}
 

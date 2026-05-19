@@ -375,18 +375,16 @@ FECACommandResult FECACommand_TakeDepthScreenshot::Execute(const TSharedPtr<FJso
 	}
 	else
 	{
-		// Return as base64
+		// Return as MCP image content block (file_path omitted).
 		TArray64<uint8> CompressedData;
 		FImageUtils::PNGCompressImageArray(Width, Height, TArrayView64<const FColor>(Bitmap.GetData(), Bitmap.Num()), CompressedData);
-		FString Base64Image = FBase64::Encode(CompressedData.GetData(), CompressedData.Num());
-		
+
 		TSharedPtr<FJsonObject> Result = MakeResult();
 		Result->SetNumberField(TEXT("width"), Width);
 		Result->SetNumberField(TEXT("height"), Height);
 		Result->SetNumberField(TEXT("max_depth"), MaxDepth);
-		Result->SetStringField(TEXT("image_base64"), Base64Image);
 		Result->SetStringField(TEXT("format"), TEXT("png"));
-		
+
 		// Include camera info
 		TSharedPtr<FJsonObject> CameraJson = MakeShared<FJsonObject>();
 		TSharedPtr<FJsonObject> LocationJson = MakeShared<FJsonObject>();
@@ -394,17 +392,19 @@ FECACommandResult FECACommand_TakeDepthScreenshot::Execute(const TSharedPtr<FJso
 		LocationJson->SetNumberField(TEXT("y"), CameraLocation.Y);
 		LocationJson->SetNumberField(TEXT("z"), CameraLocation.Z);
 		CameraJson->SetObjectField(TEXT("location"), LocationJson);
-		
+
 		TSharedPtr<FJsonObject> RotationJson = MakeShared<FJsonObject>();
 		RotationJson->SetNumberField(TEXT("pitch"), CameraRotation.Pitch);
 		RotationJson->SetNumberField(TEXT("yaw"), CameraRotation.Yaw);
 		RotationJson->SetNumberField(TEXT("roll"), CameraRotation.Roll);
 		CameraJson->SetObjectField(TEXT("rotation"), RotationJson);
-		
+
 		CameraJson->SetNumberField(TEXT("fov"), FOV);
 		Result->SetObjectField(TEXT("camera"), CameraJson);
-		
-		return FECACommandResult::Success(Result);
+
+		FECACommandResult Out = FECACommandResult::Success(Result);
+		Out.McpContent.Add(FECACommandResult::MakeImageContent(CompressedData));
+		return Out;
 	}
 }
 
@@ -414,15 +414,10 @@ FECACommandResult FECACommand_TakeDepthScreenshot::Execute(const TSharedPtr<FJso
 
 FECACommandResult FECACommand_TakeGameplayScreenshot::Execute(const TSharedPtr<FJsonObject>& Params)
 {
-	// Determine output file path
+	// Determine output file path. If file_path is omitted, return the PNG inline
+	// instead of writing to disk.
 	FString FilePath;
-	if (!GetStringParam(Params, TEXT("file_path"), FilePath, false))
-	{
-		// Default: ProjectSaved/Screenshots/gameplay_YYYYMMDD_HHMMSS.png
-		FString Timestamp = FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S"));
-		FilePath = FPaths::ConvertRelativePathToFull(
-			FPaths::ProjectSavedDir() / TEXT("Screenshots") / FString::Printf(TEXT("gameplay_%s.png"), *Timestamp));
-	}
+	const bool bSaveToFile = GetStringParam(Params, TEXT("file_path"), FilePath, /*bRequired=*/false) && !FilePath.IsEmpty();
 
 	// Determine capture target.
 	// Supported values: "pie", "editor_viewport", "editor_window"
@@ -556,11 +551,7 @@ FECACommandResult FECACommand_TakeGameplayScreenshot::Execute(const TSharedPtr<F
 		Pixel.A = 255;
 	}
 
-	// Ensure output directory exists
-	FString Directory = FPaths::GetPath(FilePath);
-	IPlatformFile::GetPlatformPhysical().CreateDirectoryTree(*Directory);
-
-	// Compress to PNG and save
+	// Compress to PNG.
 	TArray64<uint8> CompressedData;
 	FImageUtils::PNGCompressImageArray(Width, Height,
 		TArrayView64<const FColor>(Bitmap.GetData(), Bitmap.Num()), CompressedData);
@@ -570,20 +561,28 @@ FECACommandResult FECACommand_TakeGameplayScreenshot::Execute(const TSharedPtr<F
 		return FECACommandResult::Error(TEXT("Failed to compress screenshot to PNG."));
 	}
 
-	if (!FFileHelper::SaveArrayToFile(
-		TArrayView<const uint8>(CompressedData.GetData(), CompressedData.Num()), *FilePath))
-	{
-		return FECACommandResult::Error(FString::Printf(TEXT("Failed to save screenshot to: %s"), *FilePath));
-	}
-
-	// Build result
 	TSharedPtr<FJsonObject> Result = MakeResult();
-	Result->SetStringField(TEXT("file_path"), FilePath);
 	Result->SetNumberField(TEXT("width"), Width);
 	Result->SetNumberField(TEXT("height"), Height);
 	Result->SetStringField(TEXT("source"), Source);
 
-	return FECACommandResult::Success(Result);
+	if (bSaveToFile)
+	{
+		FString Directory = FPaths::GetPath(FilePath);
+		IPlatformFile::GetPlatformPhysical().CreateDirectoryTree(*Directory);
+
+		if (!FFileHelper::SaveArrayToFile(
+			TArrayView<const uint8>(CompressedData.GetData(), CompressedData.Num()), *FilePath))
+		{
+			return FECACommandResult::Error(FString::Printf(TEXT("Failed to save screenshot to: %s"), *FilePath));
+		}
+		Result->SetStringField(TEXT("file_path"), FilePath);
+		return FECACommandResult::Success(Result);
+	}
+
+	FECACommandResult Out = FECACommandResult::Success(Result);
+	Out.McpContent.Add(FECACommandResult::MakeImageContent(CompressedData));
+	return Out;
 }
 
 //------------------------------------------------------------------------------

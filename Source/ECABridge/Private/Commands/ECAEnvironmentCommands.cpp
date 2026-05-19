@@ -41,6 +41,7 @@
 #include "Misc/PackageName.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "Engine/TextureRenderTarget2D.h"
+#include "TextureResource.h"
 #include "ImageUtils.h"
 #include "Misc/FileHelper.h"
 #include "HAL/PlatformFileManager.h"
@@ -1768,15 +1769,11 @@ FECACommandResult FECACommand_TakeCameraScreenshot::Execute(const TSharedPtr<FJs
 		return FECACommandResult::Error(TEXT("Missing required parameter: camera_name"));
 	}
 
-	// Filename (required)
+	// Filename (optional — when omitted, return PNG inline)
 	FString Filename;
-	if (!GetStringParam(Params, TEXT("filename"), Filename))
-	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: filename"));
-	}
+	const bool bSaveToFile = GetStringParam(Params, TEXT("filename"), Filename, /*bRequired=*/false) && !Filename.IsEmpty();
 
-	// Ensure .png extension
-	if (!Filename.EndsWith(TEXT(".png"), ESearchCase::IgnoreCase))
+	if (bSaveToFile && !Filename.EndsWith(TEXT(".png"), ESearchCase::IgnoreCase))
 	{
 		Filename += TEXT(".png");
 	}
@@ -1847,42 +1844,59 @@ FECACommandResult FECACommand_TakeCameraScreenshot::Execute(const TSharedPtr<FJs
 	SceneCapture->RegisterComponentWithWorld(World);
 	SceneCapture->CaptureScene();
 
-	// Build the output path
-	FString ScreenshotDir = FPaths::ProjectSavedDir() / TEXT("Screenshots");
-	IFileManager::Get().MakeDirectory(*ScreenshotDir, true);
-	FString FullPath = ScreenshotDir / Filename;
-
-	// Export the render target to PNG
-	FArchive* FileWriter = IFileManager::Get().CreateFileWriter(*FullPath);
-	if (!FileWriter)
+	// Read pixels from the render target so we can either save to disk or return inline.
+	TArray<FColor> PixelData;
+	FTextureRenderTargetResource* RTResource = RenderTarget->GameThread_GetRenderTargetResource();
+	if (RTResource)
 	{
-		SceneCapture->DestroyComponent();
-		return FECACommandResult::Error(FString::Printf(TEXT("Failed to create file writer for: %s"), *FullPath));
+		FReadSurfaceDataFlags ReadFlags(RCM_UNorm);
+		ReadFlags.SetLinearToGamma(false);
+		RTResource->ReadPixels(PixelData, ReadFlags);
 	}
 
-	bool bExportSuccess = FImageUtils::ExportRenderTarget2DAsPNG(RenderTarget, *FileWriter);
-	FileWriter->Close();
-	delete FileWriter;
-
-	// Cleanup
 	SceneCapture->DestroyComponent();
 
-	if (!bExportSuccess)
+	if (PixelData.Num() == 0)
 	{
-		return FECACommandResult::Error(TEXT("Failed to export render target as PNG"));
+		return FECACommandResult::Error(TEXT("Failed to read render target pixels"));
 	}
 
-	// Build result
+	// Force alpha opaque so PNGs aren't transparent in viewers.
+	for (FColor& Px : PixelData) { Px.A = 255; }
+
+	// Compress to PNG once; reuse for either path.
+	TArray64<uint8> PngData;
+	FImageUtils::PNGCompressImageArray(ResolutionX, ResolutionY,
+		TArrayView64<const FColor>(PixelData.GetData(), PixelData.Num()), PngData);
+	if (PngData.Num() == 0)
+	{
+		return FECACommandResult::Error(TEXT("Failed to encode PNG"));
+	}
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetStringField(TEXT("camera_name"), Camera->GetActorLabel());
-	Result->SetStringField(TEXT("filename"), Filename);
-	Result->SetStringField(TEXT("full_path"), FullPath);
 	Result->SetNumberField(TEXT("resolution_x"), ResolutionX);
 	Result->SetNumberField(TEXT("resolution_y"), ResolutionY);
 	Result->SetObjectField(TEXT("camera_location"), VectorToJson(CameraLocation));
 	Result->SetObjectField(TEXT("camera_rotation"), RotatorToJson(CameraRotation));
 
-	return FECACommandResult::Success(Result);
+	if (bSaveToFile)
+	{
+		FString ScreenshotDir = FPaths::ProjectSavedDir() / TEXT("Screenshots");
+		IFileManager::Get().MakeDirectory(*ScreenshotDir, true);
+		FString FullPath = ScreenshotDir / Filename;
+		if (!FFileHelper::SaveArrayToFile(TArrayView<const uint8>(PngData.GetData(), PngData.Num()), *FullPath))
+		{
+			return FECACommandResult::Error(FString::Printf(TEXT("Failed to save PNG to: %s"), *FullPath));
+		}
+		Result->SetStringField(TEXT("filename"), Filename);
+		Result->SetStringField(TEXT("full_path"), FullPath);
+		return FECACommandResult::Success(Result);
+	}
+
+	FECACommandResult Out = FECACommandResult::Success(Result);
+	Out.McpContent.Add(FECACommandResult::MakeImageContent(PngData));
+	return Out;
 }
 
 // ─── spawn_decal ──────────────────────────────────────────
@@ -3847,9 +3861,10 @@ FECACommandResult FECACommand_TakeScreenshotsSweep::Execute(const TSharedPtr<FJs
 	double Height = 150.0;
 	GetFloatParam(Params, TEXT("height"), Height, /*bRequired=*/false);
 
-	// Filename prefix (optional, default "sweep")
-	FString FilenamePrefix = TEXT("sweep");
-	GetStringParam(Params, TEXT("filename_prefix"), FilenamePrefix, /*bRequired=*/false);
+	// Filename prefix (optional). If provided, screenshots are saved to disk.
+	// If omitted, all N screenshots are returned inline as MCP image content blocks.
+	FString FilenamePrefix;
+	const bool bSaveToFile = GetStringParam(Params, TEXT("filename_prefix"), FilenamePrefix, /*bRequired=*/false) && !FilenamePrefix.IsEmpty();
 
 	// Get the editor viewport client for positioning the camera
 	FLevelEditorModule& LevelEditorModule = FModuleManager::GetModuleChecked<FLevelEditorModule>(TEXT("LevelEditor"));
@@ -3868,15 +3883,20 @@ FECACommandResult FECACommand_TakeScreenshotsSweep::Execute(const TSharedPtr<FJs
 	FVector OriginalLocation = ViewportClient->GetViewLocation();
 	FRotator OriginalRotation = ViewportClient->GetViewRotation();
 
-	// Prepare screenshot output directory
-	FString ScreenshotDir = FPaths::ProjectSavedDir() / TEXT("Screenshots");
-	IFileManager::Get().MakeDirectory(*ScreenshotDir, true);
+	// Prepare screenshot output directory only when saving to disk.
+	FString ScreenshotDir;
+	if (bSaveToFile)
+	{
+		ScreenshotDir = FPaths::ProjectSavedDir() / TEXT("Screenshots");
+		IFileManager::Get().MakeDirectory(*ScreenshotDir, true);
+	}
 
 	// Resolution for the scene capture
 	int32 ResolutionX = 1920;
 	int32 ResolutionY = 1080;
 
 	TArray<TSharedPtr<FJsonValue>> FilePathsArray;
+	TArray<TSharedPtr<FJsonObject>> InlineBlocks;
 	double AngleStep = 360.0 / static_cast<double>(Count);
 
 	for (int32 i = 0; i < Count; ++i)
@@ -3924,26 +3944,43 @@ FECACommandResult FECACommand_TakeScreenshotsSweep::Execute(const TSharedPtr<FJs
 		SceneCapture->RegisterComponentWithWorld(World);
 		SceneCapture->CaptureScene();
 
-		// Build filename with angle suffix
-		FString Filename = FString::Printf(TEXT("%s_%03d_deg_%03.0f.png"), *FilenamePrefix, i, AngleDeg);
-		FString FullPath = ScreenshotDir / Filename;
-
-		// Export to PNG
-		FArchive* FileWriter = IFileManager::Get().CreateFileWriter(*FullPath);
-		if (FileWriter)
+		// Read pixels for either disk save or inline base64 return.
+		TArray<FColor> PixelData;
+		if (FTextureRenderTargetResource* RTResource = RenderTarget->GameThread_GetRenderTargetResource())
 		{
-			bool bExportSuccess = FImageUtils::ExportRenderTarget2DAsPNG(RenderTarget, *FileWriter);
-			FileWriter->Close();
-			delete FileWriter;
+			FReadSurfaceDataFlags ReadFlags(RCM_UNorm);
+			ReadFlags.SetLinearToGamma(false);
+			RTResource->ReadPixels(PixelData, ReadFlags);
+		}
+		SceneCapture->DestroyComponent();
 
-			if (bExportSuccess)
+		if (PixelData.Num() == 0)
+		{
+			continue;
+		}
+		for (FColor& Px : PixelData) { Px.A = 255; }
+
+		TArray64<uint8> PngData;
+		FImageUtils::PNGCompressImageArray(ResolutionX, ResolutionY,
+			TArrayView64<const FColor>(PixelData.GetData(), PixelData.Num()), PngData);
+		if (PngData.Num() == 0)
+		{
+			continue;
+		}
+
+		if (bSaveToFile)
+		{
+			FString Filename = FString::Printf(TEXT("%s_%03d_deg_%03.0f.png"), *FilenamePrefix, i, AngleDeg);
+			FString FullPath = ScreenshotDir / Filename;
+			if (FFileHelper::SaveArrayToFile(TArrayView<const uint8>(PngData.GetData(), PngData.Num()), *FullPath))
 			{
 				FilePathsArray.Add(MakeShared<FJsonValueString>(FullPath));
 			}
 		}
-
-		// Cleanup
-		SceneCapture->DestroyComponent();
+		else
+		{
+			InlineBlocks.Add(FECACommandResult::MakeImageContent(PngData));
+		}
 	}
 
 	// Restore original camera position
@@ -3955,11 +3992,18 @@ FECACommandResult FECACommand_TakeScreenshotsSweep::Execute(const TSharedPtr<FJs
 	Result->SetNumberField(TEXT("radius"), Radius);
 	Result->SetNumberField(TEXT("height"), Height);
 	Result->SetNumberField(TEXT("count"), Count);
-	Result->SetNumberField(TEXT("screenshots_taken"), FilePathsArray.Num());
-	Result->SetArrayField(TEXT("file_paths"), FilePathsArray);
-	Result->SetStringField(TEXT("screenshot_dir"), ScreenshotDir);
+	Result->SetNumberField(TEXT("screenshots_taken"), bSaveToFile ? FilePathsArray.Num() : InlineBlocks.Num());
 
-	return FECACommandResult::Success(Result);
+	if (bSaveToFile)
+	{
+		Result->SetArrayField(TEXT("file_paths"), FilePathsArray);
+		Result->SetStringField(TEXT("screenshot_dir"), ScreenshotDir);
+		return FECACommandResult::Success(Result);
+	}
+
+	FECACommandResult Out = FECACommandResult::Success(Result);
+	Out.McpContent = MoveTemp(InlineBlocks);
+	return Out;
 }
 
 // ─── execute_python ─────────────────────────────────────────

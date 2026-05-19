@@ -269,8 +269,7 @@ FECACommandResult FECACommand_TakeMetaHumanEditorScreenshot::Execute(const TShar
 	FString CharacterPath, FilePath;
 	if (!Params->TryGetStringField(TEXT("character_path"), CharacterPath) || CharacterPath.IsEmpty())
 		return FECACommandResult::Error(TEXT("Missing character_path"));
-	if (!Params->TryGetStringField(TEXT("file_path"), FilePath) || FilePath.IsEmpty())
-		return FECACommandResult::Error(TEXT("Missing file_path"));
+	const bool bSaveToFile = Params->TryGetStringField(TEXT("file_path"), FilePath) && !FilePath.IsEmpty();
 
 	FString Err;
 	UObject* Character = LoadMHCharacter(CharacterPath, Err);
@@ -330,9 +329,6 @@ FECACommandResult FECACommand_TakeMetaHumanEditorScreenshot::Execute(const TShar
 		return FECACommandResult::Error(TEXT("TakeScreenshot returned no pixels"));
 	}
 
-	// Ensure directory exists
-	IFileManager::Get().MakeDirectory(*FPaths::GetPath(FilePath), true);
-
 	// Encode PNG via FImageUtils
 	TArray64<uint8> PngData;
 	FImageView ImgView(ColorBuffer.GetData(), OutSize.X, OutSize.Y, 1, ERawImageFormat::BGRA8, EGammaSpace::sRGB);
@@ -341,18 +337,27 @@ FECACommandResult FECACommand_TakeMetaHumanEditorScreenshot::Execute(const TShar
 	{
 		return FECACommandResult::Error(TEXT("Failed to encode PNG"));
 	}
-	if (!FFileHelper::SaveArrayToFile(TArrayView64<const uint8>(PngData.GetData(), PngData.Num()), *FilePath))
-	{
-		return FECACommandResult::Error(FString::Printf(TEXT("Failed to write file: %s"), *FilePath));
-	}
 
 	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 	Result->SetStringField(TEXT("character_path"), CharacterPath);
-	Result->SetStringField(TEXT("file_path"), FilePath);
 	Result->SetNumberField(TEXT("width"), OutSize.X);
 	Result->SetNumberField(TEXT("height"), OutSize.Y);
 	Result->SetStringField(TEXT("window_title"), TargetWindow->GetTitle().ToString());
-	return FECACommandResult::Success(Result);
+
+	if (bSaveToFile)
+	{
+		IFileManager::Get().MakeDirectory(*FPaths::GetPath(FilePath), true);
+		if (!FFileHelper::SaveArrayToFile(TArrayView64<const uint8>(PngData.GetData(), PngData.Num()), *FilePath))
+		{
+			return FECACommandResult::Error(FString::Printf(TEXT("Failed to write file: %s"), *FilePath));
+		}
+		Result->SetStringField(TEXT("file_path"), FilePath);
+		return FECACommandResult::Success(Result);
+	}
+
+	FECACommandResult Out = FECACommandResult::Success(Result);
+	Out.McpContent.Add(FECACommandResult::MakeImageContent(PngData));
+	return Out;
 }
 
 // ============================================================================

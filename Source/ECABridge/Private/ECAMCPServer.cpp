@@ -383,31 +383,57 @@ TSharedPtr<FJsonObject> FECAMCPServer::HandleToolsCall(const TSharedPtr<FJsonObj
 
 	// Build MCP response
 	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-	
 	TArray<TSharedPtr<FJsonValue>> Content;
-	TSharedPtr<FJsonObject> TextContent = MakeShared<FJsonObject>();
-	TextContent->SetStringField(TEXT("type"), TEXT("text"));
-	
-	if (CommandResult.bSuccess)
+
+	if (CommandResult.bSuccess && CommandResult.McpContent.Num() > 0)
 	{
-		FString ResultText;
+		// Command emitted pre-built MCP content blocks (e.g. inline image). Use them
+		// directly so image blocks are not stuffed into a text block.
+		for (const TSharedPtr<FJsonObject>& Block : CommandResult.McpContent)
+		{
+			if (Block.IsValid())
+			{
+				Content.Add(MakeShared<FJsonValueObject>(Block));
+			}
+		}
+
+		// Optionally append serialized metadata (ResultData) as a trailing text block
+		// so callers that want both structured fields and the image get them.
 		if (CommandResult.ResultData.IsValid())
 		{
-			ResultText = SerializeJson(CommandResult.ResultData);
+			TSharedPtr<FJsonObject> MetaText = MakeShared<FJsonObject>();
+			MetaText->SetStringField(TEXT("type"), TEXT("text"));
+			MetaText->SetStringField(TEXT("text"), SerializeJson(CommandResult.ResultData));
+			Content.Add(MakeShared<FJsonValueObject>(MetaText));
 		}
-		else
-		{
-			ResultText = TEXT("{\"success\": true}");
-		}
-		TextContent->SetStringField(TEXT("text"), ResultText);
 	}
 	else
 	{
-		Result->SetBoolField(TEXT("isError"), true);
-		TextContent->SetStringField(TEXT("text"), CommandResult.ErrorMessage);
+		TSharedPtr<FJsonObject> TextContent = MakeShared<FJsonObject>();
+		TextContent->SetStringField(TEXT("type"), TEXT("text"));
+
+		if (CommandResult.bSuccess)
+		{
+			FString ResultText;
+			if (CommandResult.ResultData.IsValid())
+			{
+				ResultText = SerializeJson(CommandResult.ResultData);
+			}
+			else
+			{
+				ResultText = TEXT("{\"success\": true}");
+			}
+			TextContent->SetStringField(TEXT("text"), ResultText);
+		}
+		else
+		{
+			Result->SetBoolField(TEXT("isError"), true);
+			TextContent->SetStringField(TEXT("text"), CommandResult.ErrorMessage);
+		}
+
+		Content.Add(MakeShared<FJsonValueObject>(TextContent));
 	}
-	
-	Content.Add(MakeShared<FJsonValueObject>(TextContent));
+
 	Result->SetArrayField(TEXT("content"), Content);
 
 	return Result;
@@ -489,6 +515,14 @@ TArray<TSharedPtr<FJsonValue>> FECAMCPServer::BuildToolDefinitions()
 		}
 
 		ToolDef->SetObjectField(TEXT("inputSchema"), InputSchema);
+
+		// Surface optional output schema if the command provides one.
+		TSharedPtr<FJsonObject> OutputSchema = Command->GetOutputSchema();
+		if (OutputSchema.IsValid())
+		{
+			ToolDef->SetObjectField(TEXT("outputSchema"), OutputSchema);
+		}
+
 		Tools.Add(MakeShared<FJsonValueObject>(ToolDef));
 	}
 

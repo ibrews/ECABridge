@@ -7,6 +7,9 @@
 #include "Engine/Blueprint.h"
 #include "GameFramework/Actor.h"
 #include "JsonObjectConverter.h"
+#include "Misc/Base64.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 
 //------------------------------------------------------------------------------
 // FECACommandResult
@@ -16,7 +19,7 @@ FString FECACommandResult::ToJsonString() const
 {
 	TSharedPtr<FJsonObject> Response = MakeShared<FJsonObject>();
 	Response->SetBoolField(TEXT("success"), bSuccess);
-	
+
 	if (bSuccess)
 	{
 		if (ResultData.IsValid())
@@ -28,11 +31,117 @@ FString FECACommandResult::ToJsonString() const
 	{
 		Response->SetStringField(TEXT("error"), ErrorMessage);
 	}
-	
+
 	FString OutputString;
 	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
 	FJsonSerializer::Serialize(Response.ToSharedRef(), Writer);
 	return OutputString;
+}
+
+FECACommandResult FECACommandResult::ValidationError(const IECACommand* Command, const FString& Reason)
+{
+	FECACommandResult Result;
+	Result.bSuccess = false;
+
+	if (!Command)
+	{
+		Result.ErrorMessage = Reason;
+		return Result;
+	}
+
+	TSharedPtr<FJsonObject> Schema = Command->GetInputSchemaJson();
+
+	FString SchemaJson;
+	if (Schema.IsValid())
+	{
+		TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&SchemaJson);
+		FJsonSerializer::Serialize(Schema.ToSharedRef(), Writer);
+	}
+
+	Result.ErrorMessage = FString::Printf(
+		TEXT("Validation error for '%s': %s\nInput schema: %s"),
+		*Command->GetName(),
+		*Reason,
+		SchemaJson.IsEmpty() ? TEXT("{}") : *SchemaJson);
+	return Result;
+}
+
+TSharedPtr<FJsonObject> FECACommandResult::MakeImageContent(const TArray64<uint8>& Bytes, const FString& MimeType)
+{
+	TSharedPtr<FJsonObject> Block = MakeShared<FJsonObject>();
+	Block->SetStringField(TEXT("type"), TEXT("image"));
+	Block->SetStringField(TEXT("mimeType"), MimeType);
+	Block->SetStringField(TEXT("data"), FBase64::Encode(Bytes.GetData(), Bytes.Num()));
+	return Block;
+}
+
+TSharedPtr<FJsonObject> FECACommandResult::MakeImageContent(const TArray<uint8>& Bytes, const FString& MimeType)
+{
+	TSharedPtr<FJsonObject> Block = MakeShared<FJsonObject>();
+	Block->SetStringField(TEXT("type"), TEXT("image"));
+	Block->SetStringField(TEXT("mimeType"), MimeType);
+	Block->SetStringField(TEXT("data"), FBase64::Encode(Bytes.GetData(), Bytes.Num()));
+	return Block;
+}
+
+TSharedPtr<FJsonObject> IECACommand::GetInputSchemaJson() const
+{
+	TSharedPtr<FJsonObject> InputSchema = MakeShared<FJsonObject>();
+	InputSchema->SetStringField(TEXT("type"), TEXT("object"));
+
+	TSharedPtr<FJsonObject> Properties = MakeShared<FJsonObject>();
+	TArray<TSharedPtr<FJsonValue>> Required;
+
+	for (const FECACommandParam& Param : GetParameters())
+	{
+		TSharedPtr<FJsonObject> PropDef = MakeShared<FJsonObject>();
+
+		FString JsonSchemaType = Param.Type;
+		if (Param.Type == TEXT("any"))
+		{
+			PropDef->SetStringField(TEXT("description"), Param.Description + TEXT(" (accepts any JSON value)"));
+		}
+		else if (Param.Type == TEXT("vector") || Param.Type == TEXT("rotator") || Param.Type == TEXT("transform"))
+		{
+			PropDef->SetStringField(TEXT("type"), TEXT("object"));
+			PropDef->SetStringField(TEXT("description"), Param.Description);
+		}
+		else if (Param.Type == TEXT("float") || Param.Type == TEXT("double"))
+		{
+			PropDef->SetStringField(TEXT("type"), TEXT("number"));
+			PropDef->SetStringField(TEXT("description"), Param.Description);
+		}
+		else if (Param.Type == TEXT("int") || Param.Type == TEXT("int32") || Param.Type == TEXT("int64"))
+		{
+			PropDef->SetStringField(TEXT("type"), TEXT("integer"));
+			PropDef->SetStringField(TEXT("description"), Param.Description);
+		}
+		else
+		{
+			PropDef->SetStringField(TEXT("type"), JsonSchemaType);
+			PropDef->SetStringField(TEXT("description"), Param.Description);
+		}
+
+		if (!Param.DefaultValue.IsEmpty())
+		{
+			PropDef->SetStringField(TEXT("default"), Param.DefaultValue);
+		}
+
+		Properties->SetObjectField(Param.Name, PropDef);
+
+		if (Param.bRequired)
+		{
+			Required.Add(MakeShared<FJsonValueString>(Param.Name));
+		}
+	}
+
+	InputSchema->SetObjectField(TEXT("properties"), Properties);
+	if (Required.Num() > 0)
+	{
+		InputSchema->SetArrayField(TEXT("required"), Required);
+	}
+
+	return InputSchema;
 }
 
 //------------------------------------------------------------------------------
