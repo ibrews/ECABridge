@@ -87,6 +87,8 @@ UE 5.8 Preview ships an official MCP server from Epic (plugin name `ModelContext
 - Refactoring safety nets (`replace_asset_references`, `bulk_rename_assets`, `search_and_replace_property`, dry-run modes)
 - Async editor event streaming, undo batching (`batch_operation`), snapshot/diff
 
+**Plugging into the Epic Developer Assistant panel (EDA):** see [`docs/EDA_INTEGRATION.md`](./docs/EDA_INTEGRATION.md) for the `MCPToolsetSettings.json` snippet that adds ECABridge as a toolset server alongside Epic's built-in toolsets, so EDA can call ECABridge's ~400 commands from the in-editor AI panel.
+
 **Run both at the same time:** the native plugin uses port `8000`, ECABridge uses port `3000`, so they don't collide. Register both with your MCP client:
 
 ```bash
