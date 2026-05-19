@@ -1212,11 +1212,11 @@ FECACommandResult FECACommand_SetMetaHumanPreviewMode::Execute(const TSharedPtr<
 	FString CharacterPath, Mode;
 	if (!Params->TryGetStringField(TEXT("character_path"), CharacterPath) || CharacterPath.IsEmpty())
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: character_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: character_path"));
 	}
 	if (!Params->TryGetStringField(TEXT("mode"), Mode) || Mode.IsEmpty())
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mode (skin, topology, or clay)"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mode (skin, topology, or clay)"));
 	}
 
 	// Map user-friendly mode names to the EMetaHumanCharacterSkinPreviewMaterial enum names.
@@ -1435,7 +1435,7 @@ FECACommandResult FECACommand_RigMetaHuman::Execute(const TSharedPtr<FJsonObject
 	FString CharacterPath;
 	if (!Params->TryGetStringField(TEXT("character_path"), CharacterPath) || CharacterPath.IsEmpty())
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: character_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: character_path"));
 	}
 
 	FString RigType = TEXT("full");
@@ -1881,7 +1881,7 @@ FECACommandResult FECACommand_CreateMetaHumanCharacter::Execute(const TSharedPtr
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	FString BodyType, SkinTone, EyeColor;
@@ -2043,7 +2043,7 @@ FECACommandResult FECACommand_DumpMetaHumanCharacter::Execute(const TSharedPtr<F
 	FString CharacterPath;
 	if (!GetStringParam(Params, TEXT("character_path"), CharacterPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: character_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: character_path"));
 	}
 
 	UClass* MHCharClass = GetMetaHumanCharacterClass();
@@ -2120,11 +2120,11 @@ FECACommandResult FECACommand_SetMetaHumanProperty::Execute(const TSharedPtr<FJs
 	FString CharacterPath, PropertyPath;
 	if (!GetStringParam(Params, TEXT("character_path"), CharacterPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: character_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: character_path"));
 	}
 	if (!GetStringParam(Params, TEXT("property"), PropertyPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: property"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: property"));
 	}
 
 	TSharedPtr<FJsonValue> ValueField;
@@ -2134,7 +2134,7 @@ FECACommandResult FECACommand_SetMetaHumanProperty::Execute(const TSharedPtr<FJs
 	}
 	if (!ValueField.IsValid())
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: value"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: value"));
 	}
 
 	if (!GetMetaHumanCharacterClass())
@@ -2193,7 +2193,7 @@ FECACommandResult FECACommand_SetMetaHumanSkinParams::Execute(const TSharedPtr<F
 	FString CharacterPath;
 	if (!GetStringParam(Params, TEXT("character_path"), CharacterPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: character_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: character_path"));
 	}
 	if (!GetMetaHumanCharacterClass())
 	{
@@ -2323,11 +2323,11 @@ FECACommandResult FECACommand_DescribeMetaHuman::Execute(const TSharedPtr<FJsonO
 	FString CharacterPath, Description;
 	if (!GetStringParam(Params, TEXT("character_path"), CharacterPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: character_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: character_path"));
 	}
 	if (!GetStringParam(Params, TEXT("description"), Description))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: description"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: description"));
 	}
 
 	if (!GetMetaHumanCharacterClass())
@@ -2527,7 +2527,7 @@ FECACommandResult FECACommand_OpenMetaHumanEditor::Execute(const TSharedPtr<FJso
 	FString CharacterPath;
 	if (!GetStringParam(Params, TEXT("character_path"), CharacterPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: character_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: character_path"));
 	}
 
 	UObject* Asset = LoadObject<UObject>(nullptr, *CharacterPath);
@@ -2565,7 +2565,7 @@ FECACommandResult FECACommand_BuildMetaHuman::Execute(const TSharedPtr<FJsonObje
 	FString CharacterPath;
 	if (!GetStringParam(Params, TEXT("character_path"), CharacterPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: character_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: character_path"));
 	}
 
 	UObject* AssetObj = LoadObject<UObject>(nullptr, *CharacterPath);

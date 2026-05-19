@@ -594,7 +594,7 @@ FECACommandResult FECACommand_RunConsoleCommand::Execute(const TSharedPtr<FJsonO
 	FString Command;
 	if (!GetStringParam(Params, TEXT("command"), Command))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: command"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: command"));
 	}
 	
 	UWorld* World = GetEditorWorld();
@@ -657,7 +657,7 @@ FECACommandResult FECACommand_OpenLevel::Execute(const TSharedPtr<FJsonObject>& 
 	FString LevelPath;
 	if (!GetStringParam(Params, TEXT("level_path"), LevelPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: level_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: level_path"));
 	}
 	
 	// Ensure it's a valid level path
@@ -715,7 +715,7 @@ FECACommandResult FECACommand_SaveAsset::Execute(const TSharedPtr<FJsonObject>& 
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	UObject* Asset = StaticLoadObject(UObject::StaticClass(), nullptr, *AssetPath);
@@ -1105,7 +1105,7 @@ FECACommandResult FECACommand_SetWorldSettings::Execute(const TSharedPtr<FJsonOb
 	FString PropertyName;
 	if (!GetStringParam(Params, TEXT("property"), PropertyName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: property"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: property"));
 	}
 
 	UWorld* World = GetEditorWorld();
@@ -1155,7 +1155,7 @@ FECACommandResult FECACommand_SetWorldSettings::Execute(const TSharedPtr<FJsonOb
 	}
 	else
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: value"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: value"));
 	}
 
 	// Export the old value

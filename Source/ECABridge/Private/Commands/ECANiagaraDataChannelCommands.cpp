@@ -193,7 +193,7 @@ FECACommandResult FECACommand_CreateNiagaraDataChannel::Execute(const TSharedPtr
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath) || AssetPath.IsEmpty())
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	const TArray<TSharedPtr<FJsonValue>>* VariablesArray = nullptr;
@@ -357,7 +357,7 @@ FECACommandResult FECACommand_DumpNiagaraDataChannel::Execute(const TSharedPtr<F
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath) || AssetPath.IsEmpty())
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	// Try direct load, then add the .AssetName suffix if needed.

@@ -370,13 +370,13 @@ FECACommandResult FECACommand_ImportTexture::Execute(const TSharedPtr<FJsonObjec
 	FString SourcePath;
 	if (!GetStringParam(Params, TEXT("source_path"), SourcePath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: source_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: source_path"));
 	}
 	
 	FString DestinationPath;
 	if (!GetStringParam(Params, TEXT("destination_path"), DestinationPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: destination_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: destination_path"));
 	}
 	
 	FString TextureName;
@@ -426,7 +426,7 @@ FECACommandResult FECACommand_CreateMaterial::Execute(const TSharedPtr<FJsonObje
 	FString MaterialName;
 	if (!GetStringParam(Params, TEXT("material_name"), MaterialName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: material_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: material_name"));
 	}
 	
 	FString Path = TEXT("/Game/Materials/");
@@ -673,7 +673,7 @@ FECACommandResult FECACommand_CreateMaterialFromTextures::Execute(const TSharedP
 	FString MaterialName;
 	if (!GetStringParam(Params, TEXT("material_name"), MaterialName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: material_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: material_name"));
 	}
 	
 	FString MaterialPath = TEXT("/Game/Materials/");
@@ -941,7 +941,7 @@ FECACommandResult FECACommand_GetTextureInfo::Execute(const TSharedPtr<FJsonObje
 	FString TexturePath;
 	if (!GetStringParam(Params, TEXT("texture_path"), TexturePath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: texture_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: texture_path"));
 	}
 	
 	UTexture2D* Texture = LoadTextureByPath(TexturePath);
@@ -973,7 +973,7 @@ FECACommandResult FECACommand_GetMaterialInfo::Execute(const TSharedPtr<FJsonObj
 	FString MaterialPath;
 	if (!GetStringParam(Params, TEXT("material_path"), MaterialPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: material_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: material_path"));
 	}
 	
 	UMaterial* Material = LoadMaterialAssetByPath(MaterialPath);
@@ -1129,19 +1129,19 @@ FECACommandResult FECACommand_SetMaterialTextureParam::Execute(const TSharedPtr<
 	FString MaterialPath;
 	if (!GetStringParam(Params, TEXT("material_path"), MaterialPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: material_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: material_path"));
 	}
 	
 	FString ParameterName;
 	if (!GetStringParam(Params, TEXT("parameter_name"), ParameterName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: parameter_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: parameter_name"));
 	}
 	
 	FString TexturePath;
 	if (!GetStringParam(Params, TEXT("texture_path"), TexturePath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: texture_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: texture_path"));
 	}
 	
 	UMaterial* Material = LoadMaterialAssetByPath(MaterialPath);
@@ -1197,13 +1197,13 @@ FECACommandResult FECACommand_SetActorMaterial::Execute(const TSharedPtr<FJsonOb
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 	
 	FString MaterialPath;
 	if (!GetStringParam(Params, TEXT("material_path"), MaterialPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: material_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: material_path"));
 	}
 	
 	int32 SlotIndex = 0;
@@ -1295,7 +1295,7 @@ FECACommandResult FECACommand_GetActorMaterials::Execute(const TSharedPtr<FJsonO
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 	
 	// Find the actor
@@ -1360,13 +1360,13 @@ FECACommandResult FECACommand_SetStaticMeshMaterial::Execute(const TSharedPtr<FJ
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 	
 	FString MaterialPath;
 	if (!GetStringParam(Params, TEXT("material_path"), MaterialPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: material_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: material_path"));
 	}
 	
 	int32 SlotIndex = 0;
@@ -1414,13 +1414,13 @@ FECACommandResult FECACommand_CreateMaterialInstance::Execute(const TSharedPtr<F
 	FString InstanceName;
 	if (!GetStringParam(Params, TEXT("instance_name"), InstanceName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: instance_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: instance_name"));
 	}
 	
 	FString ParentMaterialPath;
 	if (!GetStringParam(Params, TEXT("parent_material"), ParentMaterialPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: parent_material"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: parent_material"));
 	}
 	
 	FString Path = TEXT("/Game/Materials/");
@@ -1507,19 +1507,19 @@ FECACommandResult FECACommand_SetMaterialInstanceScalarParam::Execute(const TSha
 	FString InstancePath;
 	if (!GetStringParam(Params, TEXT("instance_path"), InstancePath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: instance_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: instance_path"));
 	}
 	
 	FString ParameterName;
 	if (!GetStringParam(Params, TEXT("parameter_name"), ParameterName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: parameter_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: parameter_name"));
 	}
 	
 	double Value = 0.0;
 	if (!GetFloatParam(Params, TEXT("value"), Value))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: value"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: value"));
 	}
 	
 	// Load material instance
@@ -1550,19 +1550,19 @@ FECACommandResult FECACommand_SetMaterialInstanceVectorParam::Execute(const TSha
 	FString InstancePath;
 	if (!GetStringParam(Params, TEXT("instance_path"), InstancePath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: instance_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: instance_path"));
 	}
 	
 	FString ParameterName;
 	if (!GetStringParam(Params, TEXT("parameter_name"), ParameterName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: parameter_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: parameter_name"));
 	}
 	
 	const TSharedPtr<FJsonObject>* ValueObj;
 	if (!GetObjectParam(Params, TEXT("value"), ValueObj))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: value"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: value"));
 	}
 	
 	// Load material instance
@@ -1620,19 +1620,19 @@ FECACommandResult FECACommand_SetMaterialInstanceTextureParam::Execute(const TSh
 	FString InstancePath;
 	if (!GetStringParam(Params, TEXT("instance_path"), InstancePath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: instance_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: instance_path"));
 	}
 	
 	FString ParameterName;
 	if (!GetStringParam(Params, TEXT("parameter_name"), ParameterName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: parameter_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: parameter_name"));
 	}
 	
 	FString TexturePath;
 	if (!GetStringParam(Params, TEXT("texture_path"), TexturePath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: texture_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: texture_path"));
 	}
 	
 	// Load material instance
@@ -2161,13 +2161,13 @@ FECACommandResult FECACommand_ImportOBJ::Execute(const TSharedPtr<FJsonObject>& 
 	FString SourcePath;
 	if (!GetStringParam(Params, TEXT("source_path"), SourcePath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: source_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: source_path"));
 	}
 	
 	FString DestinationPath;
 	if (!GetStringParam(Params, TEXT("destination_path"), DestinationPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: destination_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: destination_path"));
 	}
 	
 	FString MeshName;
@@ -2369,13 +2369,13 @@ FECACommandResult FECACommand_ExportTexture::Execute(const TSharedPtr<FJsonObjec
 	FString TexturePath;
 	if (!GetStringParam(Params, TEXT("texture_path"), TexturePath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: texture_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: texture_path"));
 	}
 
 	FString OutputPath;
 	if (!GetStringParam(Params, TEXT("output_path"), OutputPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: output_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: output_path"));
 	}
 
 	int32 MipLevel = 0;
@@ -2478,13 +2478,13 @@ FECACommandResult FECACommand_ExportRenderTarget::Execute(const TSharedPtr<FJson
 	FString RenderTargetPath;
 	if (!GetStringParam(Params, TEXT("render_target_path"), RenderTargetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: render_target_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: render_target_path"));
 	}
 
 	FString OutputPath;
 	if (!GetStringParam(Params, TEXT("output_path"), OutputPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: output_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: output_path"));
 	}
 
 	// Load the render target
@@ -2968,7 +2968,7 @@ FECACommandResult FECACommand_DeleteAsset::Execute(const TSharedPtr<FJsonObject>
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 	
 	bool bForce = false;
@@ -3040,13 +3040,13 @@ FECACommandResult FECACommand_RenameAsset::Execute(const TSharedPtr<FJsonObject>
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 	
 	FString NewName;
 	if (!GetStringParam(Params, TEXT("new_name"), NewName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: new_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: new_name"));
 	}
 	
 	// Load the asset
@@ -3091,13 +3091,13 @@ FECACommandResult FECACommand_MoveAsset::Execute(const TSharedPtr<FJsonObject>& 
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 	
 	FString DestinationPath;
 	if (!GetStringParam(Params, TEXT("destination_path"), DestinationPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: destination_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: destination_path"));
 	}
 	
 	// Load the asset
@@ -3142,13 +3142,13 @@ FECACommandResult FECACommand_DuplicateAsset::Execute(const TSharedPtr<FJsonObje
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 	
 	FString NewName;
 	if (!GetStringParam(Params, TEXT("new_name"), NewName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: new_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: new_name"));
 	}
 	
 	FString DestinationPath;
@@ -3199,13 +3199,13 @@ FECACommandResult FECACommand_ImportFBX::Execute(const TSharedPtr<FJsonObject>& 
 	FString SourcePath;
 	if (!GetStringParam(Params, TEXT("source_path"), SourcePath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: source_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: source_path"));
 	}
 	
 	FString DestinationPath;
 	if (!GetStringParam(Params, TEXT("destination_path"), DestinationPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: destination_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: destination_path"));
 	}
 	
 	// Get optional parameters
@@ -3626,13 +3626,13 @@ FECACommandResult FECACommand_GetAssetThumbnail::Execute(const TSharedPtr<FJsonO
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	FString OutputPath;
 	if (!GetStringParam(Params, TEXT("output_path"), OutputPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: output_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: output_path"));
 	}
 
 	// Get optional parameters
@@ -3690,13 +3690,13 @@ FECACommandResult FECACommand_GetAssetThumbnails::Execute(const TSharedPtr<FJson
 	const TArray<TSharedPtr<FJsonValue>>* AssetPathsArray = nullptr;
 	if (!GetArrayParam(Params, TEXT("asset_paths"), AssetPathsArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_paths"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_paths"));
 	}
 
 	FString OutputDirectory;
 	if (!GetStringParam(Params, TEXT("output_directory"), OutputDirectory))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: output_directory"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: output_directory"));
 	}
 
 	// Get optional parameters
@@ -3860,7 +3860,7 @@ FECACommandResult FECACommand_DumpAsset::Execute(const TSharedPtr<FJsonObject>& 
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	int32 MaxDepth = 2;
@@ -4185,7 +4185,7 @@ FECACommandResult FECACommand_GetAssetReferences::Execute(const TSharedPtr<FJson
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	FString Direction = TEXT("both");
@@ -4231,7 +4231,7 @@ FECACommandResult FECACommand_ValidateAsset::Execute(const TSharedPtr<FJsonObjec
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	// Load the asset
@@ -4429,7 +4429,7 @@ FECACommandResult FECACommand_GetClassHierarchy::Execute(const TSharedPtr<FJsonO
 	FString ClassName;
 	if (!GetStringParam(Params, TEXT("class_name"), ClassName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: class_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: class_name"));
 	}
 
 	bool bIncludeChildren = true;

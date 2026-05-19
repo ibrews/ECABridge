@@ -253,7 +253,7 @@ FECACommandResult FECACommand_GetDataTableSchema::Execute(const TSharedPtr<FJson
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	UDataTable* DataTable = LoadObject<UDataTable>(nullptr, *AssetPath);
@@ -345,7 +345,7 @@ FECACommandResult FECACommand_GetDataTableRows::Execute(const TSharedPtr<FJsonOb
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	UDataTable* DataTable = LoadObject<UDataTable>(nullptr, *AssetPath);
@@ -436,19 +436,19 @@ FECACommandResult FECACommand_SetDataTableRow::Execute(const TSharedPtr<FJsonObj
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	FString RowName;
 	if (!GetStringParam(Params, TEXT("row_name"), RowName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: row_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: row_name"));
 	}
 
 	const TSharedPtr<FJsonObject>* RowDataObj = nullptr;
 	if (!GetObjectParam(Params, TEXT("row_data"), RowDataObj))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: row_data"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: row_data"));
 	}
 
 	UDataTable* DataTable = LoadObject<UDataTable>(nullptr, *AssetPath);
@@ -656,13 +656,13 @@ FECACommandResult FECACommand_DeleteDataTableRow::Execute(const TSharedPtr<FJson
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	FString RowName;
 	if (!GetStringParam(Params, TEXT("row_name"), RowName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: row_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: row_name"));
 	}
 
 	UDataTable* DataTable = LoadObject<UDataTable>(nullptr, *AssetPath);
@@ -704,7 +704,7 @@ FECACommandResult FECACommand_DumpDataTable::Execute(const TSharedPtr<FJsonObjec
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	UDataTable* DataTable = LoadObject<UDataTable>(nullptr, *AssetPath);

@@ -70,7 +70,7 @@ FECACommandResult FECACommand_RenderSequence::Execute(const TSharedPtr<FJsonObje
 	FString SequencePath;
 	if (!GetStringParam(Params, TEXT("sequence_path"), SequencePath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: sequence_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: sequence_path"));
 	}
 
 	FString OutputDir = TEXT("Saved/MovieRenders");

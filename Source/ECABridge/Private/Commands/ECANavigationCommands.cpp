@@ -97,9 +97,9 @@ FECACommandResult FECACommand_FindPath::Execute(const TSharedPtr<FJsonObject>& P
 {
 	FVector StartLoc, EndLoc;
 	if (!GetVectorParam(Params, TEXT("start"), StartLoc))
-		return FECACommandResult::Error(TEXT("Missing required parameter: start"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: start"));
 	if (!GetVectorParam(Params, TEXT("end"), EndLoc))
-		return FECACommandResult::Error(TEXT("Missing required parameter: end"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: end"));
 
 	UWorld* World = GetEditorWorld();
 	if (!World)
@@ -145,9 +145,9 @@ FECACommandResult FECACommand_MoveActorTo::Execute(const TSharedPtr<FJsonObject>
 	double Speed = 300.0;
 
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	if (!GetVectorParam(Params, TEXT("destination"), Destination))
-		return FECACommandResult::Error(TEXT("Missing required parameter: destination"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: destination"));
 	GetFloatParam(Params, TEXT("speed"), Speed, false);
 
 	if (Speed <= 0.0)
@@ -302,9 +302,9 @@ FECACommandResult FECACommand_AddActorTag::Execute(const TSharedPtr<FJsonObject>
 {
 	FString ActorName, Tag;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	if (!GetStringParam(Params, TEXT("tag"), Tag))
-		return FECACommandResult::Error(TEXT("Missing required parameter: tag"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: tag"));
 
 	AActor* Actor = FindActorByName(ActorName);
 	if (!Actor)
@@ -337,9 +337,9 @@ FECACommandResult FECACommand_RemoveActorTag::Execute(const TSharedPtr<FJsonObje
 {
 	FString ActorName, Tag;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	if (!GetStringParam(Params, TEXT("tag"), Tag))
-		return FECACommandResult::Error(TEXT("Missing required parameter: tag"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: tag"));
 
 	AActor* Actor = FindActorByName(ActorName);
 	if (!Actor)
@@ -375,7 +375,7 @@ FECACommandResult FECACommand_FindActorsByTag::Execute(const TSharedPtr<FJsonObj
 {
 	FString Tag;
 	if (!GetStringParam(Params, TEXT("tag"), Tag))
-		return FECACommandResult::Error(TEXT("Missing required parameter: tag"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: tag"));
 
 	UWorld* World = GetEditorWorld();
 	if (!World)
@@ -421,7 +421,7 @@ FECACommandResult FECACommand_GetActorHierarchy::Execute(const TSharedPtr<FJsonO
 {
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 
 	AActor* Actor = FindActorByName(ActorName);
 	if (!Actor)
@@ -521,9 +521,9 @@ FECACommandResult FECACommand_SetActorMobility::Execute(const TSharedPtr<FJsonOb
 {
 	FString ActorName, MobilityStr;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	if (!GetStringParam(Params, TEXT("mobility"), MobilityStr))
-		return FECACommandResult::Error(TEXT("Missing required parameter: mobility"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mobility"));
 
 	// Parse mobility enum
 	EComponentMobility::Type Mobility;

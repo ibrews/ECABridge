@@ -318,13 +318,13 @@ FECACommandResult FECACommand_SetWidgetViewmodel::Execute(const TSharedPtr<FJson
 	FString WidgetPath;
 	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_path"));
 	}
 
 	FString ViewModelClassName;
 	if (!GetStringParam(Params, TEXT("viewmodel_class"), ViewModelClassName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: viewmodel_class"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: viewmodel_class"));
 	}
 
 	UWidgetBlueprint* WidgetBP = LoadWidgetBlueprintByPath(WidgetPath);
@@ -698,7 +698,7 @@ FECACommandResult FECACommand_GetViewmodelBindings::Execute(const TSharedPtr<FJs
 	FString WidgetPath;
 	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_path"));
 	}
 
 	UWidgetBlueprint* WidgetBP = LoadWidgetBlueprintByPath(WidgetPath);
@@ -767,7 +767,7 @@ FECACommandResult FECACommand_RemoveViewmodelBinding::Execute(const TSharedPtr<F
 	FString WidgetPath;
 	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_path"));
 	}
 
 	UWidgetBlueprint* WidgetBP = nullptr;

@@ -199,7 +199,7 @@ FECACommandResult FECACommand_SpawnNiagaraEffect::Execute(const TSharedPtr<FJson
 	FString SystemPath;
 	if (!GetStringParam(Params, TEXT("system_path"), SystemPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: system_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
 	}
 	
 	// Load the Niagara system
@@ -283,7 +283,7 @@ FECACommandResult FECACommand_CreateNiagaraSystem::Execute(const TSharedPtr<FJso
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	FString Template = TEXT("default");
@@ -472,19 +472,19 @@ FECACommandResult FECACommand_SetNiagaraParameter::Execute(const TSharedPtr<FJso
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 	
 	FString ParameterName;
 	if (!GetStringParam(Params, TEXT("parameter_name"), ParameterName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: parameter_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: parameter_name"));
 	}
 	
 	FString ParameterType;
 	if (!GetStringParam(Params, TEXT("parameter_type"), ParameterType))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: parameter_type"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: parameter_type"));
 	}
 	
 	ANiagaraActor* NiagaraActor = FindNiagaraActorByName(ActorName);
@@ -586,13 +586,13 @@ FECACommandResult FECACommand_ControlNiagaraEffect::Execute(const TSharedPtr<FJs
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 	
 	FString Action;
 	if (!GetStringParam(Params, TEXT("action"), Action))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: action"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: action"));
 	}
 	
 	ANiagaraActor* NiagaraActor = FindNiagaraActorByName(ActorName);
@@ -749,13 +749,13 @@ FECACommandResult FECACommand_AddNiagaraComponent::Execute(const TSharedPtr<FJso
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 	
 	FString SystemPath;
 	if (!GetStringParam(Params, TEXT("system_path"), SystemPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: system_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
 	}
 	
 	AActor* Actor = FindActorByName(ActorName);
@@ -917,7 +917,7 @@ FECACommandResult FECACommand_AddNiagaraEmitter::Execute(const TSharedPtr<FJsonO
 	FString SystemPath;
 	if (!GetStringParam(Params, TEXT("system_path"), SystemPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: system_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
 	}
 	
 	UNiagaraSystem* NiagaraSystem = LoadObject<UNiagaraSystem>(nullptr, *SystemPath);
@@ -1025,25 +1025,25 @@ FECACommandResult FECACommand_AddNiagaraModule::Execute(const TSharedPtr<FJsonOb
 	FString SystemPath;
 	if (!GetStringParam(Params, TEXT("system_path"), SystemPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: system_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
 	}
 	
 	FString EmitterName;
 	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: emitter_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: emitter_name"));
 	}
 	
 	FString ModulePath;
 	if (!GetStringParam(Params, TEXT("module_path"), ModulePath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: module_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: module_path"));
 	}
 	
 	FString ScriptUsageStr;
 	if (!GetStringParam(Params, TEXT("script_usage"), ScriptUsageStr))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: script_usage"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: script_usage"));
 	}
 	
 	int32 TargetIndex = INDEX_NONE;
@@ -1188,31 +1188,31 @@ FECACommandResult FECACommand_SetNiagaraModuleInput::Execute(const TSharedPtr<FJ
 	FString SystemPath;
 	if (!GetStringParam(Params, TEXT("system_path"), SystemPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: system_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
 	}
 
 	FString EmitterName;
 	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: emitter_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: emitter_name"));
 	}
 
 	FString ModuleName;
 	if (!GetStringParam(Params, TEXT("module_name"), ModuleName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: module_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: module_name"));
 	}
 
 	FString InputName;
 	if (!GetStringParam(Params, TEXT("input_name"), InputName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: input_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: input_name"));
 	}
 
 	FString ScriptUsageStr;
 	if (!GetStringParam(Params, TEXT("script_usage"), ScriptUsageStr))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: script_usage"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: script_usage"));
 	}
 
 	UNiagaraSystem* NiagaraSystem = LoadObject<UNiagaraSystem>(nullptr, *SystemPath);
@@ -1452,7 +1452,7 @@ FECACommandResult FECACommand_GetNiagaraEmitters::Execute(const TSharedPtr<FJson
 	FString SystemPath;
 	if (!GetStringParam(Params, TEXT("system_path"), SystemPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: system_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
 	}
 	
 	UNiagaraSystem* NiagaraSystem = LoadObject<UNiagaraSystem>(nullptr, *SystemPath);
@@ -1502,13 +1502,13 @@ FECACommandResult FECACommand_GetNiagaraModules::Execute(const TSharedPtr<FJsonO
 	FString SystemPath;
 	if (!GetStringParam(Params, TEXT("system_path"), SystemPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: system_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
 	}
 	
 	FString EmitterName;
 	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: emitter_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: emitter_name"));
 	}
 	
 	FString ScriptUsageFilter = TEXT("all");
@@ -1721,25 +1721,25 @@ FECACommandResult FECACommand_RemoveNiagaraModule::Execute(const TSharedPtr<FJso
 	FString SystemPath;
 	if (!GetStringParam(Params, TEXT("system_path"), SystemPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: system_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
 	}
 	
 	FString EmitterName;
 	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: emitter_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: emitter_name"));
 	}
 	
 	FString ModuleName;
 	if (!GetStringParam(Params, TEXT("module_name"), ModuleName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: module_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: module_name"));
 	}
 	
 	FString ScriptUsageStr;
 	if (!GetStringParam(Params, TEXT("script_usage"), ScriptUsageStr))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: script_usage"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: script_usage"));
 	}
 	
 	UNiagaraSystem* NiagaraSystem = LoadObject<UNiagaraSystem>(nullptr, *SystemPath);
@@ -1821,13 +1821,13 @@ FECACommandResult FECACommand_DeleteNiagaraEmitter::Execute(const TSharedPtr<FJs
 	FString SystemPath;
 	if (!GetStringParam(Params, TEXT("system_path"), SystemPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: system_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
 	}
 	
 	FString EmitterName;
 	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: emitter_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: emitter_name"));
 	}
 	
 	UNiagaraSystem* NiagaraSystem = LoadObject<UNiagaraSystem>(nullptr, *SystemPath);
@@ -1892,19 +1892,19 @@ FECACommandResult FECACommand_SetNiagaraEmitterProperty::Execute(const TSharedPt
 	FString SystemPath;
 	if (!GetStringParam(Params, TEXT("system_path"), SystemPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: system_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
 	}
 	
 	FString EmitterName;
 	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: emitter_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: emitter_name"));
 	}
 	
 	FString PropertyName;
 	if (!GetStringParam(Params, TEXT("property"), PropertyName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: property"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: property"));
 	}
 	
 	UNiagaraSystem* NiagaraSystem = LoadObject<UNiagaraSystem>(nullptr, *SystemPath);
@@ -2113,7 +2113,7 @@ FECACommandResult FECACommand_CreateNiagaraEmitter::Execute(const TSharedPtr<FJs
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 	
 	// Get optional parameters with defaults
@@ -2271,19 +2271,19 @@ FECACommandResult FECACommand_AddNiagaraRenderer::Execute(const TSharedPtr<FJson
 	FString SystemPath;
 	if (!GetStringParam(Params, TEXT("system_path"), SystemPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: system_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
 	}
 	
 	FString EmitterName;
 	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: emitter_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: emitter_name"));
 	}
 	
 	FString RendererType;
 	if (!GetStringParam(Params, TEXT("renderer_type"), RendererType))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: renderer_type"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: renderer_type"));
 	}
 	
 	FString RendererName;
@@ -2429,19 +2429,19 @@ FECACommandResult FECACommand_SetNiagaraMaterial::Execute(const TSharedPtr<FJson
 	FString SystemPath;
 	if (!GetStringParam(Params, TEXT("system_path"), SystemPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: system_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
 	}
 	
 	FString EmitterName;
 	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: emitter_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: emitter_name"));
 	}
 	
 	FString MaterialPath;
 	if (!GetStringParam(Params, TEXT("material_path"), MaterialPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: material_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: material_path"));
 	}
 	
 	int32 RendererIndex = 0;
@@ -2541,43 +2541,43 @@ FECACommandResult FECACommand_SetNiagaraCurve::Execute(const TSharedPtr<FJsonObj
 	FString SystemPath;
 	if (!GetStringParam(Params, TEXT("system_path"), SystemPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: system_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
 	}
 	
 	FString EmitterName;
 	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: emitter_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: emitter_name"));
 	}
 	
 	FString ModuleName;
 	if (!GetStringParam(Params, TEXT("module_name"), ModuleName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: module_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: module_name"));
 	}
 	
 	FString InputName;
 	if (!GetStringParam(Params, TEXT("input_name"), InputName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: input_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: input_name"));
 	}
 	
 	FString ScriptUsageStr;
 	if (!GetStringParam(Params, TEXT("script_usage"), ScriptUsageStr))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: script_usage"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: script_usage"));
 	}
 	
 	FString CurveType;
 	if (!GetStringParam(Params, TEXT("curve_type"), CurveType))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: curve_type"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: curve_type"));
 	}
 	
 	const TArray<TSharedPtr<FJsonValue>>* KeysArray;
 	if (!Params->TryGetArrayField(TEXT("keys"), KeysArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: keys"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: keys"));
 	}
 	
 	// Load the system
@@ -4167,37 +4167,37 @@ FECACommandResult FECACommand_SetNiagaraDynamicInput::Execute(const TSharedPtr<F
 	FString SystemPath;
 	if (!GetStringParam(Params, TEXT("system_path"), SystemPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: system_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
 	}
 	
 	FString EmitterName;
 	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: emitter_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: emitter_name"));
 	}
 	
 	FString ModuleName;
 	if (!GetStringParam(Params, TEXT("module_name"), ModuleName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: module_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: module_name"));
 	}
 	
 	FString InputName;
 	if (!GetStringParam(Params, TEXT("input_name"), InputName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: input_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: input_name"));
 	}
 	
 	FString ScriptUsageStr;
 	if (!GetStringParam(Params, TEXT("script_usage"), ScriptUsageStr))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: script_usage"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: script_usage"));
 	}
 	
 	FString DynamicInputType;
 	if (!GetStringParam(Params, TEXT("dynamic_input_type"), DynamicInputType))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: dynamic_input_type"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: dynamic_input_type"));
 	}
 	
 	// Load the system
@@ -4348,7 +4348,7 @@ FECACommandResult FECACommand_DumpNiagaraSystem::Execute(const TSharedPtr<FJsonO
 	FString SystemPath;
 	if (!GetStringParam(Params, TEXT("system_path"), SystemPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: system_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
 	}
 
 	bool bIncludeModuleInputs = true;
@@ -4525,19 +4525,19 @@ FECACommandResult FECACommand_ListModuleInputs::Execute(const TSharedPtr<FJsonOb
 	FString SystemPath, EmitterName, ModuleName, ScriptUsageStr;
 	if (!GetStringParam(Params, TEXT("system_path"), SystemPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: system_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
 	}
 	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: emitter_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: emitter_name"));
 	}
 	if (!GetStringParam(Params, TEXT("module_name"), ModuleName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: module_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: module_name"));
 	}
 	if (!GetStringParam(Params, TEXT("script_usage"), ScriptUsageStr))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: script_usage"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: script_usage"));
 	}
 
 	bool bIncludeHidden = false;

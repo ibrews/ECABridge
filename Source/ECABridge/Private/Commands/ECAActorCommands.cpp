@@ -244,7 +244,7 @@ FECACommandResult FECACommand_CreateActor::Execute(const TSharedPtr<FJsonObject>
 	FString ActorType;
 	if (!GetStringParam(Params, TEXT("actor_type"), ActorType))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_type"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_type"));
 	}
 	
 	UWorld* World = GetEditorWorld();
@@ -377,7 +377,7 @@ FECACommandResult FECACommand_DeleteActor::Execute(const TSharedPtr<FJsonObject>
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 	
 	AActor* Actor = FindActorByName(ActorName);
@@ -403,7 +403,7 @@ FECACommandResult FECACommand_SetActorTransform::Execute(const TSharedPtr<FJsonO
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 	
 	AActor* Actor = FindActorByName(ActorName);
@@ -532,7 +532,7 @@ FECACommandResult FECACommand_GetActorProperties::Execute(const TSharedPtr<FJson
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 	
 	AActor* Actor = FindActorByName(ActorName);
@@ -619,7 +619,7 @@ FECACommandResult FECACommand_SetActorProperty::Execute(const TSharedPtr<FJsonOb
 	}
 	else
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_path or actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_path or actor_name"));
 	}
 	
 	if (!Actor)
@@ -630,7 +630,7 @@ FECACommandResult FECACommand_SetActorProperty::Execute(const TSharedPtr<FJsonOb
 	FString PropertyName;
 	if (!GetStringParam(Params, TEXT("property_name"), PropertyName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: property_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: property_name"));
 	}
 	
 	// Optional: target a specific component
@@ -994,7 +994,7 @@ FECACommandResult FECACommand_DuplicateActor::Execute(const TSharedPtr<FJsonObje
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 	
 	AActor* SourceActor = FindActorByName(ActorName);

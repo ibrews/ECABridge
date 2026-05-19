@@ -231,7 +231,7 @@ FECACommandResult FECACommand_SpawnStaticMeshWall::Execute(const TSharedPtr<FJso
 	FVector Location;
 	if (!GetVectorParam(Params, TEXT("location"), Location))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: location"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: location"));
 	}
 
 	// Mesh path (optional, default cube)
@@ -429,7 +429,7 @@ FECACommandResult FECACommand_SetSkySettings::Execute(const TSharedPtr<FJsonObje
 	double SunPitch;
 	if (!GetFloatParam(Params, TEXT("sun_pitch"), SunPitch))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: sun_pitch"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: sun_pitch"));
 	}
 
 	// Clamp pitch to valid range
@@ -500,14 +500,14 @@ FECACommandResult FECACommand_SpawnParticleEffect::Execute(const TSharedPtr<FJso
 	FString SystemPath;
 	if (!GetStringParam(Params, TEXT("system_path"), SystemPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: system_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
 	}
 
 	// Location (required)
 	FVector Location;
 	if (!GetVectorParam(Params, TEXT("location"), Location))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: location"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: location"));
 	}
 
 	// Load the Niagara system asset
@@ -710,20 +710,20 @@ FECACommandResult FECACommand_BatchSetActorProperty::Execute(const TSharedPtr<FJ
 	const TArray<TSharedPtr<FJsonValue>>* ActorNamesArray = nullptr;
 	if (!GetArrayParam(Params, TEXT("actor_names"), ActorNamesArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_names"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_names"));
 	}
 
 	// Property name (required)
 	FString PropertyName;
 	if (!GetStringParam(Params, TEXT("property_name"), PropertyName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: property_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: property_name"));
 	}
 
 	// Property value (required) - read as raw JSON value
 	if (!Params->HasField(TEXT("property_value")))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: property_value"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: property_value"));
 	}
 
 	TSharedPtr<FJsonValue> PropertyValue = Params->TryGetField(TEXT("property_value"));
@@ -883,7 +883,7 @@ FECACommandResult FECACommand_CreateSplinePath::Execute(const TSharedPtr<FJsonOb
 	const TArray<TSharedPtr<FJsonValue>>* PointsArray = nullptr;
 	if (!GetArrayParam(Params, TEXT("points"), PointsArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: points"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: points"));
 	}
 
 	if (PointsArray->Num() < 2)
@@ -987,7 +987,7 @@ FECACommandResult FECACommand_EnablePhysicsSimulation::Execute(const TSharedPtr<
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 
 	AActor* Actor = FindActorByName(ActorName);
@@ -1059,7 +1059,7 @@ FECACommandResult FECACommand_ApplyImpulse::Execute(const TSharedPtr<FJsonObject
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 
 	AActor* Actor = FindActorByName(ActorName);
@@ -1072,7 +1072,7 @@ FECACommandResult FECACommand_ApplyImpulse::Execute(const TSharedPtr<FJsonObject
 	FVector Impulse;
 	if (!GetVectorParam(Params, TEXT("impulse"), Impulse))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: impulse"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: impulse"));
 	}
 
 	// Get the root primitive component
@@ -1120,7 +1120,7 @@ FECACommandResult FECACommand_SetActorVisibility::Execute(const TSharedPtr<FJson
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 
 	AActor* Actor = FindActorByName(ActorName);
@@ -1133,7 +1133,7 @@ FECACommandResult FECACommand_SetActorVisibility::Execute(const TSharedPtr<FJson
 	bool bVisible = true;
 	if (!GetBoolParam(Params, TEXT("visible"), bVisible))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: visible"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: visible"));
 	}
 
 	// Affect children (optional, default true)
@@ -1188,14 +1188,14 @@ FECACommandResult FECACommand_BatchSpawnActors::Execute(const TSharedPtr<FJsonOb
 	FString ActorType;
 	if (!GetStringParam(Params, TEXT("actor_type"), ActorType))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_type"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_type"));
 	}
 
 	// Count (required)
 	int32 Count = 0;
 	if (!GetIntParam(Params, TEXT("count"), Count))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: count"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: count"));
 	}
 	if (Count <= 0)
 	{
@@ -1210,7 +1210,7 @@ FECACommandResult FECACommand_BatchSpawnActors::Execute(const TSharedPtr<FJsonOb
 	FVector BaseLocation;
 	if (!GetVectorParam(Params, TEXT("base_location"), BaseLocation))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: base_location"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: base_location"));
 	}
 
 	// Spacing (optional, default {200,0,0})
@@ -1345,7 +1345,7 @@ FECACommandResult FECACommand_TeleportActor::Execute(const TSharedPtr<FJsonObjec
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 
 	AActor* Actor = FindActorByName(ActorName);
@@ -1358,7 +1358,7 @@ FECACommandResult FECACommand_TeleportActor::Execute(const TSharedPtr<FJsonObjec
 	FVector Location;
 	if (!GetVectorParam(Params, TEXT("location"), Location))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: location"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: location"));
 	}
 
 	// Sweep (optional, default false)
@@ -1420,7 +1420,7 @@ FECACommandResult FECACommand_GenerateGrid::Execute(const TSharedPtr<FJsonObject
 	int32 Rows = 0;
 	if (!GetIntParam(Params, TEXT("rows"), Rows))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: rows"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: rows"));
 	}
 	if (Rows <= 0)
 	{
@@ -1431,7 +1431,7 @@ FECACommandResult FECACommand_GenerateGrid::Execute(const TSharedPtr<FJsonObject
 	int32 Columns = 0;
 	if (!GetIntParam(Params, TEXT("columns"), Columns))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: columns"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: columns"));
 	}
 	if (Columns <= 0)
 	{
@@ -1555,7 +1555,7 @@ FECACommandResult FECACommand_GenerateCircle::Execute(const TSharedPtr<FJsonObje
 	int32 Count = 0;
 	if (!GetIntParam(Params, TEXT("count"), Count))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: count"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: count"));
 	}
 	if (Count <= 0)
 	{
@@ -1694,7 +1694,7 @@ FECACommandResult FECACommand_DestroyActorsByPattern::Execute(const TSharedPtr<F
 	FString NamePattern;
 	if (!GetStringParam(Params, TEXT("name_pattern"), NamePattern))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: name_pattern"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: name_pattern"));
 	}
 
 	// Dry run (optional, default false)
@@ -1766,7 +1766,7 @@ FECACommandResult FECACommand_TakeCameraScreenshot::Execute(const TSharedPtr<FJs
 	FString CameraName;
 	if (!GetStringParam(Params, TEXT("camera_name"), CameraName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: camera_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: camera_name"));
 	}
 
 	// Filename (optional — when omitted, return PNG inline)
@@ -1913,7 +1913,7 @@ FECACommandResult FECACommand_SpawnDecal::Execute(const TSharedPtr<FJsonObject>&
 	FString MaterialPath;
 	if (!GetStringParam(Params, TEXT("material_path"), MaterialPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: material_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: material_path"));
 	}
 
 	UMaterialInterface* Material = EnvironmentCommandHelpers::LoadMaterialByPath(MaterialPath);
@@ -1926,7 +1926,7 @@ FECACommandResult FECACommand_SpawnDecal::Execute(const TSharedPtr<FJsonObject>&
 	FVector Location;
 	if (!GetVectorParam(Params, TEXT("location"), Location))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: location"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: location"));
 	}
 
 	// Rotation (optional — default points down: pitch -90)
@@ -1997,14 +1997,14 @@ FECACommandResult FECACommand_SpawnTextRender::Execute(const TSharedPtr<FJsonObj
 	FString Text;
 	if (!GetStringParam(Params, TEXT("text"), Text))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: text"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: text"));
 	}
 
 	// Location (required)
 	FVector Location;
 	if (!GetVectorParam(Params, TEXT("location"), Location))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: location"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: location"));
 	}
 
 	// Rotation (optional)
@@ -2088,7 +2088,7 @@ FECACommandResult FECACommand_DescribeActor::Execute(const TSharedPtr<FJsonObjec
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 
 	AActor* Actor = FindActorByName(ActorName);
@@ -2322,7 +2322,7 @@ FECACommandResult FECACommand_CloneActorArray::Execute(const TSharedPtr<FJsonObj
 	FString SourceActorName;
 	if (!GetStringParam(Params, TEXT("source_actor"), SourceActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: source_actor"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: source_actor"));
 	}
 
 	AActor* SourceActor = FindActorByName(SourceActorName);
@@ -2335,7 +2335,7 @@ FECACommandResult FECACommand_CloneActorArray::Execute(const TSharedPtr<FJsonObj
 	int32 Count = 0;
 	if (!GetIntParam(Params, TEXT("count"), Count))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: count"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: count"));
 	}
 	if (Count <= 0)
 	{
@@ -2463,7 +2463,7 @@ FECACommandResult FECACommand_SpawnAudioSource::Execute(const TSharedPtr<FJsonOb
 	FString SoundPath;
 	if (!GetStringParam(Params, TEXT("sound_path"), SoundPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: sound_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: sound_path"));
 	}
 
 	// Load the sound asset
@@ -2488,7 +2488,7 @@ FECACommandResult FECACommand_SpawnAudioSource::Execute(const TSharedPtr<FJsonOb
 	FVector Location;
 	if (!GetVectorParam(Params, TEXT("location"), Location))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: location"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: location"));
 	}
 
 	// Auto play (optional, default true)
@@ -2579,7 +2579,7 @@ FECACommandResult FECACommand_SpawnTriggerBox::Execute(const TSharedPtr<FJsonObj
 	FVector Location;
 	if (!GetVectorParam(Params, TEXT("location"), Location))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: location"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: location"));
 	}
 
 	// Extent (optional, default 100x100x100)
@@ -2643,7 +2643,7 @@ FECACommandResult FECACommand_AlignActors::Execute(const TSharedPtr<FJsonObject>
 	const TArray<TSharedPtr<FJsonValue>>* ActorNamesArray = nullptr;
 	if (!GetArrayParam(Params, TEXT("actor_names"), ActorNamesArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_names"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_names"));
 	}
 
 	if (ActorNamesArray->Num() < 2)
@@ -2655,7 +2655,7 @@ FECACommandResult FECACommand_AlignActors::Execute(const TSharedPtr<FJsonObject>
 	FString AlignAxis;
 	if (!GetStringParam(Params, TEXT("align_axis"), AlignAxis))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: align_axis"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: align_axis"));
 	}
 	AlignAxis = AlignAxis.ToLower();
 
@@ -2799,7 +2799,7 @@ FECACommandResult FECACommand_DistributeActors::Execute(const TSharedPtr<FJsonOb
 	const TArray<TSharedPtr<FJsonValue>>* ActorNamesArray = nullptr;
 	if (!GetArrayParam(Params, TEXT("actor_names"), ActorNamesArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_names"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_names"));
 	}
 
 	if (ActorNamesArray->Num() < 2)
@@ -2979,7 +2979,7 @@ FECACommandResult FECACommand_SnapshotSceneState::Execute(const TSharedPtr<FJson
 	FString SnapshotName;
 	if (!GetStringParam(Params, TEXT("snapshot_name"), SnapshotName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: snapshot_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: snapshot_name"));
 	}
 
 	bool bIncludeProperties = false;
@@ -3097,7 +3097,7 @@ FECACommandResult FECACommand_RestoreSceneState::Execute(const TSharedPtr<FJsonO
 	FString SnapshotName;
 	if (!GetStringParam(Params, TEXT("snapshot_name"), SnapshotName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: snapshot_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: snapshot_name"));
 	}
 
 	TSharedPtr<FJsonObject>* FoundSnapshot = EnvironmentCommandHelpers::SceneSnapshots.Find(SnapshotName);
@@ -3317,7 +3317,7 @@ FECACommandResult FECACommand_SetTimeDilation::Execute(const TSharedPtr<FJsonObj
 	double TimeDilation = 1.0;
 	if (!GetFloatParam(Params, TEXT("time_dilation"), TimeDilation))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: time_dilation"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: time_dilation"));
 	}
 
 	// Clamp to UE's valid range (UE min is KINDA_SMALL_NUMBER, max is generally 20)
@@ -3437,7 +3437,7 @@ FECACommandResult FECACommand_RandomizeTransforms::Execute(const TSharedPtr<FJso
 	const TArray<TSharedPtr<FJsonValue>>* ActorNamesArray = nullptr;
 	if (!GetArrayParam(Params, TEXT("actor_names"), ActorNamesArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_names"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_names"));
 	}
 
 	if (ActorNamesArray->Num() == 0)
@@ -3684,14 +3684,14 @@ FECACommandResult FECACommand_SetActorFolder::Execute(const TSharedPtr<FJsonObje
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 
 	// Folder path (required)
 	FString FolderPath;
 	if (!GetStringParam(Params, TEXT("folder_path"), FolderPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: folder_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: folder_path"));
 	}
 
 	AActor* Actor = FindActorByName(ActorName);
@@ -3723,14 +3723,14 @@ FECACommandResult FECACommand_GroupActors::Execute(const TSharedPtr<FJsonObject>
 	const TArray<TSharedPtr<FJsonValue>>* ActorNamesArray = nullptr;
 	if (!GetArrayParam(Params, TEXT("actor_names"), ActorNamesArray) || !ActorNamesArray)
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_names"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_names"));
 	}
 
 	// Folder path (required)
 	FString FolderPath;
 	if (!GetStringParam(Params, TEXT("folder_path"), FolderPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: folder_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: folder_path"));
 	}
 
 	TArray<TSharedPtr<FJsonValue>> SuccessArray;
@@ -3782,14 +3782,14 @@ FECACommandResult FECACommand_SetCollisionPreset::Execute(const TSharedPtr<FJson
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 
 	// Preset name (required)
 	FString PresetName;
 	if (!GetStringParam(Params, TEXT("preset_name"), PresetName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: preset_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: preset_name"));
 	}
 
 	AActor* Actor = FindActorByName(ActorName);
@@ -3842,7 +3842,7 @@ FECACommandResult FECACommand_TakeScreenshotsSweep::Execute(const TSharedPtr<FJs
 	FVector TargetLocation;
 	if (!GetVectorParam(Params, TEXT("target_location"), TargetLocation))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: target_location"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: target_location"));
 	}
 
 	// Radius (optional, default 300)
@@ -4345,14 +4345,14 @@ FECACommandResult FECACommand_ReplaceMaterialOnActors::Execute(const TSharedPtr<
 	FString OldMaterialPath;
 	if (!GetStringParam(Params, TEXT("old_material_path"), OldMaterialPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: old_material_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: old_material_path"));
 	}
 
 	// New material path (required)
 	FString NewMaterialPath;
 	if (!GetStringParam(Params, TEXT("new_material_path"), NewMaterialPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: new_material_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: new_material_path"));
 	}
 
 	// Actor filter (optional)
@@ -4478,14 +4478,14 @@ FECACommandResult FECACommand_SetLodSettings::Execute(const TSharedPtr<FJsonObje
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 
 	// Forced LOD (required)
 	int32 ForcedLod = 0;
 	if (!GetIntParam(Params, TEXT("forced_lod"), ForcedLod))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: forced_lod"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: forced_lod"));
 	}
 
 	AActor* Actor = FindActorByName(ActorName);
@@ -4600,13 +4600,13 @@ FECACommandResult FECACommand_SetViewportResolution::Execute(const TSharedPtr<FJ
 	int32 Width = 0;
 	if (!GetIntParam(Params, TEXT("width"), Width))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: width"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: width"));
 	}
 
 	int32 Height = 0;
 	if (!GetIntParam(Params, TEXT("height"), Height))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: height"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: height"));
 	}
 
 	if (Width <= 0 || Height <= 0)
@@ -4664,7 +4664,7 @@ FECACommandResult FECACommand_GetMaterialSlots::Execute(const TSharedPtr<FJsonOb
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 
 	AActor* Actor = FindActorByName(ActorName);
@@ -4896,7 +4896,7 @@ FECACommandResult FECACommand_DuplicateLevel::Execute(const TSharedPtr<FJsonObje
 	FString NewPath;
 	if (!GetStringParam(Params, TEXT("new_path"), NewPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: new_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: new_path"));
 	}
 
 	// Get the current level name for the result
@@ -5072,14 +5072,14 @@ FECACommandResult FECACommand_ExportActorAsFbx::Execute(const TSharedPtr<FJsonOb
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 
 	// output_path (required)
 	FString OutputPath;
 	if (!GetStringParam(Params, TEXT("output_path"), OutputPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: output_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: output_path"));
 	}
 
 	// Find the actor
@@ -5237,7 +5237,7 @@ FECACommandResult FECACommand_ScatterActorsOnSurface::Execute(const TSharedPtr<F
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	UStaticMesh* Mesh = EnvironmentCommandHelpers::LoadMeshByPath(MeshPath);
@@ -5250,7 +5250,7 @@ FECACommandResult FECACommand_ScatterActorsOnSurface::Execute(const TSharedPtr<F
 	int32 Count = 0;
 	if (!GetIntParam(Params, TEXT("count"), Count))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: count"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: count"));
 	}
 	if (Count <= 0)
 	{
@@ -5265,14 +5265,14 @@ FECACommandResult FECACommand_ScatterActorsOnSurface::Execute(const TSharedPtr<F
 	FVector BoundsMin;
 	if (!GetVectorParam(Params, TEXT("bounds_min"), BoundsMin))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: bounds_min"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: bounds_min"));
 	}
 
 	// bounds_max (required)
 	FVector BoundsMax;
 	if (!GetVectorParam(Params, TEXT("bounds_max"), BoundsMax))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: bounds_max"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: bounds_max"));
 	}
 
 	// trace_height (optional, default 10000)
@@ -5395,14 +5395,14 @@ FECACommandResult FECACommand_ParentActorTo::Execute(const TSharedPtr<FJsonObjec
 	FString ChildName;
 	if (!GetStringParam(Params, TEXT("child_actor"), ChildName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: child_actor"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: child_actor"));
 	}
 
 	// parent_actor (required)
 	FString ParentName;
 	if (!GetStringParam(Params, TEXT("parent_actor"), ParentName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: parent_actor"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: parent_actor"));
 	}
 
 	// Find actors
@@ -5470,7 +5470,7 @@ FECACommandResult FECACommand_DetachActor::Execute(const TSharedPtr<FJsonObject>
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 
 	AActor* Actor = FindActorByName(ActorName);
@@ -5522,7 +5522,7 @@ FECACommandResult FECACommand_ListActorChildren::Execute(const TSharedPtr<FJsonO
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 
 	AActor* Actor = FindActorByName(ActorName);
@@ -5575,14 +5575,14 @@ FECACommandResult FECACommand_SpawnBlueprintAt::Execute(const TSharedPtr<FJsonOb
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 
 	// Location (required)
 	FVector Location;
 	if (!GetVectorParam(Params, TEXT("location"), Location))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: location"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: location"));
 	}
 
 	// Load the Blueprint asset
@@ -5667,7 +5667,7 @@ FECACommandResult FECACommand_CopyActorTransform::Execute(const TSharedPtr<FJson
 	FString SourceName;
 	if (!GetStringParam(Params, TEXT("source_actor"), SourceName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: source_actor"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: source_actor"));
 	}
 
 	AActor* SourceActor = FindActorByName(SourceName);
@@ -5680,7 +5680,7 @@ FECACommandResult FECACommand_CopyActorTransform::Execute(const TSharedPtr<FJson
 	FString TargetName;
 	if (!GetStringParam(Params, TEXT("target_actor"), TargetName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: target_actor"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: target_actor"));
 	}
 
 	AActor* TargetActor = FindActorByName(TargetName);
@@ -5743,7 +5743,7 @@ FECACommandResult FECACommand_GetAllAssetPaths::Execute(const TSharedPtr<FJsonOb
 	FString DirectoryPath;
 	if (!GetStringParam(Params, TEXT("directory_path"), DirectoryPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: directory_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: directory_path"));
 	}
 
 	// Recursive (optional, default true)
@@ -5808,7 +5808,7 @@ FECACommandResult FECACommand_SetActorColor::Execute(const TSharedPtr<FJsonObjec
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 
 	AActor* Actor = FindActorByName(ActorName);
@@ -5821,7 +5821,7 @@ FECACommandResult FECACommand_SetActorColor::Execute(const TSharedPtr<FJsonObjec
 	const TSharedPtr<FJsonObject>* ColorObj = nullptr;
 	if (!GetObjectParam(Params, TEXT("color"), ColorObj))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: color"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: color"));
 	}
 
 	double R = 1.0, G = 1.0, B = 1.0;

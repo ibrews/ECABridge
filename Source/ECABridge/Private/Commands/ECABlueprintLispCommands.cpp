@@ -1324,7 +1324,7 @@ FECACommandResult FECACommand_ParseBlueprintLisp::Execute(const TSharedPtr<FJson
 	FString Code;
 	if (!GetStringParam(Params, TEXT("code"), Code))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: code"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: code"));
 	}
 	
 	bool bPrettyPrint = false;
@@ -1396,7 +1396,7 @@ FECACommandResult FECACommand_BlueprintToLisp::Execute(const TSharedPtr<FJsonObj
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString GraphName = TEXT("EventGraph");
@@ -5758,13 +5758,13 @@ FECACommandResult FECACommand_LispToBlueprint::Execute(const TSharedPtr<FJsonObj
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString Code;
 	if (!GetStringParam(Params, TEXT("code"), Code))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: code"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: code"));
 	}
 	
 	FString GraphName = TEXT("EventGraph");

@@ -90,7 +90,7 @@ FECACommandResult FECACommand_CreateUMGWidgetBlueprint::Execute(const TSharedPtr
 	FString WidgetName;
 	if (!GetStringParam(Params, TEXT("widget_name"), WidgetName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_name"));
 	}
 	
 	FString ParentClassStr = TEXT("UserWidget");
@@ -193,13 +193,13 @@ FECACommandResult FECACommand_AddTextBlockToWidget::Execute(const TSharedPtr<FJs
 	FString WidgetPath;
 	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_path"));
 	}
 	
 	FString TextBlockName;
 	if (!GetStringParam(Params, TEXT("text_block_name"), TextBlockName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: text_block_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: text_block_name"));
 	}
 	
 	FString Text = TEXT("Text");
@@ -271,13 +271,13 @@ FECACommandResult FECACommand_AddButtonToWidget::Execute(const TSharedPtr<FJsonO
 	FString WidgetPath;
 	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_path"));
 	}
 	
 	FString ButtonName;
 	if (!GetStringParam(Params, TEXT("button_name"), ButtonName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: button_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: button_name"));
 	}
 	
 	FString ButtonText = TEXT("Button");
@@ -343,7 +343,7 @@ FECACommandResult FECACommand_AddWidgetToViewport::Execute(const TSharedPtr<FJso
 	FString WidgetPath;
 	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_path"));
 	}
 	
 	int32 ZOrder = 0;
@@ -405,19 +405,19 @@ FECACommandResult FECACommand_BindWidgetEvent::Execute(const TSharedPtr<FJsonObj
 	FString WidgetPath;
 	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_path"));
 	}
 
 	FString WidgetName;
 	if (!GetStringParam(Params, TEXT("widget_name"), WidgetName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_name"));
 	}
 
 	FString EventName;
 	if (!GetStringParam(Params, TEXT("event_name"), EventName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: event_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: event_name"));
 	}
 
 	FString FunctionName;
@@ -529,19 +529,19 @@ FECACommandResult FECACommand_SetTextBlockBinding::Execute(const TSharedPtr<FJso
 	FString WidgetPath;
 	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_path"));
 	}
 	
 	FString TextBlockName;
 	if (!GetStringParam(Params, TEXT("text_block_name"), TextBlockName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: text_block_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: text_block_name"));
 	}
 	
 	FString BindingFunction;
 	if (!GetStringParam(Params, TEXT("binding_function"), BindingFunction))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: binding_function"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: binding_function"));
 	}
 	
 	UWidgetBlueprint* WidgetBlueprint = LoadUMGWidgetBlueprintByPath(WidgetPath);
@@ -629,19 +629,19 @@ FECACommandResult FECACommand_AddWidgetElement::Execute(const TSharedPtr<FJsonOb
 	FString WidgetPath;
 	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_path"));
 	}
 
 	FString WidgetType;
 	if (!GetStringParam(Params, TEXT("widget_type"), WidgetType))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_type"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_type"));
 	}
 
 	FString ElementName;
 	if (!GetStringParam(Params, TEXT("element_name"), ElementName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: element_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: element_name"));
 	}
 
 	UWidgetBlueprint* WidgetBlueprint = LoadUMGWidgetBlueprintByPath(WidgetPath);
@@ -830,13 +830,13 @@ FECACommandResult FECACommand_AddImageToWidget::Execute(const TSharedPtr<FJsonOb
 	FString WidgetPath;
 	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_path"));
 	}
 	
 	FString ImageName;
 	if (!GetStringParam(Params, TEXT("image_name"), ImageName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: image_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: image_name"));
 	}
 	
 	UWidgetBlueprint* WidgetBlueprint = LoadUMGWidgetBlueprintByPath(WidgetPath);
@@ -904,7 +904,7 @@ FECACommandResult FECACommand_GetWidgetInfo::Execute(const TSharedPtr<FJsonObjec
 	FString WidgetPath;
 	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_path"));
 	}
 	
 	UWidgetBlueprint* WidgetBlueprint = LoadUMGWidgetBlueprintByPath(WidgetPath);
@@ -1030,7 +1030,7 @@ FECACommandResult FECACommand_DumpWidgetTree::Execute(const TSharedPtr<FJsonObje
 	FString WidgetPath;
 	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_path"));
 	}
 
 	bool bIncludeSlotProps = true;

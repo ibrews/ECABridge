@@ -258,19 +258,19 @@ FECACommandResult FECACommand_WrapWidget::Execute(const TSharedPtr<FJsonObject>&
 	FString WidgetPath;
 	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_path"));
 	}
 
 	FString WidgetName;
 	if (!GetStringParam(Params, TEXT("widget_name"), WidgetName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_name"));
 	}
 
 	FString WrapperClassName;
 	if (!GetStringParam(Params, TEXT("wrapper_class"), WrapperClassName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: wrapper_class"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: wrapper_class"));
 	}
 
 	FString WrapperName;
@@ -375,13 +375,13 @@ FECACommandResult FECACommand_UnwrapWidget::Execute(const TSharedPtr<FJsonObject
 	FString WidgetPath;
 	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_path"));
 	}
 
 	FString WidgetName;
 	if (!GetStringParam(Params, TEXT("widget_name"), WidgetName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_name"));
 	}
 
 	// Load the Widget Blueprint
@@ -495,19 +495,19 @@ FECACommandResult FECACommand_ReparentWidget::Execute(const TSharedPtr<FJsonObje
 	FString WidgetPath;
 	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_path"));
 	}
 
 	FString WidgetName;
 	if (!GetStringParam(Params, TEXT("widget_name"), WidgetName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_name"));
 	}
 
 	FString NewParentName;
 	if (!GetStringParam(Params, TEXT("new_parent_name"), NewParentName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: new_parent_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: new_parent_name"));
 	}
 
 	int32 InsertIndex = -1;
@@ -622,13 +622,13 @@ FECACommandResult FECACommand_SetSlotProperty::Execute(const TSharedPtr<FJsonObj
 	FString WidgetPath;
 	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_path"));
 	}
 
 	FString WidgetName;
 	if (!GetStringParam(Params, TEXT("widget_name"), WidgetName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_name"));
 	}
 
 	// Load the Widget Blueprint
@@ -825,19 +825,19 @@ FECACommandResult FECACommand_SetWidgetProperty::Execute(const TSharedPtr<FJsonO
 	FString WidgetPath;
 	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_path"));
 	}
 
 	FString WidgetName;
 	if (!GetStringParam(Params, TEXT("widget_name"), WidgetName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_name"));
 	}
 
 	const TSharedPtr<FJsonObject>* PropertiesObjPtr = nullptr;
 	if (!Params->TryGetObjectField(TEXT("properties"), PropertiesObjPtr) || !PropertiesObjPtr || !PropertiesObjPtr->IsValid())
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: properties (must be a JSON object)"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: properties (must be a JSON object)"));
 	}
 	const TSharedPtr<FJsonObject>& Properties = *PropertiesObjPtr;
 
@@ -1095,25 +1095,25 @@ FECACommandResult FECACommand_AddChildWidget::Execute(const TSharedPtr<FJsonObje
 	FString WidgetPath;
 	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_path"));
 	}
 
 	FString ParentName;
 	if (!GetStringParam(Params, TEXT("parent_name"), ParentName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: parent_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: parent_name"));
 	}
 
 	FString WidgetClassName;
 	if (!GetStringParam(Params, TEXT("widget_class"), WidgetClassName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_class"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_class"));
 	}
 
 	FString WidgetName;
 	if (!GetStringParam(Params, TEXT("widget_name"), WidgetName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_name"));
 	}
 
 	int32 InsertIndex = -1;
@@ -1228,7 +1228,7 @@ FECACommandResult FECACommand_CompileWidgetBlueprint::Execute(const TSharedPtr<F
 	FString WidgetPath;
 	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_path"));
 	}
 
 	UWidgetBlueprint* WidgetBlueprint = LoadWidgetBlueprintFromPath(WidgetPath);
@@ -1277,13 +1277,13 @@ FECACommandResult FECACommand_RemoveWidget::Execute(const TSharedPtr<FJsonObject
 	FString WidgetPath;
 	if (!GetStringParam(Params, TEXT("widget_path"), WidgetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_path"));
 	}
 
 	FString WidgetName;
 	if (!GetStringParam(Params, TEXT("widget_name"), WidgetName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: widget_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_name"));
 	}
 
 	// Load the Widget Blueprint

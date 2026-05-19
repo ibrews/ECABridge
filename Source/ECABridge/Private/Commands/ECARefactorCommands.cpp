@@ -26,13 +26,13 @@ FECACommandResult FECACommand_ReplaceAssetReferences::Execute(const TSharedPtr<F
 	FString OldAssetPath;
 	if (!GetStringParam(Params, TEXT("old_asset_path"), OldAssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: old_asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: old_asset_path"));
 	}
 
 	FString NewAssetPath;
 	if (!GetStringParam(Params, TEXT("new_asset_path"), NewAssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: new_asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: new_asset_path"));
 	}
 
 	bool bDryRun = false;
@@ -140,19 +140,19 @@ FECACommandResult FECACommand_BulkRenameAssets::Execute(const TSharedPtr<FJsonOb
 	FString PathFilter;
 	if (!GetStringParam(Params, TEXT("path_filter"), PathFilter))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: path_filter"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: path_filter"));
 	}
 
 	FString Find;
 	if (!GetStringParam(Params, TEXT("find"), Find))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: find"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: find"));
 	}
 
 	FString Replace;
 	if (!GetStringParam(Params, TEXT("replace"), Replace))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: replace"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: replace"));
 	}
 
 	FString ClassFilter;
@@ -266,13 +266,13 @@ FECACommandResult FECACommand_SearchAndReplaceProperty::Execute(const TSharedPtr
 	FString ClassFilter;
 	if (!GetStringParam(Params, TEXT("class_filter"), ClassFilter))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: class_filter"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: class_filter"));
 	}
 
 	FString PropertyName;
 	if (!GetStringParam(Params, TEXT("property_name"), PropertyName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: property_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: property_name"));
 	}
 
 	FString FindValue;
@@ -281,7 +281,7 @@ FECACommandResult FECACommand_SearchAndReplaceProperty::Execute(const TSharedPtr
 	FString ReplaceValue;
 	if (!GetStringParam(Params, TEXT("replace_value"), ReplaceValue))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: replace_value"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: replace_value"));
 	}
 
 	bool bDryRun = false;

@@ -465,13 +465,13 @@ FECACommandResult FECACommand_AddBlueprintEventNode::Execute(const TSharedPtr<FJ
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString EventName;
 	if (!GetStringParam(Params, TEXT("event_name"), EventName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: event_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: event_name"));
 	}
 	
 	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
@@ -547,13 +547,13 @@ FECACommandResult FECACommand_AddBlueprintInputActionNode::Execute(const TShared
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString ActionName;
 	if (!GetStringParam(Params, TEXT("action_name"), ActionName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: action_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: action_name"));
 	}
 	
 	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
@@ -599,13 +599,13 @@ FECACommandResult FECACommand_AddBlueprintFunctionNode::Execute(const TSharedPtr
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString FunctionName;
 	if (!GetStringParam(Params, TEXT("function_name"), FunctionName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: function_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: function_name"));
 	}
 	
 	FString Target = TEXT("self");
@@ -884,7 +884,7 @@ FECACommandResult FECACommand_ConnectBlueprintNodes::Execute(const TSharedPtr<FJ
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString SourceNodeId, TargetNodeId;
@@ -892,19 +892,19 @@ FECACommandResult FECACommand_ConnectBlueprintNodes::Execute(const TSharedPtr<FJ
 	
 	if (!GetStringParam(Params, TEXT("source_node_id"), SourceNodeId))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: source_node_id"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: source_node_id"));
 	}
 	if (!GetStringParam(Params, TEXT("source_pin"), SourcePinName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: source_pin"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: source_pin"));
 	}
 	if (!GetStringParam(Params, TEXT("target_node_id"), TargetNodeId))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: target_node_id"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: target_node_id"));
 	}
 	if (!GetStringParam(Params, TEXT("target_pin"), TargetPinName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: target_pin"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: target_pin"));
 	}
 	
 	FString GraphName = TEXT("EventGraph");
@@ -1037,7 +1037,7 @@ FECACommandResult FECACommand_AddBlueprintSelfReference::Execute(const TSharedPt
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString GraphName = TEXT("EventGraph");
@@ -1084,13 +1084,13 @@ FECACommandResult FECACommand_AddBlueprintComponentReference::Execute(const TSha
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString ComponentName;
 	if (!GetStringParam(Params, TEXT("component_name"), ComponentName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: component_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: component_name"));
 	}
 	
 	FString GraphName = TEXT("EventGraph");
@@ -1139,7 +1139,7 @@ FECACommandResult FECACommand_FindBlueprintNodes::Execute(const TSharedPtr<FJson
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString GraphName = TEXT("EventGraph");
@@ -1203,13 +1203,13 @@ FECACommandResult FECACommand_AddBlueprintVariableGetNode::Execute(const TShared
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString VariableName;
 	if (!GetStringParam(Params, TEXT("variable_name"), VariableName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: variable_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: variable_name"));
 	}
 	
 	FString GraphName = TEXT("EventGraph");
@@ -1259,13 +1259,13 @@ FECACommandResult FECACommand_AddBlueprintVariableSetNode::Execute(const TShared
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString VariableName;
 	if (!GetStringParam(Params, TEXT("variable_name"), VariableName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: variable_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: variable_name"));
 	}
 	
 	FString GraphName = TEXT("EventGraph");
@@ -1315,7 +1315,7 @@ FECACommandResult FECACommand_BatchEditBlueprintNodes::Execute(const TSharedPtr<
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString GraphName = TEXT("EventGraph");
@@ -1337,7 +1337,7 @@ FECACommandResult FECACommand_BatchEditBlueprintNodes::Execute(const TSharedPtr<
 	const TArray<TSharedPtr<FJsonValue>>* NodesArray;
 	if (!GetArrayParam(Params, TEXT("nodes"), NodesArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: nodes"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: nodes"));
 	}
 	
 	// Map of temp_id -> created node
@@ -1911,13 +1911,13 @@ FECACommandResult FECACommand_GetBlueprintNodePins::Execute(const TSharedPtr<FJs
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString NodeId;
 	if (!GetStringParam(Params, TEXT("node_id"), NodeId))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: node_id"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: node_id"));
 	}
 	
 	FString GraphName = TEXT("EventGraph");
@@ -1987,13 +1987,13 @@ FECACommandResult FECACommand_DeleteBlueprintNode::Execute(const TSharedPtr<FJso
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString NodeId;
 	if (!GetStringParam(Params, TEXT("node_id"), NodeId))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: node_id"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: node_id"));
 	}
 	
 	FString GraphName = TEXT("EventGraph");
@@ -2061,7 +2061,7 @@ FECACommandResult FECACommand_CleanupOrphanNodes::Execute(const TSharedPtr<FJson
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString GraphName = TEXT("EventGraph");
@@ -2176,13 +2176,13 @@ FECACommandResult FECACommand_DisconnectBlueprintNode::Execute(const TSharedPtr<
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString NodeId;
 	if (!GetStringParam(Params, TEXT("node_id"), NodeId))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: node_id"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: node_id"));
 	}
 	
 	FString GraphName = TEXT("EventGraph");
@@ -2279,25 +2279,25 @@ FECACommandResult FECACommand_SetBlueprintPinValue::Execute(const TSharedPtr<FJs
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString NodeId;
 	if (!GetStringParam(Params, TEXT("node_id"), NodeId))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: node_id"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: node_id"));
 	}
 	
 	FString PinName;
 	if (!GetStringParam(Params, TEXT("pin_name"), PinName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: pin_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: pin_name"));
 	}
 	
 	FString Value;
 	if (!GetStringParam(Params, TEXT("value"), Value))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: value"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: value"));
 	}
 	
 	FString GraphName = TEXT("EventGraph");
@@ -2558,19 +2558,19 @@ FECACommandResult FECACommand_SetBlueprintVariableDefault::Execute(const TShared
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString VariableName;
 	if (!GetStringParam(Params, TEXT("variable_name"), VariableName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: variable_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: variable_name"));
 	}
 	
 	FString Value;
 	if (!GetStringParam(Params, TEXT("value"), Value))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: value"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: value"));
 	}
 	
 	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
@@ -2677,13 +2677,13 @@ FECACommandResult FECACommand_GetBlueprintVariableDefault::Execute(const TShared
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString VariableName;
 	if (!GetStringParam(Params, TEXT("variable_name"), VariableName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: variable_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: variable_name"));
 	}
 	
 	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
@@ -2755,31 +2755,31 @@ FECACommandResult FECACommand_BreakPinConnection::Execute(const TSharedPtr<FJson
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString SourceNodeId;
 	if (!GetStringParam(Params, TEXT("source_node_id"), SourceNodeId))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: source_node_id"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: source_node_id"));
 	}
 	
 	FString SourcePinName;
 	if (!GetStringParam(Params, TEXT("source_pin"), SourcePinName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: source_pin"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: source_pin"));
 	}
 	
 	FString TargetNodeId;
 	if (!GetStringParam(Params, TEXT("target_node_id"), TargetNodeId))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: target_node_id"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: target_node_id"));
 	}
 	
 	FString TargetPinName;
 	if (!GetStringParam(Params, TEXT("target_pin"), TargetPinName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: target_pin"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: target_pin"));
 	}
 	
 	FString GraphName = TEXT("EventGraph");
@@ -2866,19 +2866,19 @@ FECACommandResult FECACommand_AddComponentEventNode::Execute(const TSharedPtr<FJ
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString ComponentName;
 	if (!GetStringParam(Params, TEXT("component_name"), ComponentName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: component_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: component_name"));
 	}
 	
 	FString EventName;
 	if (!GetStringParam(Params, TEXT("event_name"), EventName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: event_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: event_name"));
 	}
 	
 	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
@@ -3009,13 +3009,13 @@ FECACommandResult FECACommand_AddBlueprintMacroNode::Execute(const TSharedPtr<FJ
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString MacroName;
 	if (!GetStringParam(Params, TEXT("macro_name"), MacroName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: macro_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: macro_name"));
 	}
 	
 	FString GraphName = TEXT("EventGraph");
@@ -3099,13 +3099,13 @@ FECACommandResult FECACommand_AddBlueprintCastNode::Execute(const TSharedPtr<FJs
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString TargetClassName;
 	if (!GetStringParam(Params, TEXT("target_class"), TargetClassName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: target_class"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: target_class"));
 	}
 	
 	FString GraphName = TEXT("EventGraph");
@@ -3214,13 +3214,13 @@ FECACommandResult FECACommand_DeleteBlueprintComponent::Execute(const TSharedPtr
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString ComponentName;
 	if (!GetStringParam(Params, TEXT("component_name"), ComponentName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: component_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: component_name"));
 	}
 	
 	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
@@ -3298,13 +3298,13 @@ FECACommandResult FECACommand_AddBlueprintFlowControlNode::Execute(const TShared
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString NodeType;
 	if (!GetStringParam(Params, TEXT("node_type"), NodeType))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: node_type"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: node_type"));
 	}
 	
 	FString GraphName = TEXT("EventGraph");
@@ -3427,7 +3427,7 @@ FECACommandResult FECACommand_AutoLayoutBlueprintGraph::Execute(const TSharedPtr
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
@@ -3555,7 +3555,7 @@ FECACommandResult FECACommand_AutoLayoutBlueprintGraph_Legacy(const TSharedPtr<F
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
@@ -4096,7 +4096,7 @@ FECACommandResult FECACommand_DumpBlueprintGraph::Execute(const TSharedPtr<FJson
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 
 	FString SpecificGraph;
@@ -4246,7 +4246,7 @@ FECACommandResult FECACommand_SearchBlueprintUsage::Execute(const TSharedPtr<FJs
 	FString SearchTerm;
 	if (!GetStringParam(Params, TEXT("search_term"), SearchTerm))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: search_term"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: search_term"));
 	}
 
 	FString PathFilter = TEXT("/Game");

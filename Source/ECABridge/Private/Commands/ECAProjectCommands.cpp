@@ -76,13 +76,13 @@ FECACommandResult FECACommand_CreateInputMapping::Execute(const TSharedPtr<FJson
 	FString ActionName;
 	if (!GetStringParam(Params, TEXT("action_name"), ActionName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: action_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: action_name"));
 	}
 	
 	FString KeyName;
 	if (!GetStringParam(Params, TEXT("key"), KeyName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: key"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: key"));
 	}
 	
 	FString InputType = TEXT("Action");
@@ -212,7 +212,7 @@ FECACommandResult FECACommand_RemoveInputMapping::Execute(const TSharedPtr<FJson
 	FString ActionName;
 	if (!GetStringParam(Params, TEXT("action_name"), ActionName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: action_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: action_name"));
 	}
 	
 	FString InputType = TEXT("Action");
@@ -296,13 +296,13 @@ FECACommandResult FECACommand_SetProjectSetting::Execute(const TSharedPtr<FJsonO
 	FString SettingName;
 	if (!GetStringParam(Params, TEXT("setting_name"), SettingName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: setting_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: setting_name"));
 	}
 	
 	FString SettingValue;
 	if (!GetStringParam(Params, TEXT("setting_value"), SettingValue))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: setting_value"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: setting_value"));
 	}
 	
 	UGameMapsSettings* GameMapsSettings = GetMutableDefault<UGameMapsSettings>();

@@ -110,7 +110,7 @@ FECACommandResult FECACommand_SetLightProperties::Execute(const TSharedPtr<FJson
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 
 	AActor* Actor = FindActorByName(ActorName);
@@ -337,7 +337,7 @@ FECACommandResult FECACommand_GetLightProperties::Execute(const TSharedPtr<FJson
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 
 	AActor* Actor = FindActorByName(ActorName);

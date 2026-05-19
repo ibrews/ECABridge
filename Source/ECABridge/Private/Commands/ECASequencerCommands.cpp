@@ -113,9 +113,9 @@ FECACommandResult FECACommand_CreateLevelSequence::Execute(const TSharedPtr<FJso
 {
 	FString PackagePath, AssetName;
 	if (!GetStringParam(Params, TEXT("package_path"), PackagePath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: package_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: package_path"));
 	if (!GetStringParam(Params, TEXT("asset_name"), AssetName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_name"));
 
 	double FrameRate = 30.0;
 	GetFloatParam(Params, TEXT("frame_rate"), FrameRate, false);
@@ -188,9 +188,9 @@ FECACommandResult FECACommand_AddSequenceActorBinding::Execute(const TSharedPtr<
 {
 	FString SequencePath, ActorName;
 	if (!GetStringParam(Params, TEXT("sequence_path"), SequencePath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: sequence_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: sequence_path"));
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 
 	ULevelSequence* Seq = SequencerCommandHelpers::LoadSequence(SequencePath);
 	if (!Seq)
@@ -250,15 +250,15 @@ FECACommandResult FECACommand_AddSequenceTransformKey::Execute(const TSharedPtr<
 	FVector Scale = FVector::OneVector;
 
 	if (!GetStringParam(Params, TEXT("sequence_path"), SequencePath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: sequence_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: sequence_path"));
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	if (!GetFloatParam(Params, TEXT("time"), Time))
-		return FECACommandResult::Error(TEXT("Missing required parameter: time"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: time"));
 	if (!GetVectorParam(Params, TEXT("location"), Location))
-		return FECACommandResult::Error(TEXT("Missing required parameter: location"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: location"));
 	if (!GetRotatorParam(Params, TEXT("rotation"), Rotation))
-		return FECACommandResult::Error(TEXT("Missing required parameter: rotation"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: rotation"));
 
 	// Scale is optional, defaults to (1,1,1)
 	GetVectorParam(Params, TEXT("scale"), Scale, false);
@@ -370,13 +370,13 @@ FECACommandResult FECACommand_AddSequenceCamera::Execute(const TSharedPtr<FJsonO
 	FRotator Rotation = FRotator::ZeroRotator;
 
 	if (!GetStringParam(Params, TEXT("sequence_path"), SequencePath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: sequence_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: sequence_path"));
 	if (!GetStringParam(Params, TEXT("camera_name"), CameraName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: camera_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: camera_name"));
 	if (!GetVectorParam(Params, TEXT("location"), Location))
-		return FECACommandResult::Error(TEXT("Missing required parameter: location"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: location"));
 	if (!GetRotatorParam(Params, TEXT("rotation"), Rotation))
-		return FECACommandResult::Error(TEXT("Missing required parameter: rotation"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: rotation"));
 
 	ULevelSequence* Seq = SequencerCommandHelpers::LoadSequence(SequencePath);
 	if (!Seq)
@@ -453,7 +453,7 @@ FECACommandResult FECACommand_PlaySequence::Execute(const TSharedPtr<FJsonObject
 {
 	FString SequencePath;
 	if (!GetStringParam(Params, TEXT("sequence_path"), SequencePath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: sequence_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: sequence_path"));
 
 	ULevelSequence* Seq = SequencerCommandHelpers::LoadSequence(SequencePath);
 	if (!Seq)
@@ -506,7 +506,7 @@ FECACommandResult FECACommand_GetSequenceInfo::Execute(const TSharedPtr<FJsonObj
 {
 	FString SequencePath;
 	if (!GetStringParam(Params, TEXT("sequence_path"), SequencePath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: sequence_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: sequence_path"));
 
 	ULevelSequence* Seq = SequencerCommandHelpers::LoadSequence(SequencePath);
 	if (!Seq)
@@ -624,7 +624,7 @@ FECACommandResult FECACommand_SetCameraProperties::Execute(const TSharedPtr<FJso
 {
 	FString CameraName;
 	if (!GetStringParam(Params, TEXT("camera_name"), CameraName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: camera_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: camera_name"));
 
 	// At least one optional property must be provided
 	double FOV = 0.0, FocalLength = 0.0, Aperture = 0.0, FocusDistance = 0.0, SensorWidth = 0.0;
@@ -718,15 +718,15 @@ FECACommandResult FECACommand_AddSequenceFloatKey::Execute(const TSharedPtr<FJso
 	double Time = 0.0, Value = 0.0;
 
 	if (!GetStringParam(Params, TEXT("sequence_path"), SequencePath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: sequence_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: sequence_path"));
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	if (!GetStringParam(Params, TEXT("property_path"), PropertyPath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: property_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: property_path"));
 	if (!GetFloatParam(Params, TEXT("time"), Time))
-		return FECACommandResult::Error(TEXT("Missing required parameter: time"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: time"));
 	if (!GetFloatParam(Params, TEXT("value"), Value))
-		return FECACommandResult::Error(TEXT("Missing required parameter: value"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: value"));
 
 	ULevelSequence* Seq = SequencerCommandHelpers::LoadSequence(SequencePath);
 	if (!Seq)
@@ -901,9 +901,9 @@ FECACommandResult FECACommand_SetSequencePlaybackRange::Execute(const TSharedPtr
 	double StartTime = 0.0, EndTime = 0.0;
 
 	if (!GetStringParam(Params, TEXT("sequence_path"), SequencePath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: sequence_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: sequence_path"));
 	if (!GetFloatParam(Params, TEXT("end_time"), EndTime))
-		return FECACommandResult::Error(TEXT("Missing required parameter: end_time"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: end_time"));
 
 	GetFloatParam(Params, TEXT("start_time"), StartTime, false);
 
@@ -950,11 +950,11 @@ FECACommandResult FECACommand_AddSequenceEventKey::Execute(const TSharedPtr<FJso
 	double Time = 0.0;
 
 	if (!GetStringParam(Params, TEXT("sequence_path"), SequencePath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: sequence_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: sequence_path"));
 	if (!GetFloatParam(Params, TEXT("time"), Time))
-		return FECACommandResult::Error(TEXT("Missing required parameter: time"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: time"));
 	if (!GetStringParam(Params, TEXT("event_name"), EventName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: event_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: event_name"));
 
 	ULevelSequence* Seq = SequencerCommandHelpers::LoadSequence(SequencePath);
 	if (!Seq)
@@ -1149,11 +1149,11 @@ FECACommandResult FECACommand_AddSequenceAnimationTrack::Execute(const TSharedPt
 	double StartTime = 0.0;
 
 	if (!GetStringParam(Params, TEXT("sequence_path"), SequencePath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: sequence_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: sequence_path"));
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	if (!GetStringParam(Params, TEXT("animation_path"), AnimationPath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: animation_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: animation_path"));
 	GetFloatParam(Params, TEXT("start_time"), StartTime, false);
 
 	ULevelSequence* Seq = SequencerCommandHelpers::LoadSequence(SequencePath);
@@ -1255,7 +1255,7 @@ FECACommandResult FECACommand_DumpLevelSequence::Execute(const TSharedPtr<FJsonO
 	FString SequencePath;
 	if (!GetStringParam(Params, TEXT("sequence_path"), SequencePath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: sequence_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: sequence_path"));
 	}
 
 	bool bIncludeKeyframes = true;

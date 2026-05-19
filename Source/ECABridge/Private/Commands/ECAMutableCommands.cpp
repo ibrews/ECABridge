@@ -189,7 +189,7 @@ FECACommandResult FECACommand_GetCOInfo::Execute(const TSharedPtr<FJsonObject>& 
 {
 	FString ObjectPath;
 	if (!GetStringParam(Params, TEXT("object_path"), ObjectPath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: object_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: object_path"));
 
 	UCustomizableObject* CO = MutableCommandHelpers::LoadCO(ObjectPath);
 	if (!CO)
@@ -299,9 +299,9 @@ FECACommandResult FECACommand_GetCONodePins::Execute(const TSharedPtr<FJsonObjec
 {
 	FString ObjectPath, NodeName;
 	if (!GetStringParam(Params, TEXT("object_path"), ObjectPath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: object_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: object_path"));
 	if (!GetStringParam(Params, TEXT("node_name"), NodeName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: node_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: node_name"));
 
 	UCustomizableObject* CO = MutableCommandHelpers::LoadCO(ObjectPath);
 	if (!CO)
@@ -337,9 +337,9 @@ FECACommandResult FECACommand_CreateCO::Execute(const TSharedPtr<FJsonObject>& P
 {
 	FString PackagePath, AssetName;
 	if (!GetStringParam(Params, TEXT("package_path"), PackagePath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: package_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: package_path"));
 	if (!GetStringParam(Params, TEXT("asset_name"), AssetName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_name"));
 
 	FNewCustomizableObjectParameters NewParams;
 	NewParams.PackagePath = PackagePath;
@@ -424,9 +424,9 @@ FECACommandResult FECACommand_AddCONode::Execute(const TSharedPtr<FJsonObject>& 
 {
 	FString ObjectPath, NodeClassName;
 	if (!GetStringParam(Params, TEXT("object_path"), ObjectPath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: object_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: object_path"));
 	if (!GetStringParam(Params, TEXT("node_class"), NodeClassName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: node_class"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: node_class"));
 
 	double PosX = 0, PosY = 0;
 	GetFloatParam(Params, TEXT("pos_x"), PosX, false);
@@ -510,11 +510,11 @@ FECACommandResult FECACommand_SetCONodeProperty::Execute(const TSharedPtr<FJsonO
 {
 	FString ObjectPath, NodeName, PropertyName;
 	if (!GetStringParam(Params, TEXT("object_path"), ObjectPath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: object_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: object_path"));
 	if (!GetStringParam(Params, TEXT("node_name"), NodeName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: node_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: node_name"));
 	if (!GetStringParam(Params, TEXT("property_name"), PropertyName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: property_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: property_name"));
 
 	UCustomizableObject* CO = MutableCommandHelpers::LoadCO(ObjectPath);
 	if (!CO)
@@ -537,7 +537,7 @@ FECACommandResult FECACommand_SetCONodeProperty::Execute(const TSharedPtr<FJsonO
 
 	TSharedPtr<FJsonValue> JsonValue = Params->TryGetField(TEXT("property_value"));
 	if (!JsonValue.IsValid())
-		return FECACommandResult::Error(TEXT("Missing required parameter: property_value"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: property_value"));
 
 	void* ValuePtr = Property->ContainerPtrToValuePtr<void>(Node);
 
@@ -700,15 +700,15 @@ FECACommandResult FECACommand_ConnectCONodes::Execute(const TSharedPtr<FJsonObje
 {
 	FString ObjectPath, SourceNodeName, SourcePinName, TargetNodeName, TargetPinName;
 	if (!GetStringParam(Params, TEXT("object_path"), ObjectPath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: object_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: object_path"));
 	if (!GetStringParam(Params, TEXT("source_node"), SourceNodeName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: source_node"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: source_node"));
 	if (!GetStringParam(Params, TEXT("source_pin"), SourcePinName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: source_pin"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: source_pin"));
 	if (!GetStringParam(Params, TEXT("target_node"), TargetNodeName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: target_node"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: target_node"));
 	if (!GetStringParam(Params, TEXT("target_pin"), TargetPinName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: target_pin"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: target_pin"));
 
 	UCustomizableObject* CO = MutableCommandHelpers::LoadCO(ObjectPath);
 	if (!CO)
@@ -781,11 +781,11 @@ FECACommandResult FECACommand_DisconnectCONodes::Execute(const TSharedPtr<FJsonO
 {
 	FString ObjectPath, NodeName, PinName;
 	if (!GetStringParam(Params, TEXT("object_path"), ObjectPath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: object_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: object_path"));
 	if (!GetStringParam(Params, TEXT("node_name"), NodeName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: node_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: node_name"));
 	if (!GetStringParam(Params, TEXT("pin_name"), PinName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: pin_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: pin_name"));
 
 	UCustomizableObject* CO = MutableCommandHelpers::LoadCO(ObjectPath);
 	if (!CO)
@@ -861,9 +861,9 @@ FECACommandResult FECACommand_RemoveCONode::Execute(const TSharedPtr<FJsonObject
 {
 	FString ObjectPath, NodeName;
 	if (!GetStringParam(Params, TEXT("object_path"), ObjectPath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: object_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: object_path"));
 	if (!GetStringParam(Params, TEXT("node_name"), NodeName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: node_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: node_name"));
 
 	UCustomizableObject* CO = MutableCommandHelpers::LoadCO(ObjectPath);
 	if (!CO)
@@ -913,7 +913,7 @@ FECACommandResult FECACommand_CompileCO::Execute(const TSharedPtr<FJsonObject>& 
 {
 	FString ObjectPath;
 	if (!GetStringParam(Params, TEXT("object_path"), ObjectPath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: object_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: object_path"));
 
 	UCustomizableObject* CO = MutableCommandHelpers::LoadCO(ObjectPath);
 	if (!CO)
@@ -966,7 +966,7 @@ FECACommandResult FECACommand_GetCOInstanceParams::Execute(const TSharedPtr<FJso
 {
 	FString ObjectPath;
 	if (!GetStringParam(Params, TEXT("object_path"), ObjectPath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: object_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: object_path"));
 
 	// Try loading as CO first, then as COI
 	UCustomizableObject* CO = MutableCommandHelpers::LoadCO(ObjectPath);
@@ -1043,7 +1043,7 @@ FECACommandResult FECACommand_SaveCO::Execute(const TSharedPtr<FJsonObject>& Par
 {
 	FString ObjectPath;
 	if (!GetStringParam(Params, TEXT("object_path"), ObjectPath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: object_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: object_path"));
 
 	UCustomizableObject* CO = MutableCommandHelpers::LoadCO(ObjectPath);
 	if (!CO)
@@ -1073,7 +1073,7 @@ FECACommandResult FECACommand_SpawnCOActor::Execute(const TSharedPtr<FJsonObject
 {
 	FString ObjectPath;
 	if (!GetStringParam(Params, TEXT("object_path"), ObjectPath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: object_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: object_path"));
 
 	UCustomizableObject* CO = MutableCommandHelpers::LoadCO(ObjectPath);
 	if (!CO)
@@ -1145,13 +1145,13 @@ FECACommandResult FECACommand_SetCOInstanceParam::Execute(const TSharedPtr<FJson
 {
 	FString ActorName, ParamName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	if (!GetStringParam(Params, TEXT("param_name"), ParamName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: param_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: param_name"));
 
 	TSharedPtr<FJsonValue> ParamValue = Params->TryGetField(TEXT("param_value"));
 	if (!ParamValue.IsValid())
-		return FECACommandResult::Error(TEXT("Missing required parameter: param_value"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: param_value"));
 
 	AActor* Actor = FindActorByName(ActorName);
 	if (!Actor)
@@ -1275,9 +1275,9 @@ FECACommandResult FECACommand_CreateMetaHuman::Execute(const TSharedPtr<FJsonObj
 {
 	FString PackagePath, AssetName;
 	if (!GetStringParam(Params, TEXT("package_path"), PackagePath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: package_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: package_path"));
 	if (!GetStringParam(Params, TEXT("asset_name"), AssetName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_name"));
 
 	// Discover MetaHuman classes via reflection — no compile-time dependency on the plugin
 	UClass* MHCharClass = FindObject<UClass>(nullptr, TEXT("/Script/MetaHumanCharacter.MetaHumanCharacter"));

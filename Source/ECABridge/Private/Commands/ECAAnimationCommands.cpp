@@ -94,9 +94,9 @@ FECACommandResult FECACommand_PlayAnimation::Execute(const TSharedPtr<FJsonObjec
 {
 	FString ActorName, AnimationPath;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	if (!GetStringParam(Params, TEXT("animation_path"), AnimationPath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: animation_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: animation_path"));
 
 	bool bLoop = false;
 	GetBoolParam(Params, TEXT("loop"), bLoop, /*bRequired=*/false);
@@ -174,7 +174,7 @@ FECACommandResult FECACommand_StopAnimation::Execute(const TSharedPtr<FJsonObjec
 {
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 
 	AActor* Actor = FindActorByName(ActorName);
 	if (!Actor)
@@ -207,7 +207,7 @@ FECACommandResult FECACommand_GetActorAnimations::Execute(const TSharedPtr<FJson
 {
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 
 	AActor* Actor = FindActorByName(ActorName);
 	if (!Actor)
@@ -297,9 +297,9 @@ FECACommandResult FECACommand_SetAnimationBlueprint::Execute(const TSharedPtr<FJ
 {
 	FString ActorName, AnimBPPath;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	if (!GetStringParam(Params, TEXT("anim_bp_path"), AnimBPPath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: anim_bp_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: anim_bp_path"));
 
 	AActor* Actor = FindActorByName(ActorName);
 	if (!Actor)
@@ -622,15 +622,15 @@ FECACommandResult FECACommand_CreateAnimationSequence::Execute(const TSharedPtr<
 	// ── Parse required parameters ──
 	FString PackagePath, AssetName, SkeletonPath;
 	if (!GetStringParam(Params, TEXT("package_path"), PackagePath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: package_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: package_path"));
 	if (!GetStringParam(Params, TEXT("asset_name"), AssetName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_name"));
 	if (!GetStringParam(Params, TEXT("skeleton_path"), SkeletonPath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: skeleton_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: skeleton_path"));
 
 	int32 FrameCount = 0;
 	if (!GetIntParam(Params, TEXT("frame_count"), FrameCount))
-		return FECACommandResult::Error(TEXT("Missing required parameter: frame_count"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: frame_count"));
 	if (FrameCount < 1)
 		return FECACommandResult::Error(TEXT("frame_count must be at least 1"));
 
@@ -641,7 +641,7 @@ FECACommandResult FECACommand_CreateAnimationSequence::Execute(const TSharedPtr<
 
 	const TArray<TSharedPtr<FJsonValue>>* BoneTracksArray = nullptr;
 	if (!GetArrayParam(Params, TEXT("bone_tracks"), BoneTracksArray))
-		return FECACommandResult::Error(TEXT("Missing required parameter: bone_tracks"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: bone_tracks"));
 	if (!BoneTracksArray || BoneTracksArray->Num() == 0)
 		return FECACommandResult::Error(TEXT("bone_tracks must be a non-empty array"));
 
@@ -891,9 +891,9 @@ FECACommandResult FECACommand_SetSkeletalMesh::Execute(const TSharedPtr<FJsonObj
 {
 	FString ActorName, MeshPath;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 
 	FString ComponentName;
 	GetStringParam(Params, TEXT("component_name"), ComponentName, /*bRequired=*/false);
@@ -972,7 +972,7 @@ FECACommandResult FECACommand_DumpAnimationBlueprint::Execute(const TSharedPtr<F
 	FString AnimBPPath;
 	if (!GetStringParam(Params, TEXT("anim_bp_path"), AnimBPPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: anim_bp_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: anim_bp_path"));
 	}
 
 	UAnimBlueprint* AnimBP = LoadObject<UAnimBlueprint>(nullptr, *AnimBPPath);

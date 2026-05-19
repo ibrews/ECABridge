@@ -224,7 +224,7 @@ FECACommandResult FECACommand_CreateInputAction::Execute(const TSharedPtr<FJsonO
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	FString ValueTypeString = TEXT("Digital");
@@ -302,7 +302,7 @@ FECACommandResult FECACommand_CreateInputMappingContext::Execute(const TSharedPt
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	FString Description;
@@ -362,19 +362,19 @@ FECACommandResult FECACommand_AddInputMapping::Execute(const TSharedPtr<FJsonObj
 	FString ContextPath;
 	if (!GetStringParam(Params, TEXT("context_path"), ContextPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: context_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: context_path"));
 	}
 
 	FString ActionPath;
 	if (!GetStringParam(Params, TEXT("action_path"), ActionPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: action_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: action_path"));
 	}
 
 	FString KeyString;
 	if (!GetStringParam(Params, TEXT("key"), KeyString))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: key"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: key"));
 	}
 
 	UInputMappingContext* Context = LoadObject<UInputMappingContext>(nullptr, *ContextPath);
@@ -436,7 +436,7 @@ FECACommandResult FECACommand_DumpInputMappingContext::Execute(const TSharedPtr<
 	FString ContextPath;
 	if (!GetStringParam(Params, TEXT("context_path"), ContextPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: context_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: context_path"));
 	}
 
 	UInputMappingContext* Context = LoadObject<UInputMappingContext>(nullptr, *ContextPath);
@@ -491,7 +491,7 @@ FECACommandResult FECACommand_DumpInputAction::Execute(const TSharedPtr<FJsonObj
 	FString ActionPath;
 	if (!GetStringParam(Params, TEXT("action_path"), ActionPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: action_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: action_path"));
 	}
 
 	UInputAction* Action = LoadObject<UInputAction>(nullptr, *ActionPath);

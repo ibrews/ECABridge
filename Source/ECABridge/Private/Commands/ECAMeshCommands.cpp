@@ -783,13 +783,13 @@ FECACommandResult FECACommand_CreatePrimitive::Execute(const TSharedPtr<FJsonObj
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	FString Type;
 	if (!GetStringParam(Params, TEXT("type"), Type))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: type"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: type"));
 	}
 
 	// Get dimensions
@@ -1136,19 +1136,19 @@ FECACommandResult FECACommand_CreateMesh::Execute(const TSharedPtr<FJsonObject>&
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	const TArray<TSharedPtr<FJsonValue>>* VerticesArray;
 	if (!GetArrayParam(Params, TEXT("vertices"), VerticesArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: vertices"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: vertices"));
 	}
 
 	const TArray<TSharedPtr<FJsonValue>>* TrianglesArray;
 	if (!GetArrayParam(Params, TEXT("triangles"), TrianglesArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: triangles"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: triangles"));
 	}
 
 	// Optional UV and normal arrays
@@ -1500,13 +1500,13 @@ FECACommandResult FECACommand_CreateMeshFromFaces::Execute(const TSharedPtr<FJso
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	const TArray<TSharedPtr<FJsonValue>>* FacesArray;
 	if (!GetArrayParam(Params, TEXT("faces"), FacesArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: faces"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: faces"));
 	}
 
 	// Optional parameters
@@ -1921,13 +1921,13 @@ FECACommandResult FECACommand_CreatePolygonMesh::Execute(const TSharedPtr<FJsonO
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	const TArray<TSharedPtr<FJsonValue>>* PointsArray;
 	if (!GetArrayParam(Params, TEXT("points"), PointsArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: points"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: points"));
 	}
 
 	double Height = 0;
@@ -2050,19 +2050,19 @@ FECACommandResult FECACommand_MeshBoolean::Execute(const TSharedPtr<FJsonObject>
 	FString OutputPath;
 	if (!GetStringParam(Params, TEXT("output_path"), OutputPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: output_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: output_path"));
 	}
 
 	FString MeshAPath;
 	if (!GetStringParam(Params, TEXT("mesh_a"), MeshAPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_a"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_a"));
 	}
 
 	FString MeshBPath;
 	if (!GetStringParam(Params, TEXT("mesh_b"), MeshBPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_b"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_b"));
 	}
 
 	FString OperationStr = TEXT("difference");
@@ -2210,19 +2210,19 @@ FECACommandResult FECACommand_MeshPlaneCut::Execute(const TSharedPtr<FJsonObject
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	const TSharedPtr<FJsonObject>* PlaneOriginObj;
 	if (!GetObjectParam(Params, TEXT("plane_origin"), PlaneOriginObj))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: plane_origin"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: plane_origin"));
 	}
 
 	const TSharedPtr<FJsonObject>* PlaneNormalObj;
 	if (!GetObjectParam(Params, TEXT("plane_normal"), PlaneNormalObj))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: plane_normal"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: plane_normal"));
 	}
 
 	FString OutputPath;
@@ -2299,29 +2299,29 @@ FECACommandResult FECACommand_MeshSlice::Execute(const TSharedPtr<FJsonObject>& 
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	FString OutputPathA, OutputPathB;
 	if (!GetStringParam(Params, TEXT("output_path_a"), OutputPathA))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: output_path_a"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: output_path_a"));
 	}
 	if (!GetStringParam(Params, TEXT("output_path_b"), OutputPathB))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: output_path_b"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: output_path_b"));
 	}
 
 	const TSharedPtr<FJsonObject>* PlaneOriginObj;
 	if (!GetObjectParam(Params, TEXT("plane_origin"), PlaneOriginObj))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: plane_origin"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: plane_origin"));
 	}
 
 	const TSharedPtr<FJsonObject>* PlaneNormalObj;
 	if (!GetObjectParam(Params, TEXT("plane_normal"), PlaneNormalObj))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: plane_normal"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: plane_normal"));
 	}
 
 	bool bFillHoles = true;
@@ -2411,7 +2411,7 @@ FECACommandResult FECACommand_MeshMirror::Execute(const TSharedPtr<FJsonObject>&
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	FString OutputPath;
@@ -2507,19 +2507,19 @@ FECACommandResult FECACommand_ExtrudePolygon::Execute(const TSharedPtr<FJsonObje
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	const TArray<TSharedPtr<FJsonValue>>* PointsArray;
 	if (!GetArrayParam(Params, TEXT("points"), PointsArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: points"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: points"));
 	}
 
 	double Height = 100;
 	if (!GetFloatParam(Params, TEXT("height"), Height))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: height"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: height"));
 	}
 
 	int32 Segments = 1;
@@ -2584,13 +2584,13 @@ FECACommandResult FECACommand_RevolveProfile::Execute(const TSharedPtr<FJsonObje
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	const TArray<TSharedPtr<FJsonValue>>* PointsArray;
 	if (!GetArrayParam(Params, TEXT("points"), PointsArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: points"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: points"));
 	}
 
 	double Angle = 360;
@@ -2646,19 +2646,19 @@ FECACommandResult FECACommand_SweepProfile::Execute(const TSharedPtr<FJsonObject
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	const TArray<TSharedPtr<FJsonValue>>* ProfilePointsArray;
 	if (!GetArrayParam(Params, TEXT("profile_points"), ProfilePointsArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: profile_points"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: profile_points"));
 	}
 
 	const TArray<TSharedPtr<FJsonValue>>* PathPointsArray;
 	if (!GetArrayParam(Params, TEXT("path_points"), PathPointsArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: path_points"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: path_points"));
 	}
 
 	bool bClosedPath = false;
@@ -2734,7 +2734,7 @@ FECACommandResult FECACommand_MeshInset::Execute(const TSharedPtr<FJsonObject>& 
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	FString OutputPath;
@@ -2817,13 +2817,13 @@ FECACommandResult FECACommand_MeshOffset::Execute(const TSharedPtr<FJsonObject>&
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	double Distance = 0;
 	if (!GetFloatParam(Params, TEXT("distance"), Distance))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: distance"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: distance"));
 	}
 
 	FString OutputPath;
@@ -2890,19 +2890,19 @@ FECACommandResult FECACommand_MeshSimplify::Execute(const TSharedPtr<FJsonObject
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	FString Method;
 	if (!GetStringParam(Params, TEXT("method"), Method))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: method"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: method"));
 	}
 
 	double Target = 0;
 	if (!GetFloatParam(Params, TEXT("target"), Target))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: target"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: target"));
 	}
 
 	FString OutputPath;
@@ -2980,7 +2980,7 @@ FECACommandResult FECACommand_MeshSubdivide::Execute(const TSharedPtr<FJsonObjec
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	FString OutputPath;
@@ -3127,13 +3127,13 @@ FECACommandResult FECACommand_MeshRemesh::Execute(const TSharedPtr<FJsonObject>&
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	double TargetEdgeLength = 10;
 	if (!GetFloatParam(Params, TEXT("target_edge_length"), TargetEdgeLength))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: target_edge_length"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: target_edge_length"));
 	}
 
 	FString OutputPath;
@@ -3248,7 +3248,7 @@ FECACommandResult FECACommand_MeshSmooth::Execute(const TSharedPtr<FJsonObject>&
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	FString OutputPath;
@@ -3566,7 +3566,7 @@ FECACommandResult FECACommand_MeshDisplace::Execute(const TSharedPtr<FJsonObject
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	FString OutputPath;
@@ -3649,7 +3649,7 @@ FECACommandResult FECACommand_MeshBend::Execute(const TSharedPtr<FJsonObject>& P
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	FString OutputPath;
@@ -3771,7 +3771,7 @@ FECACommandResult FECACommand_MeshTwist::Execute(const TSharedPtr<FJsonObject>& 
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	FString OutputPath;
@@ -3886,7 +3886,7 @@ FECACommandResult FECACommand_CreateHeightfield::Execute(const TSharedPtr<FJsonO
 	FString AssetPath;
 	if (!GetStringParam(Params, TEXT("asset_path"), AssetPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: asset_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: asset_path"));
 	}
 
 	double SizeX = 1000, SizeY = 1000, HeightScale = 100;
@@ -3957,7 +3957,7 @@ FECACommandResult FECACommand_MeshGenerateUVs::Execute(const TSharedPtr<FJsonObj
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	FString OutputPath;
@@ -4154,7 +4154,7 @@ FECACommandResult FECACommand_MeshRecomputeNormals::Execute(const TSharedPtr<FJs
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	FString OutputPath;
@@ -4224,7 +4224,7 @@ FECACommandResult FECACommand_MeshFlipNormals::Execute(const TSharedPtr<FJsonObj
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	FString OutputPath;
@@ -4296,7 +4296,7 @@ FECACommandResult FECACommand_MeshReverseWinding::Execute(const TSharedPtr<FJson
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	FString OutputPath;
@@ -4345,7 +4345,7 @@ FECACommandResult FECACommand_MeshRepair::Execute(const TSharedPtr<FJsonObject>&
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	FString OutputPath;
@@ -4526,13 +4526,13 @@ FECACommandResult FECACommand_MeshSetMaterials::Execute(const TSharedPtr<FJsonOb
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	const TArray<TSharedPtr<FJsonValue>>* MaterialSlotsArray;
 	if (!GetArrayParam(Params, TEXT("material_slots"), MaterialSlotsArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: material_slots"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: material_slots"));
 	}
 
 	// Optional per-triangle material indices
@@ -4669,7 +4669,7 @@ FECACommandResult FECACommand_MeshTransform::Execute(const TSharedPtr<FJsonObjec
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	FString OutputPath;
@@ -4780,7 +4780,7 @@ FECACommandResult FECACommand_GetMeshInfo::Execute(const TSharedPtr<FJsonObject>
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	UStaticMesh* Mesh = MeshHelpers::LoadStaticMesh(MeshPath);
@@ -4854,7 +4854,7 @@ FECACommandResult FECACommand_GetMeshBounds::Execute(const TSharedPtr<FJsonObjec
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	UStaticMesh* Mesh = MeshHelpers::LoadStaticMesh(MeshPath);
@@ -4909,19 +4909,19 @@ FECACommandResult FECACommand_SpawnProceduralMesh::Execute(const TSharedPtr<FJso
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 
 	const TArray<TSharedPtr<FJsonValue>>* VerticesArray;
 	if (!GetArrayParam(Params, TEXT("vertices"), VerticesArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: vertices"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: vertices"));
 	}
 
 	const TArray<TSharedPtr<FJsonValue>>* TrianglesArray;
 	if (!GetArrayParam(Params, TEXT("triangles"), TrianglesArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: triangles"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: triangles"));
 	}
 
 	UWorld* World = GetEditorWorld();
@@ -5032,7 +5032,7 @@ FECACommandResult FECACommand_UpdateProceduralMesh::Execute(const TSharedPtr<FJs
 	FString ActorName;
 	if (!GetStringParam(Params, TEXT("actor_name"), ActorName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_name"));
 	}
 
 	// Find the actor
@@ -5052,13 +5052,13 @@ FECACommandResult FECACommand_UpdateProceduralMesh::Execute(const TSharedPtr<FJs
 	const TArray<TSharedPtr<FJsonValue>>* VerticesArray;
 	if (!GetArrayParam(Params, TEXT("vertices"), VerticesArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: vertices"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: vertices"));
 	}
 
 	const TArray<TSharedPtr<FJsonValue>>* TrianglesArray;
 	if (!GetArrayParam(Params, TEXT("triangles"), TrianglesArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: triangles"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: triangles"));
 	}
 
 	int32 SectionIndex = 0;
@@ -5111,13 +5111,13 @@ FECACommandResult FECACommand_MeshCombine::Execute(const TSharedPtr<FJsonObject>
 	FString OutputPath;
 	if (!GetStringParam(Params, TEXT("output_path"), OutputPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: output_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: output_path"));
 	}
 
 	const TArray<TSharedPtr<FJsonValue>>* MeshPathsArray;
 	if (!GetArrayParam(Params, TEXT("mesh_paths"), MeshPathsArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_paths"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_paths"));
 	}
 
 	if (MeshPathsArray->Num() < 1)
@@ -5226,13 +5226,13 @@ FECACommandResult FECACommand_ExportMesh::Execute(const TSharedPtr<FJsonObject>&
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	FString OutputFile;
 	if (!GetStringParam(Params, TEXT("output_file"), OutputFile))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: output_file"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: output_file"));
 	}
 
 	UStaticMesh* Mesh = MeshHelpers::LoadStaticMesh(MeshPath);
@@ -5301,13 +5301,13 @@ FECACommandResult FECACommand_MeshVoronoiFracture::Execute(const TSharedPtr<FJso
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	FString OutputBasePath;
 	if (!GetStringParam(Params, TEXT("output_base_path"), OutputBasePath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: output_base_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: output_base_path"));
 	}
 
 	int32 NumPieces = 5;
@@ -5464,14 +5464,14 @@ FECACommandResult FECACommand_MeshDisplaceFromDepth::Execute(const TSharedPtr<FJ
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	// Get actor path to get world transform
 	FString ActorPath;
 	if (!GetStringParam(Params, TEXT("actor_path"), ActorPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: actor_path. Provide the path to the actor instance in the world."));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: actor_path. Provide the path to the actor instance in the world."));
 	}
 
 	// Find the actor and get its world transform
@@ -6078,14 +6078,14 @@ FECACommandResult FECACommand_MeshDisplaceFromHeightmap::Execute(const TSharedPt
 	FString MeshPath;
 	if (!GetStringParam(Params, TEXT("mesh_path"), MeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: mesh_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: mesh_path"));
 	}
 
 	// Get heightmap path
 	FString HeightmapPath;
 	if (!GetStringParam(Params, TEXT("heightmap_path"), HeightmapPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: heightmap_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: heightmap_path"));
 	}
 
 	// Get output path (optional, defaults to overwriting input)

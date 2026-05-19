@@ -170,13 +170,13 @@ public:
 		FString EventType;
 		if (!GetStringParam(Params, TEXT("event_type"), EventType))
 		{
-			return FECACommandResult::Error(TEXT("Missing required parameter: event_type"));
+			return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: event_type"));
 		}
 		
 		FString Message;
 		if (!GetStringParam(Params, TEXT("message"), Message))
 		{
-			return FECACommandResult::Error(TEXT("Missing required parameter: message"));
+			return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: message"));
 		}
 		
 		bool bTriggerAIResponse = true;

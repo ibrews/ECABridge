@@ -52,19 +52,19 @@ FECACommandResult FECACommand_SetStaticMeshProperties::Execute(const TSharedPtr<
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString ComponentName;
 	if (!GetStringParam(Params, TEXT("component_name"), ComponentName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: component_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: component_name"));
 	}
 	
 	FString StaticMeshPath;
 	if (!GetStringParam(Params, TEXT("static_mesh"), StaticMeshPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: static_mesh"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: static_mesh"));
 	}
 	
 	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
@@ -113,13 +113,13 @@ FECACommandResult FECACommand_SetPhysicsProperties::Execute(const TSharedPtr<FJs
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString ComponentName;
 	if (!GetStringParam(Params, TEXT("component_name"), ComponentName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: component_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: component_name"));
 	}
 	
 	bool bSimulatePhysics = true;
@@ -181,19 +181,19 @@ FECACommandResult FECACommand_SetComponentProperty::Execute(const TSharedPtr<FJs
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString ComponentName;
 	if (!GetStringParam(Params, TEXT("component_name"), ComponentName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: component_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: component_name"));
 	}
 	
 	FString PropertyName;
 	if (!GetStringParam(Params, TEXT("property_name"), PropertyName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: property_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: property_name"));
 	}
 	
 	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
@@ -221,7 +221,7 @@ FECACommandResult FECACommand_SetComponentProperty::Execute(const TSharedPtr<FJs
 	TSharedPtr<FJsonValue> PropertyValue = Params->TryGetField(TEXT("property_value"));
 	if (!PropertyValue.IsValid())
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: property_value"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: property_value"));
 	}
 	
 	// Set property based on type
@@ -351,19 +351,19 @@ FECACommandResult FECACommand_GetComponentProperty::Execute(const TSharedPtr<FJs
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 
 	FString ComponentName;
 	if (!GetStringParam(Params, TEXT("component_name"), ComponentName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: component_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: component_name"));
 	}
 
 	FString PropertyName;
 	if (!GetStringParam(Params, TEXT("property_name"), PropertyName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: property_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: property_name"));
 	}
 
 	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
@@ -455,13 +455,13 @@ FECACommandResult FECACommand_SetComponentTransform::Execute(const TSharedPtr<FJ
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 	
 	FString ComponentName;
 	if (!GetStringParam(Params, TEXT("component_name"), ComponentName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: component_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: component_name"));
 	}
 	
 	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
@@ -518,7 +518,7 @@ FECACommandResult FECACommand_GetBlueprintComponents::Execute(const TSharedPtr<F
 	FString BlueprintPath;
 	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: blueprint_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
 
 	bool bIncludeOverrides = false;

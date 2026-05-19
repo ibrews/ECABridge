@@ -678,13 +678,13 @@ FECACommandResult FECACommand_AddMaterialNode::Execute(const TSharedPtr<FJsonObj
 	FString MaterialPath;
 	if (!GetStringParam(Params, TEXT("material_path"), MaterialPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: material_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: material_path"));
 	}
 	
 	FString NodeType;
 	if (!GetStringParam(Params, TEXT("node_type"), NodeType))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: node_type"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: node_type"));
 	}
 	
 	UMaterial* Material = LoadMaterialByPath(MaterialPath);
@@ -1037,25 +1037,25 @@ FECACommandResult FECACommand_ConnectMaterialNodes::Execute(const TSharedPtr<FJs
 	FString MaterialPath;
 	if (!GetStringParam(Params, TEXT("material_path"), MaterialPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: material_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: material_path"));
 	}
 	
 	FString SourceNodeId;
 	if (!GetStringParam(Params, TEXT("source_node_id"), SourceNodeId))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: source_node_id"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: source_node_id"));
 	}
 	
 	FString TargetNodeId;
 	if (!GetStringParam(Params, TEXT("target_node_id"), TargetNodeId))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: target_node_id"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: target_node_id"));
 	}
 	
 	FString TargetInput;
 	if (!GetStringParam(Params, TEXT("target_input"), TargetInput))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: target_input"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: target_input"));
 	}
 	
 	FString SourceOutput = TEXT("0");
@@ -1235,7 +1235,7 @@ FECACommandResult FECACommand_GetMaterialNodes::Execute(const TSharedPtr<FJsonOb
 	FString MaterialPath;
 	if (!GetStringParam(Params, TEXT("material_path"), MaterialPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: material_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: material_path"));
 	}
 	
 	FString NodeTypeFilter;
@@ -1321,13 +1321,13 @@ FECACommandResult FECACommand_GetMaterialNodeInfo::Execute(const TSharedPtr<FJso
 	FString MaterialPath;
 	if (!GetStringParam(Params, TEXT("material_path"), MaterialPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: material_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: material_path"));
 	}
 	
 	FString NodeId;
 	if (!GetStringParam(Params, TEXT("node_id"), NodeId))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: node_id"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: node_id"));
 	}
 	
 	UMaterial* Material = LoadMaterialByPath(MaterialPath);
@@ -1361,13 +1361,13 @@ FECACommandResult FECACommand_DeleteMaterialNode::Execute(const TSharedPtr<FJson
 	FString MaterialPath;
 	if (!GetStringParam(Params, TEXT("material_path"), MaterialPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: material_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: material_path"));
 	}
 	
 	FString NodeId;
 	if (!GetStringParam(Params, TEXT("node_id"), NodeId))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: node_id"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: node_id"));
 	}
 	
 	UMaterial* Material = LoadMaterialByPath(MaterialPath);
@@ -1468,13 +1468,13 @@ FECACommandResult FECACommand_DisconnectMaterialNode::Execute(const TSharedPtr<F
 	FString MaterialPath;
 	if (!GetStringParam(Params, TEXT("material_path"), MaterialPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: material_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: material_path"));
 	}
 	
 	FString NodeId;
 	if (!GetStringParam(Params, TEXT("node_id"), NodeId))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: node_id"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: node_id"));
 	}
 	
 	FString InputName;
@@ -1550,19 +1550,19 @@ FECACommandResult FECACommand_SetMaterialNodeProperty::Execute(const TSharedPtr<
 	FString MaterialPath;
 	if (!GetStringParam(Params, TEXT("material_path"), MaterialPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: material_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: material_path"));
 	}
 	
 	FString NodeId;
 	if (!GetStringParam(Params, TEXT("node_id"), NodeId))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: node_id"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: node_id"));
 	}
 	
 	FString PropertyName;
 	if (!GetStringParam(Params, TEXT("property_name"), PropertyName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: property_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: property_name"));
 	}
 	
 	UMaterial* Material = LoadMaterialByPath(MaterialPath);
@@ -2073,13 +2073,13 @@ FECACommandResult FECACommand_BatchEditMaterialNodes::Execute(const TSharedPtr<F
 	FString MaterialPath;
 	if (!GetStringParam(Params, TEXT("material_path"), MaterialPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: material_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: material_path"));
 	}
 	
 	const TArray<TSharedPtr<FJsonValue>>* NodesArray;
 	if (!Params->TryGetArrayField(TEXT("nodes"), NodesArray))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: nodes"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: nodes"));
 	}
 	
 	UMaterial* Material = LoadMaterialByPath(MaterialPath);
@@ -2738,7 +2738,7 @@ FECACommandResult FECACommand_GetMaterialErrors::Execute(const TSharedPtr<FJsonO
 	FString MaterialPath;
 	if (!GetStringParam(Params, TEXT("material_path"), MaterialPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: material_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: material_path"));
 	}
 	
 	UMaterial* Material = LoadMaterialByPath(MaterialPath);
@@ -2768,26 +2768,26 @@ FECACommandResult FECACommand_SetCustomNodeInputName::Execute(const TSharedPtr<F
 	FString MaterialPath;
 	if (!GetStringParam(Params, TEXT("material_path"), MaterialPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: material_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: material_path"));
 	}
 	
 	FString NodeId;
 	if (!GetStringParam(Params, TEXT("node_id"), NodeId))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: node_id"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: node_id"));
 	}
 	
 	double InputIndexDouble;
 	if (!Params->TryGetNumberField(TEXT("input_index"), InputIndexDouble))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: input_index"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: input_index"));
 	}
 	int32 InputIndex = static_cast<int32>(InputIndexDouble);
 	
 	FString InputName;
 	if (!GetStringParam(Params, TEXT("input_name"), InputName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: input_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: input_name"));
 	}
 	
 	UMaterial* Material = LoadMaterialByPath(MaterialPath);
@@ -3789,12 +3789,12 @@ FECACommandResult FECACommand_RenameParameterGroup::Execute(const TSharedPtr<FJs
 	
 	if (!GetStringParam(Params, TEXT("old_group_name"), OldGroupName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: old_group_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: old_group_name"));
 	}
 	
 	if (!GetStringParam(Params, TEXT("new_group_name"), NewGroupName))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: new_group_name"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: new_group_name"));
 	}
 	
 	UMaterial* Material = LoadMaterialByPath(MaterialPath);
@@ -3985,7 +3985,7 @@ FECACommandResult FECACommand_DumpMaterialGraph::Execute(const TSharedPtr<FJsonO
 	FString MaterialPath;
 	if (!GetStringParam(Params, TEXT("material_path"), MaterialPath))
 	{
-		return FECACommandResult::Error(TEXT("Missing required parameter: material_path"));
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: material_path"));
 	}
 
 	UMaterial* Material = LoadMaterialByPath(MaterialPath);
