@@ -1,14 +1,21 @@
-# ECABridge — AI-Powered Unreal Engine 5 MCP Plugin (5.8 branch)
+# ECABridge — AI-Powered Unreal Engine 5 MCP Plugin
 
-400+ MCP tools for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent.
-
-> **You're on the `engine-5.8` branch.** This branch targets **UE 5.8** and contains everything `main` has plus the 5.8 engine-version bump, dependency fixes, and one API porting change. See the "What changed for 5.8" section below for the exact diff vs `main`. If you're on 5.7, use `main`.
+**402 MCP tools** for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent. Targets **UE 5.8** with an embedded Python sandbox for server-side multi-tool chaining and inline base64 PNG screenshots. For UE 5.7, check out commit `fcacc9f` or earlier.
 
 > **Using this with an AI agent?** Pair it with **[ue5-mcp](https://github.com/ibrews/ue5-mcp)** — a Claude Code / Cowork skill that loads the hard-won knowledge your agent needs to use these tools without crashing the editor or wasting hours on silent-fail APIs. ECABridge is the plugin (what tools exist); ue5-mcp is the field manual (which calls actually work, which crash, and the workarounds). Install both.
 
-## What changed for 5.8 (this branch vs `main`)
+## What's new (most recent first)
 
-Three small porting changes plus one architectural improvement:
+- **Python sandbox** for server-side multi-tool chaining. `execute_script(script)` runs your Python in the editor; the preamble exposes `execute_tool(toolset, tool, json_input) → dict` so a single MCP round-trip can chain N command calls (verified with 5-call chains; mirrors Epic's native UE 5.8 `ProgrammaticToolset`). `get_execution_environment()` returns the preamble, helpers, security notes, and registered command names. **NOT a sandbox in the security sense** — UE Python has full editor access, intended for trusted AI agents only. See [`Source/ECABridge/Public/Commands/ECAProgrammaticCommands.h`](Source/ECABridge/Public/Commands/ECAProgrammaticCommands.h).
+- **Inline base64 PNG screenshots.** `take_camera_screenshot` / `take_depth_screenshot` / `take_gameplay_screenshot` / `take_metahuman_editor_screenshot` / `take_screenshots_sweep` now return a proper MCP `{type:"image", mimeType:"image/png", data:<base64>}` content block when `file_path` is omitted. No file I/O required, agent gets the bytes directly. ~2 MB per editor capture.
+- **Schema-in-error responses.** Every argument-validation failure now includes the full input JSON Schema inline in the error message, so LLMs can self-correct without a separate describe call. Routed through a single `FECACommandResult::ValidationError(IECACommand*, FString)` helper — 548 call sites converted.
+- **Output schemas.** New `IECACommand::GetOutputSchema()` virtual; `tools/list` now surfaces both `inputSchema` AND `outputSchema` for the high-value `dump_*` / `find_*` / `get_*` commands.
+- **EDA integration.** [`docs/EDA_INTEGRATION.md`](docs/EDA_INTEGRATION.md) documents how to register ECABridge with Epic's `MCPClientToolset` so the Epic Developer Assistant panel can call ECABridge commands alongside Epic's built-in toolsets.
+- **Optional-dep gating** extended to MetaHumanCharacter, Niagara, MetaSound, ControlRig, GameplayAbilities (in addition to the existing Mutable / MovieRenderPipeline). Build.cs uses `EngineHasPlugin(name)` + `WITH_ECA_<FEATURE>=0|1` + `#if`-guarded command files. Custom engine forks that compile out any of these get a clean build automatically; relevant `.uplugin` Plugins[] entries are now `"Optional": true`.
+
+## What changed for 5.8 (vs the 5.7 line)
+
+Three small porting changes plus one architectural improvement (relative to commit `fcacc9f`, the last 5.7-compatible commit):
 
 ### Porting changes (required for 5.8 to build)
 
@@ -103,7 +110,7 @@ You'll have both surfaces available and can pick per task. Future ECABridge work
 
 ## Features
 
-- **390+ MCP tools** organized by category
+- **402 MCP tools** organized by category
 - **12 Rosetta Stone commands** — full JSON dumps of assets, blueprints, levels, materials, Niagara, sequencer, widgets, animation, MetaSound, and DataTables
 - **6 workflow commands** — project overview, cross-blueprint search, asset validation, snapshot/diff, undo-batching, class hierarchy
 - **5 refactoring commands** — replace references, bulk rename, search-and-replace properties, world settings
@@ -111,8 +118,12 @@ You'll have both surfaces available and can pick per task. Future ECABridge work
 - **22 MetaHuman commands** — full procedural pipeline from asset creation through cloud texture/rig through groom attachment and outfit tinting
 - **5 Enhanced Input commands** — actions, mapping contexts, key bindings
 - **2 Niagara Data Channel commands** — create and dump cross-system data channels
+- **2 Programmatic commands** — `execute_script` (Python multi-tool chains) + `get_execution_environment`
+- **5 screenshot commands** with inline base64 PNG response (no file I/O required)
+- **Schema-in-error responses** — every argument-validation failure returns the full input JSON Schema inline
+- **Output schemas** on the high-value `dump_*` / `find_*` / `get_*` commands via `tools/list`
 - **HTTP/SSE MCP server** on localhost:3000 (Streamable HTTP transport)
-- **UE 5.7 compatible** (built and tested against 5.7.4)
+- **UE 5.8 Preview compatible** (5.7 supported on commits up to `fcacc9f`)
 - **No engine modifications** — drop-in plugin
 
 ## Rosetta Stone: Deep Introspection
