@@ -124,6 +124,7 @@ public class ECABridge : ModuleRules
 			// always available; runtime probes (GEngine->XRSystem) determine whether
 			// an actual HMD is connected. Used by the OpenXR introspection commands.
 			"HeadMountedDisplay"
+		});
 
 		// ModelViewViewModelBlueprint include path - UBT doesn't resolve it via PrivateDependencyModuleNames
 		// when the plugin is EnabledByDefault=false, so add it explicitly.
