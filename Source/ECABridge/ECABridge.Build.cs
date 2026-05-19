@@ -98,6 +98,10 @@ public class ECABridge : ModuleRules
 			// Source Control (always available in editor)
 			"SourceControl",
 
+			// Derived Data Cache (engine-internal, always available) — powers
+			// get_ddc_stats / purge_ddc / warm_ddc.
+			"DerivedDataCache",
+
 			// PCG - skipping the optional-dep gate here for now (only 1 command, and
 			// "PCG" is a non-Optional plugin in the .uplugin). If you want PCG to be
 			// truly optional, follow the WITH_ECA_NIAGARA pattern below.
