@@ -205,13 +205,15 @@ FECACommandResult FECACommand_SetPostProcessSetting::Execute(const TSharedPtr<FJ
 	void* SettingsPtr = &Settings;
 
 	// Apply value based on JSON type
-	const TSharedPtr<FJsonValue>* RawValue = nullptr;
-	const TSharedPtr<FJsonObject>& ParamsObj = Params;
-	if (!ParamsObj.IsValid() || !ParamsObj->Values.Contains(TEXT("value")))
+	if (!Params.IsValid() || !Params->HasField(TEXT("value")))
 	{
 		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: value"));
 	}
-	const TSharedPtr<FJsonValue>& Value = ParamsObj->Values[TEXT("value")];
+	TSharedPtr<FJsonValue> Value = Params->TryGetField(TEXT("value"));
+	if (!Value.IsValid())
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Parameter 'value' is null"));
+	}
 
 	bool bApplied = false;
 
