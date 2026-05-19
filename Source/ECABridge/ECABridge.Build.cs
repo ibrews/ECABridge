@@ -248,6 +248,21 @@ public class ECABridge : ModuleRules
 			PublicDefinitions.Add("WITH_ECA_GAMEPLAY_ABILITIES=0");
 		}
 
+		// DMX (lighting protocol, 2 read-only commands). Gates against the DMXEngine
+		// plugin which bundles the DMXRuntime module that owns UDMXLibrary +
+		// UDMXEntityFixturePatch. DMXProtocol is a sibling plugin but DMXRuntime
+		// only depends on DMXProtocol abstractly so we don't need to link both.
+		if (EngineHasPlugin("DMXEngine"))
+		{
+			PrivateDependencyModuleNames.Add("DMXRuntime");
+			PublicDelayLoadDLLs.Add("UnrealEditor-DMXRuntime.dll");
+			PublicDefinitions.Add("WITH_ECA_DMX=1");
+		}
+		else
+		{
+			PublicDefinitions.Add("WITH_ECA_DMX=0");
+		}
+
 		// nDisplay (multi-display rendering / virtual production, 2 read-only commands).
 		// Adds runtime introspection of the active cluster: operation mode, node id,
 		// peer counts, and DisplayClusterRootActor enumeration. Mutation (launch/stop)
