@@ -3,6 +3,7 @@
 #include "Commands/ECAPathTracerCommands.h"
 
 #include "HAL/IConsoleManager.h"
+#include "HAL/FileManager.h"
 #include "Editor.h"
 #include "Engine/World.h"
 #include "Misc/Paths.h"
