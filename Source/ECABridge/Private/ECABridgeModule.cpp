@@ -64,6 +64,7 @@ void FECABridgeModule::StartupModule()
 		{ TEXT("ControlRig"),             TEXT("ControlRig"),  TEXT("ControlRig") },
 		{ TEXT("GameplayAbilities"),      TEXT("GAS"),         TEXT("GameplayAbilities") },
 		{ TEXT("DataValidation"),         TEXT("SourceControlValidation"), TEXT("DataValidation") },
+		{ TEXT("DisplayCluster"),         TEXT("NDisplay"),    TEXT("nDisplay") },
 	};
 	for (const FOptionalSubsystem& Subsystem : OptionalSubsystems)
 	{

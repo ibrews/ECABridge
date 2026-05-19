@@ -73,6 +73,11 @@
 			"Name": "DataValidation",
 			"Enabled": true,
 			"Optional": true
+		},
+		{
+			"Name": "nDisplay",
+			"Enabled": true,
+			"Optional": true
 		}
 	]
 }

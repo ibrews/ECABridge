@@ -248,6 +248,23 @@ public class ECABridge : ModuleRules
 			PublicDefinitions.Add("WITH_ECA_GAMEPLAY_ABILITIES=0");
 		}
 
+		// nDisplay (multi-display rendering / virtual production, 2 read-only commands).
+		// Adds runtime introspection of the active cluster: operation mode, node id,
+		// peer counts, and DisplayClusterRootActor enumeration. Mutation (launch/stop)
+		// not yet wired — cluster lifecycle is best driven by nDisplayLauncher.exe
+		// out-of-process for now.
+		if (EngineHasPlugin("nDisplay"))
+		{
+			PrivateDependencyModuleNames.AddRange(new string[] { "DisplayCluster", "DisplayClusterConfiguration" });
+			PublicDelayLoadDLLs.Add("UnrealEditor-DisplayCluster.dll");
+			PublicDelayLoadDLLs.Add("UnrealEditor-DisplayClusterConfiguration.dll");
+			PublicDefinitions.Add("WITH_ECA_NDISPLAY=1");
+		}
+		else
+		{
+			PublicDefinitions.Add("WITH_ECA_NDISPLAY=0");
+		}
+
 		// DataValidation (stock editor plugin; powers validate_before_submit).
 		if (EngineHasPlugin("DataValidation"))
 		{
