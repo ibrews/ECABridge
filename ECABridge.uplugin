@@ -68,6 +68,11 @@
 		{
 			"Name": "PythonScriptPlugin",
 			"Enabled": true
+		},
+		{
+			"Name": "DataValidation",
+			"Enabled": true,
+			"Optional": true
 		}
 	]
 }
