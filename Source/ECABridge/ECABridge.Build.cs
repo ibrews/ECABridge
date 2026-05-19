@@ -110,8 +110,20 @@ public class ECABridge : ModuleRules
 			// Python sandbox - requires PythonScriptPlugin (the "Python Editor Script Plugin").
 			// Used by execute_script + get_execution_environment to invoke the Python
 			// interpreter and expose a UFUNCTION-backed execute_tool() helper to scripts.
-			"PythonScriptPlugin"
-		});
+			"PythonScriptPlugin",
+
+			// LiveLink interface - engine runtime module (NOT a plugin), always available.
+			// The LiveLink plugin provides the modular-feature implementation; if it's
+			// disabled, IsModularFeatureAvailable() returns false and the commands
+			// short-circuit with a clear "plugin not enabled" message. No DelayLoad
+			// needed because LiveLinkInterface ships in the engine itself.
+			"LiveLinkInterface",
+
+			// HeadMountedDisplay - engine module providing IXRTrackingSystem and
+			// UHeadMountedDisplayFunctionLibrary. Hard-linked because the module is
+			// always available; runtime probes (GEngine->XRSystem) determine whether
+			// an actual HMD is connected. Used by the OpenXR introspection commands.
+			"HeadMountedDisplay"
 
 		// ModelViewViewModelBlueprint include path - UBT doesn't resolve it via PrivateDependencyModuleNames
 		// when the plugin is EnabledByDefault=false, so add it explicitly.
