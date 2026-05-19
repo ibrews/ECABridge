@@ -65,6 +65,26 @@ def health(url: str) -> dict[str, Any]:
         return json.loads(resp.read().decode("utf-8"))
 
 
+def list_tools(url: str) -> set[str]:
+    """Return the set of registered tool names from tools/list.
+
+    Used to skip-rather-than-fail TestCases whose tool isn't in the registry —
+    e.g. optional-dep-gated commands like the MetaHuman category on a UE 5.7
+    install that doesn't ship MetaHumanCharacter.
+    """
+    body = json.dumps({"jsonrpc": "2.0", "method": "tools/list", "id": 1, "params": {}}).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        payload = json.loads(resp.read().decode("utf-8"))
+    tools = payload.get("result", {}).get("tools", [])
+    return {t.get("name") for t in tools if t.get("name")}
+
+
 def build_cases(asset: str) -> list[TestCase]:
     return [
         # Actor introspection
@@ -155,6 +175,7 @@ class Outcome:
     ok: bool
     detail: str = ""
     elapsed_ms: int = 0
+    skipped: bool = False
 
 
 def run_case(url: str, c: TestCase) -> Outcome:
@@ -227,9 +248,22 @@ def main() -> int:
         print(f"[fail] cannot reach {args.url}: {e}", file=sys.stderr)
         return 2
 
+    try:
+        registry = list_tools(args.url)
+    except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+        print(f"[fail] tools/list failed: {e!r}", file=sys.stderr)
+        return 2
+
     cases = build_cases(args.asset)
     outcomes: list[Outcome] = []
     for c in cases:
+        if c.tool not in registry:
+            o = Outcome(c.name, ok=True, skipped=True,
+                        detail=f"tool '{c.tool}' not in registry (optional-dep-gated out)")
+            outcomes.append(o)
+            if not args.quiet:
+                print(f"  skip {o.name}  - {o.detail}")
+            continue
         o = run_case(args.url, c)
         outcomes.append(o)
         if o.ok:
@@ -238,8 +272,13 @@ def main() -> int:
         else:
             print(f"  FAIL {o.name}  ({o.elapsed_ms} ms) - {o.detail}", file=sys.stderr)
 
-    failed = [o for o in outcomes if not o.ok]
-    print(f"\n{len(outcomes) - len(failed)}/{len(outcomes)} passed")
+    failed  = [o for o in outcomes if not o.ok]
+    skipped = [o for o in outcomes if o.skipped]
+    passed  = [o for o in outcomes if o.ok and not o.skipped]
+    summary = f"\n{len(passed)}/{len(outcomes)} passed"
+    if skipped:
+        summary += f", {len(skipped)} skipped"
+    print(summary)
     return 1 if failed else 0
 
 
