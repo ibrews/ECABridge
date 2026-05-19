@@ -2263,7 +2263,7 @@ FECACommandResult FECACommand_SetMetaHumanSkinParams::Execute(const TSharedPtr<F
 	{
 		for (const auto& Pair : (*ZoneObj)->Values)
 		{
-			const FString& ZoneName = Pair.Key;
+			const FString ZoneName(Pair.Key);
 			bool bKnown = false;
 			for (const TCHAR* Z : AccentZones) { if (ZoneName.Equals(Z, ESearchCase::IgnoreCase)) { bKnown = true; break; } }
 			if (!bKnown)

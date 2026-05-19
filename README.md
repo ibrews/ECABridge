@@ -1,8 +1,22 @@
-# ECABridge — AI-Powered Unreal Engine 5 MCP Plugin
+# ECABridge — AI-Powered Unreal Engine 5 MCP Plugin (5.8 branch)
 
-390+ MCP tools for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent.
+400+ MCP tools for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent.
+
+> **You're on the `engine-5.8` branch.** This branch targets **UE 5.8** and contains everything `main` has plus the 5.8 engine-version bump, dependency fixes, and one API porting change. See the "What changed for 5.8" section below for the exact diff vs `main`. If you're on 5.7, use `main`.
 
 > **Using this with an AI agent?** Pair it with **[ue5-mcp](https://github.com/ibrews/ue5-mcp)** — a Claude Code / Cowork skill that loads the hard-won knowledge your agent needs to use these tools without crashing the editor or wasting hours on silent-fail APIs. ECABridge is the plugin (what tools exist); ue5-mcp is the field manual (which calls actually work, which crash, and the workarounds). Install both.
+
+## What changed for 5.8 (this branch vs `main`)
+
+Three small but load-bearing changes were needed to get ECABridge building and loading cleanly on UE 5.8 Preview:
+
+1. **`ECABridge.uplugin`** — `EngineVersion` bumped from `5.7.0` to `5.8.0`.
+2. **`ECABridge.uplugin`** — added `Mutable` and `MovieRenderPipeline` to the Plugins list. These were transitively pulled in on 5.7 but in 5.8 the editor refuses to load `UnrealEditor-ECABridge.dll` (`GetLastError=126`, missing dependent DLL) unless those engine plugins are explicitly enabled. The relevant dependent DLLs are `UnrealEditor-CustomizableObject.dll` (provided by `Mutable`) and `UnrealEditor-MovieRenderPipelineCore.dll` (provided by `MovieRenderPipeline`).
+3. **`Source/ECABridge/Private/Commands/ECAMetaHumanCommands.cpp:2266`** — `const FString&` → `const FString` when reading `Pair.Key` out of `(*ZoneObj)->Values`. In 5.8, `FJsonObject::Values` is a `TMap<UE::FSharedString, ...>` rather than `TMap<FString, ...>`, so the reference bind no longer compiles. Value-construction from `FSharedString` works fine; the rest of the body is unchanged.
+
+Everything else compiles. There are several `C4996` deprecation warnings for `GetObjectsWithOuter`, `ARecastNavMesh::CellSize/CellHeight`, `Metasound::Frontend::ISearchEngine::FindAllClasses`, `UMovieScene::GetBindings`, and `FMovieSceneBinding::GetName` — they're warnings only, the code still works in 5.8 but will need migration before 5.9 according to Epic's deprecation notice. We've deliberately not touched those yet to keep this branch a minimal port.
+
+**Verified on Fort 2026-05-19:** clean UAT BuildPlugin via `D:\Epic Games\UE_5.8\Engine\Build\BatchFiles\RunUAT.bat`, loads in a 5.8 project, server starts on `:3000`, 400 commands available, `dump_blueprint_graph` / `dump_level` / `get_asset_references` / `create_actor` / `delete_actor` all functional, runs side-by-side with the native Epic `ModelContextProtocol` plugin on `:8000`.
 
 ## On UE 5.8: ECABridge alongside Epic's native MCP plugin
 
