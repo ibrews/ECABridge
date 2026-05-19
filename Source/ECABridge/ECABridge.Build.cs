@@ -120,7 +120,12 @@ public class ECABridge : ModuleRules
 			"MetaHumanCharacterPalette",
 
 			// Enhanced Input - requires EnhancedInput plugin
-			"EnhancedInput"
+			"EnhancedInput",
+
+			// Python sandbox - requires PythonScriptPlugin (the "Python Editor Script Plugin").
+			// Used by execute_script + get_execution_environment to invoke the Python
+			// interpreter and expose a UFUNCTION-backed execute_tool() helper to scripts.
+			"PythonScriptPlugin"
 		});
 
 		// ModelViewViewModelBlueprint include path - UBT doesn't resolve it via PrivateDependencyModuleNames

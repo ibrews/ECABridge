@@ -76,6 +76,10 @@
 			"Enabled": true
 		},
 		{
+			"Name": "PythonScriptPlugin",
+			"Enabled": true
+		},
+		{
 			"Name": "Mutable",
 			"Enabled": true,
 			"Optional": true
