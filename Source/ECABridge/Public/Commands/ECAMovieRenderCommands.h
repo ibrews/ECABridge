@@ -4,6 +4,8 @@
 
 #include "Commands/ECACommand.h"
 
+#if WITH_ECA_MOVIE_RENDER_PIPELINE
+
 // ─── render_sequence ──────────────────────────────────────────
 // Renders a Level Sequence using Movie Render Queue (legacy pipeline).
 class FECACommand_RenderSequence : public IECACommand
@@ -44,3 +46,5 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+#endif // WITH_ECA_MOVIE_RENDER_PIPELINE

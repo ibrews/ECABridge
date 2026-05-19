@@ -2,6 +2,8 @@
 
 #include "Commands/ECAMovieRenderCommands.h"
 
+#if WITH_ECA_MOVIE_RENDER_PIPELINE
+
 #include "LevelSequence.h"
 
 #include "MoviePipelineQueue.h"
@@ -338,3 +340,5 @@ FECACommandResult FECACommand_GetRenderStatus::Execute(const TSharedPtr<FJsonObj
 
 	return FECACommandResult::Success(Result);
 }
+
+#endif // WITH_ECA_MOVIE_RENDER_PIPELINE

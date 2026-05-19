@@ -2,6 +2,15 @@
 
 #include "Commands/ECAMutableCommands.h"
 
+// Includes used by both the Mutable subsystem and the (always-compiled) MetaHuman
+// create command at the bottom of this file.
+#include "AssetToolsModule.h"
+#include "Factories/Factory.h"
+#include "UObject/SavePackage.h"
+#include "UObject/UObjectIterator.h"
+
+#if WITH_ECA_MUTABLE
+
 #include "MuCO/CustomizableObject.h"
 #include "MuCO/CustomizableObjectInstance.h"
 #include "MuCO/CustomizableObjectSystem.h"
@@ -17,10 +26,6 @@
 #include "EdGraph/EdGraphNode.h"
 #include "EdGraph/EdGraphPin.h"
 #include "AssetRegistry/AssetRegistryModule.h"
-#include "AssetToolsModule.h"
-#include "Factories/Factory.h"
-#include "UObject/SavePackage.h"
-#include "UObject/UObjectIterator.h"
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -1258,7 +1263,11 @@ FECACommandResult FECACommand_SetCOInstanceParam::Execute(const TSharedPtr<FJson
 	return FECACommandResult::Success(Result);
 }
 
+#endif // WITH_ECA_MUTABLE
+
 // ─── create_metahuman ──────────────────────────────────────────
+// Always compiled in: uses FindObject<UClass> for runtime discovery, so it has
+// no build-time dependency on the MetaHumanCharacter plugin (or on Mutable).
 
 REGISTER_ECA_COMMAND(FECACommand_CreateMetaHuman);
 

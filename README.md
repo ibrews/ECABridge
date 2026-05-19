@@ -1,8 +1,71 @@
-# ECABridge — AI-Powered Unreal Engine 5 MCP Plugin
+# ECABridge — AI-Powered Unreal Engine 5 MCP Plugin (5.8 branch)
 
-390+ MCP tools for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent.
+400+ MCP tools for UE5 editor automation via Claude, ChatGPT, or any MCP-compatible AI agent.
+
+> **You're on the `engine-5.8` branch.** This branch targets **UE 5.8** and contains everything `main` has plus the 5.8 engine-version bump, dependency fixes, and one API porting change. See the "What changed for 5.8" section below for the exact diff vs `main`. If you're on 5.7, use `main`.
 
 > **Using this with an AI agent?** Pair it with **[ue5-mcp](https://github.com/ibrews/ue5-mcp)** — a Claude Code / Cowork skill that loads the hard-won knowledge your agent needs to use these tools without crashing the editor or wasting hours on silent-fail APIs. ECABridge is the plugin (what tools exist); ue5-mcp is the field manual (which calls actually work, which crash, and the workarounds). Install both.
+
+## What changed for 5.8 (this branch vs `main`)
+
+Three small porting changes plus one architectural improvement:
+
+### Porting changes (required for 5.8 to build)
+
+1. **`ECABridge.uplugin`** — `EngineVersion` bumped from `5.7.0` to `5.8.0`.
+2. **`Source/ECABridge/Private/Commands/ECAMetaHumanCommands.cpp:2266`** — `const FString&` → `const FString` when reading `Pair.Key` out of `(*ZoneObj)->Values`. In 5.8, `FJsonObject::Values` is a `TMap<UE::FSharedString, ...>` rather than `TMap<FString, ...>`, so the reference bind no longer compiles. Value-construction from `FSharedString` works fine; the rest of the body is unchanged.
+
+### Architectural improvement: structurally optional Mutable + MovieRenderPipeline
+
+When ECABridge was first ported, the missing-dependent-DLL load failure (`GetLastError=126`) was solved by adding `Mutable` and `MovieRenderPipeline` to the `.uplugin`'s required Plugins list. That worked but forced every project using ECABridge to enable both upstream plugins — even projects that don't use character customization or offline rendering. This branch refactors that into a structurally optional dependency:
+
+- `ECABridge.uplugin` now references `Mutable` and `MovieRenderPipeline` with `"Optional": true`. UE auto-enables them when available, doesn't error if absent, and a project can explicitly disable them in its `.uproject`.
+- `Source/ECABridge/ECABridge.Build.cs` checks `EngineHasPlugin("Mutable")` / `EngineHasPlugin("MovieRenderPipeline")`. If the plugin ships with the engine, its modules are added as private dependencies and the preprocessor symbol `WITH_ECA_MUTABLE=1` / `WITH_ECA_MOVIE_RENDER_PIPELINE=1` is defined. Otherwise the symbol is defined as `0`.
+- `ECAMutableCommands.{h,cpp}` and `ECAMovieRenderCommands.{h,cpp}` `#if WITH_ECA_<FEATURE>`-guard their command classes, helpers, includes, and `REGISTER_ECA_COMMAND` macros. When the symbol is `0`, those commands don't exist in the binary at all — no DLL dependency, no `GetLastError=126`.
+
+The MetaHuman create command stays compiled-in unconditionally — it uses `FindObject<UClass>` for runtime discovery, so it has no build-time dependency on `MetaHumanCharacter` and returns a graceful error if the plugin isn't loaded.
+
+#### What this actually delivers
+
+✅ **Custom engine forks** that compile out `Mutable` or `MovieRenderPipeline` get a clean build automatically — `EngineHasPlugin` returns false, the commands aren't compiled in, the DLL has no Mutable/MRQ imports.
+
+✅ **UBT warnings silenced** — the `"Optional": true` references declare the build relationship cleanly, so UBT no longer warns that we depend on modules from unreferenced plugins.
+
+✅ **Clean source structure** — the `#if` guards and `WITH_ECA_*` definitions establish the pattern for future feature gating (Niagara, MetaSound, MetaHumanCharacter, PCG, ControlRig, GameplayAbilities can all follow the same recipe).
+
+✅ **Side-by-side with native MCP** is unchanged — port `:3000` for ECABridge, `:8000` for Epic's `ModelContextProtocol`.
+
+#### Known limitation: binary distribution with project-level plugin disable
+
+On a stock UE 5.8 install (which ships `Mutable` and `MovieRenderPipeline`), `EngineHasPlugin` returns true → both subsystems compile in → the resulting `.dll` has imports against `UnrealEditor-CustomizableObject.dll` and `UnrealEditor-MovieRenderPipeline*.dll`. If you take that prebuilt `.dll` and drop it into a project that explicitly sets `"Mutable": { "Enabled": false }` in `.uproject`, the Windows loader still tries to resolve those imports at load time, can't find the DLLs in the search path (because the engine plugin isn't loaded), and the editor refuses to mount ECABridge with `GetLastError=126`.
+
+To fully decouple at runtime — i.e. ship one binary that gracefully loads whether or not Mutable is enabled in the target project — we'd need to also:
+
+1. Add `PublicDelayLoadDLLs.Add("UnrealEditor-CustomizableObject.dll")` (and equivalents) in `Build.cs` so the imports become delay-loaded rather than statically resolved at module-load time.
+2. Check `FModuleManager::Get().IsModuleLoaded("CustomizableObject")` at module startup and unregister the Mutable commands from `FECACommandRegistry` if it's not available — so users never see commands they'd crash on.
+3. Wrap each Mutable `Execute()` body in a defensive `IsModuleLoaded` check anyway.
+
+That refactor is out of scope for this branch (it touches every Mutable/MRQ command implementation). Filed as a follow-up.
+
+**Practical guidance for now:** if you want the smallest possible surface, clone source and disable `Mutable`/`MovieRenderPipeline` in your `.uproject` *before* the first build, so UE rebuilds ECABridge cleanly without the upstream modules. If you're using the binary, ensure those engine plugins stay enabled in your project.
+
+#### Extending the pattern
+
+The same `EngineHasPlugin("<PluginName>")` + `WITH_ECA_<FEATURE>` + `#if`-guard recipe applies to any other large engine-plugin dependency (Niagara, MetaSound, MetaHumanCharacter, PCG, ControlRig, GameplayAbilities). Future PRs can extend it; this branch ships it only for `Mutable` and `MovieRenderPipeline` — the two that actually blocked a clean load on a vanilla 5.8 project.
+
+### Deferred (compile-but-deprecated)
+
+There are several `C4996` deprecation warnings — code still works in 5.8 but Epic flags removal for 5.9:
+
+- `GetObjectsWithOuter(_, _, bool)` → use `EGetObjectsFlags` enum
+- `ARecastNavMesh::CellSize` / `CellHeight` → use `NavMeshResolutionParams`
+- `Metasound::Frontend::ISearchEngine::FindAllClasses(bool)` → use the overload returning `ClassInfo`
+- `UMovieScene::GetBindings` non-const → use `const` overload
+- `FMovieSceneBinding::GetName` → use `GetName` on `FMovieScenePossessable` / `FMovieSceneSpawnable`
+
+Left as-is to keep this branch a minimal port. Migration before 5.9 is a separate PR.
+
+**Verified on Fort 2026-05-19:** clean UAT `BuildPlugin`, loads in a 5.8 project, server starts on `:3000`, 400 commands available with `Mutable`+`MovieRenderPipeline` enabled, the build correctly omits those 15 commands when the upstream plugins aren't reachable, all of `dump_blueprint_graph` / `dump_level` / `get_asset_references` / `create_actor` / `delete_actor` functional, runs side-by-side with the native Epic `ModelContextProtocol` plugin on `:8000`.
 
 ## On UE 5.8: ECABridge alongside Epic's native MCP plugin
 
