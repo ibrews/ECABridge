@@ -13,6 +13,87 @@
 #include "Serialization/JsonSerializer.h"
 #include "Misc/Guid.h"
 #include "Misc/Compression.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "HAL/PlatformFileManager.h"
+#include "Interfaces/IPluginManager.h"
+
+namespace ECABridgeExamples
+{
+	// Per-tool example payloads, produced by scripts/gen-examples.py and shipped
+	// at <PluginRoot>/Resources/command-examples.json. Loaded once at module
+	// startup; queried per tool when building tools/list responses. The lookup
+	// is read-only after Load() so a plain TMap is fine — no lock needed since
+	// LoadExamples() is only called from the game thread at module start.
+	static TMap<FString, TSharedPtr<FJsonObject>> ExamplesByTool;
+	static bool bLoaded = false;
+
+	static void Load()
+	{
+		ExamplesByTool.Reset();
+		bLoaded = true;
+
+		TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("ECABridge"));
+		if (!Plugin.IsValid())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[ECABridge] LoadExamples: plugin handle not found — skipping"));
+			return;
+		}
+
+		const FString Path = FPaths::Combine(Plugin->GetBaseDir(), TEXT("Resources"), TEXT("command-examples.json"));
+		if (!FPaths::FileExists(Path))
+		{
+			UE_LOG(LogTemp, Log, TEXT("[ECABridge] LoadExamples: %s not present — tools/list will omit examples"), *Path);
+			return;
+		}
+
+		FString FileContents;
+		if (!FFileHelper::LoadFileToString(FileContents, *Path))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[ECABridge] LoadExamples: failed to read %s"), *Path);
+			return;
+		}
+
+		TSharedPtr<FJsonObject> Root;
+		TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(FileContents);
+		if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[ECABridge] LoadExamples: failed to parse %s"), *Path);
+			return;
+		}
+
+		for (const auto& Pair : Root->Values)
+		{
+			if (!Pair.Value.IsValid() || Pair.Value->Type != EJson::Object)
+			{
+				continue;
+			}
+			// Cross-version: Pair.Key is FString on 5.7, UE::FSharedString on 5.8.
+			// Dereferencing either yields const TCHAR*, so an explicit FString
+			// construction unifies the two paths without a version guard.
+			ExamplesByTool.Add(FString(*Pair.Key), Pair.Value->AsObject());
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("[ECABridge] LoadExamples: loaded %d example(s) from %s"),
+			ExamplesByTool.Num(), *Path);
+	}
+
+	// Lookup helper. Returns null when no example is registered for ToolName.
+	static TSharedPtr<FJsonObject> Find(const FString& ToolName)
+	{
+		if (!bLoaded)
+		{
+			Load();
+		}
+		const TSharedPtr<FJsonObject>* Found = ExamplesByTool.Find(ToolName);
+		return Found ? *Found : TSharedPtr<FJsonObject>();
+	}
+}
+
+void FECAMCPServer::LoadExamples()
+{
+	ECABridgeExamples::Load();
+}
 
 namespace ECABridgeCompress
 {
@@ -714,6 +795,18 @@ TArray<TSharedPtr<FJsonValue>> FECAMCPServer::BuildToolDefinitions(const FString
 		if (OutputSchema.IsValid())
 		{
 			ToolDef->SetObjectField(TEXT("outputSchema"), OutputSchema);
+		}
+
+		// Attach a usage example when one was registered for this tool. Examples
+		// are sourced from <PluginRoot>/Resources/command-examples.json (built by
+		// scripts/gen-examples.py from the smoke test + any scripts/example-sources/*.json
+		// overrides). When the lazy registry loads a new category at runtime,
+		// the next tools/list pass picks up examples automatically because we
+		// re-query the map for each emitted tool.
+		TSharedPtr<FJsonObject> Example = ECABridgeExamples::Find(Command->GetName());
+		if (Example.IsValid())
+		{
+			ToolDef->SetObjectField(TEXT("example"), Example);
 		}
 
 		Tools.Add(MakeShared<FJsonValueObject>(ToolDef));
