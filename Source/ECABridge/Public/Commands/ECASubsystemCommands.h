@@ -99,3 +99,46 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+/**
+ * Invoke a UFUNCTION on a subsystem instance by name, with JSON-encoded arguments.
+ *
+ * Resolves the subsystem class the same way dump_subsystem does (editor / engine
+ * / world), then finds a UFUNCTION on it by name. Arguments are read from the
+ * `args` object: each key matches a parameter name, value is the JSON encoding
+ * of that parameter's type (string / number / boolean / object / array).
+ *
+ * Return value (and any UPARAM(OutParm) out-params) are serialized back into
+ * the result. Most safe with BlueprintCallable functions taking simple types.
+ *
+ * Use with care: this is reflective dispatch into engine code. There's no
+ * allow-list, so callers should know what they're invoking. Best paired with
+ * dump_subsystem to see what's available.
+ */
+class FECACommand_CallSubsystemMethod : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("call_subsystem_method"); }
+	virtual FString GetDescription() const override { return TEXT("Invoke a UFUNCTION on a subsystem by name via reflection. Resolves editor/engine/world subsystems. Pass class_name, function_name, and a sparse args object keyed by parameter name. Returns the function's return value + any UPARAM(OutParm) out-params."); }
+	virtual FString GetCategory() const override { return TEXT("Subsystem"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("class_name"),    TEXT("string"), TEXT("Subsystem class name (e.g. 'UEditorActorSubsystem')"), true },
+			{ TEXT("function_name"), TEXT("string"), TEXT("Name of a UFUNCTION on the subsystem (case-insensitive)"), true },
+			{ TEXT("args"),          TEXT("object"), TEXT("JSON object keyed by parameter name; values are typed per the parameter's UProperty"), false }
+		};
+	}
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("class"),    TEXT("string"), TEXT("Resolved subsystem class name") },
+			{ TEXT("function"), TEXT("string"), TEXT("Resolved function name") },
+			{ TEXT("return"),   TEXT("object"), TEXT("Encoded return value + out-params") }
+		});
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};

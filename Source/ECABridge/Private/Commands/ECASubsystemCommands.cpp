@@ -21,6 +21,7 @@
 REGISTER_ECA_COMMAND(FECACommand_ListEditorSubsystems)
 REGISTER_ECA_COMMAND(FECACommand_ListEngineSubsystems)
 REGISTER_ECA_COMMAND(FECACommand_DumpSubsystem)
+REGISTER_ECA_COMMAND(FECACommand_CallSubsystemMethod)
 
 namespace ECASubsystemHelpers
 {
@@ -274,5 +275,226 @@ FECACommandResult FECACommand_DumpSubsystem::Execute(const TSharedPtr<FJsonObjec
 	}
 	Result->SetArrayField(TEXT("properties"), Properties);
 
+	return FECACommandResult::Success(Result);
+}
+
+//==============================================================================
+// call_subsystem_method — reflective UFUNCTION dispatch
+//==============================================================================
+namespace ECACallSubsystemHelpers
+{
+	// Pack a single FProperty's value from a JSON value into the live parameter
+	// memory. Supports the simple scalar types most BlueprintCallable APIs use.
+	static bool PackParam(FProperty* Prop, void* ContainerMem, const TSharedPtr<FJsonValue>& JsonVal, FString& OutError)
+	{
+		if (!Prop || !JsonVal.IsValid())
+		{
+			OutError = TEXT("Null property or JSON value");
+			return false;
+		}
+		void* ValuePtr = Prop->ContainerPtrToValuePtr<void>(ContainerMem);
+
+		if (FBoolProperty* B = CastField<FBoolProperty>(Prop))
+		{
+			bool V = false;
+			JsonVal->TryGetBool(V);
+			B->SetPropertyValue(ValuePtr, V);
+			return true;
+		}
+		if (FIntProperty* I = CastField<FIntProperty>(Prop))
+		{
+			I->SetPropertyValue(ValuePtr, (int32)JsonVal->AsNumber());
+			return true;
+		}
+		if (FInt64Property* I64 = CastField<FInt64Property>(Prop))
+		{
+			I64->SetPropertyValue(ValuePtr, (int64)JsonVal->AsNumber());
+			return true;
+		}
+		if (FFloatProperty* F = CastField<FFloatProperty>(Prop))
+		{
+			F->SetPropertyValue(ValuePtr, (float)JsonVal->AsNumber());
+			return true;
+		}
+		if (FDoubleProperty* D = CastField<FDoubleProperty>(Prop))
+		{
+			D->SetPropertyValue(ValuePtr, JsonVal->AsNumber());
+			return true;
+		}
+		if (FByteProperty* By = CastField<FByteProperty>(Prop))
+		{
+			By->SetPropertyValue(ValuePtr, (uint8)JsonVal->AsNumber());
+			return true;
+		}
+		if (FStrProperty* S = CastField<FStrProperty>(Prop))
+		{
+			S->SetPropertyValue(ValuePtr, JsonVal->AsString());
+			return true;
+		}
+		if (FNameProperty* N = CastField<FNameProperty>(Prop))
+		{
+			N->SetPropertyValue(ValuePtr, FName(*JsonVal->AsString()));
+			return true;
+		}
+		if (FTextProperty* T = CastField<FTextProperty>(Prop))
+		{
+			T->SetPropertyValue(ValuePtr, FText::FromString(JsonVal->AsString()));
+			return true;
+		}
+		if (FEnumProperty* E = CastField<FEnumProperty>(Prop))
+		{
+			if (UEnum* EnumType = E->GetEnum())
+			{
+				const FString S = JsonVal->AsString();
+				int64 V = EnumType->GetValueByNameString(S, EGetByNameFlags::CaseSensitive);
+				if (V == INDEX_NONE) V = (int64)JsonVal->AsNumber();
+				E->GetUnderlyingProperty()->SetIntPropertyValue(ValuePtr, V);
+			}
+			return true;
+		}
+		if (FObjectPropertyBase* O = CastField<FObjectPropertyBase>(Prop))
+		{
+			const FString Path = JsonVal->AsString();
+			UObject* Ref = nullptr;
+			if (!Path.IsEmpty())
+			{
+				Ref = LoadObject<UObject>(nullptr, *Path);
+			}
+			O->SetObjectPropertyValue(ValuePtr, Ref);
+			return true;
+		}
+
+		OutError = FString::Printf(TEXT("Unsupported parameter type for '%s' (%s)"), *Prop->GetName(), *Prop->GetCPPType());
+		return false;
+	}
+
+	// Encode a single live parameter value back into JSON. Used for return values
+	// and OutParm parameters after ProcessEvent.
+	static TSharedPtr<FJsonValue> UnpackParam(FProperty* Prop, void* ContainerMem)
+	{
+		if (!Prop) return MakeShared<FJsonValueNull>();
+		void* ValuePtr = Prop->ContainerPtrToValuePtr<void>(ContainerMem);
+
+		if (FBoolProperty* B = CastField<FBoolProperty>(Prop))      return MakeShared<FJsonValueBoolean>(B->GetPropertyValue(ValuePtr));
+		if (FIntProperty* I = CastField<FIntProperty>(Prop))         return MakeShared<FJsonValueNumber>(I->GetPropertyValue(ValuePtr));
+		if (FInt64Property* I64 = CastField<FInt64Property>(Prop))   return MakeShared<FJsonValueNumber>((double)I64->GetPropertyValue(ValuePtr));
+		if (FFloatProperty* F = CastField<FFloatProperty>(Prop))     return MakeShared<FJsonValueNumber>(F->GetPropertyValue(ValuePtr));
+		if (FDoubleProperty* D = CastField<FDoubleProperty>(Prop))   return MakeShared<FJsonValueNumber>(D->GetPropertyValue(ValuePtr));
+		if (FByteProperty* By = CastField<FByteProperty>(Prop))      return MakeShared<FJsonValueNumber>(By->GetPropertyValue(ValuePtr));
+		if (FStrProperty* S = CastField<FStrProperty>(Prop))         return MakeShared<FJsonValueString>(S->GetPropertyValue(ValuePtr));
+		if (FNameProperty* N = CastField<FNameProperty>(Prop))       return MakeShared<FJsonValueString>(N->GetPropertyValue(ValuePtr).ToString());
+		if (FTextProperty* T = CastField<FTextProperty>(Prop))       return MakeShared<FJsonValueString>(T->GetPropertyValue(ValuePtr).ToString());
+		if (FObjectPropertyBase* O = CastField<FObjectPropertyBase>(Prop))
+		{
+			UObject* Ref = O->GetObjectPropertyValue(ValuePtr);
+			return MakeShared<FJsonValueString>(Ref ? Ref->GetPathName() : FString());
+		}
+		FString Exported;
+		Prop->ExportText_Direct(Exported, ValuePtr, ValuePtr, nullptr, PPF_None);
+		return MakeShared<FJsonValueString>(Exported.Left(512));
+	}
+}
+
+FECACommandResult FECACommand_CallSubsystemMethod::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString ClassName, FunctionName;
+	if (!GetStringParam(Params, TEXT("class_name"), ClassName))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: class_name"));
+	}
+	if (!GetStringParam(Params, TEXT("function_name"), FunctionName))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: function_name"));
+	}
+
+	UClass* SubsystemClass = ECASubsystemHelpers::ResolveSubsystemClass(ClassName);
+	if (!SubsystemClass)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not resolve '%s' to a USubsystem subclass"), *ClassName));
+	}
+
+	FString Kind;
+	USubsystem* Instance = ECASubsystemHelpers::FindSubsystemInstance(SubsystemClass, Kind);
+	if (!Instance)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not find an active instance of '%s'"), *ClassName));
+	}
+
+	// Function lookup: try the resolved class first, then walk up via FindFunction
+	// (which already considers inheritance).
+	UFunction* Func = Instance->FindFunction(FName(*FunctionName));
+	if (!Func)
+	{
+		// Fall back to case-insensitive scan
+		for (TFieldIterator<UFunction> It(SubsystemClass, EFieldIterationFlags::IncludeSuper); It; ++It)
+		{
+			if (It->GetName().Equals(FunctionName, ESearchCase::IgnoreCase))
+			{
+				Func = *It;
+				break;
+			}
+		}
+	}
+	if (!Func)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Function '%s' not found on '%s'"), *FunctionName, *SubsystemClass->GetName()));
+	}
+
+	// Allocate parameter memory + initialize each param
+	uint8* ParamMem = (uint8*)FMemory_Alloca(Func->ParmsSize);
+	FMemory::Memzero(ParamMem, Func->ParmsSize);
+	for (TFieldIterator<FProperty> It(Func); It; ++It)
+	{
+		It->InitializeValue_InContainer(ParamMem);
+	}
+
+	// Pack args
+	const TSharedPtr<FJsonObject>* ArgsObj = nullptr;
+	const bool bHasArgs = Params.IsValid() && Params->TryGetObjectField(TEXT("args"), ArgsObj) && ArgsObj && (*ArgsObj).IsValid();
+
+	for (TFieldIterator<FProperty> It(Func); It; ++It)
+	{
+		FProperty* P = *It;
+		if (P->HasAnyPropertyFlags(CPF_ReturnParm)) continue;
+		if (P->HasAnyPropertyFlags(CPF_OutParm) && !P->HasAnyPropertyFlags(CPF_ReferenceParm)) continue; // pure out-param; no input
+
+		if (!bHasArgs) continue;
+		TSharedPtr<FJsonValue> ArgVal = (*ArgsObj)->TryGetField(P->GetName());
+		if (!ArgVal.IsValid()) continue;
+
+		FString Err;
+		if (!ECACallSubsystemHelpers::PackParam(P, ParamMem, ArgVal, Err))
+		{
+			// Destroy what we initialized so we don't leak shared resources
+			for (TFieldIterator<FProperty> Dest(Func); Dest; ++Dest) Dest->DestroyValue_InContainer(ParamMem);
+			return FECACommandResult::Error(FString::Printf(TEXT("Failed to pack parameter '%s': %s"), *P->GetName(), *Err));
+		}
+	}
+
+	// Call
+	Instance->ProcessEvent(Func, ParamMem);
+
+	// Unpack return + out-params
+	TSharedPtr<FJsonObject> Returns = MakeShared<FJsonObject>();
+	for (TFieldIterator<FProperty> It(Func); It; ++It)
+	{
+		FProperty* P = *It;
+		if (P->HasAnyPropertyFlags(CPF_ReturnParm))
+		{
+			Returns->SetField(TEXT("value"), ECACallSubsystemHelpers::UnpackParam(P, ParamMem));
+		}
+		else if (P->HasAnyPropertyFlags(CPF_OutParm))
+		{
+			Returns->SetField(P->GetName(), ECACallSubsystemHelpers::UnpackParam(P, ParamMem));
+		}
+	}
+
+	// Destroy live values
+	for (TFieldIterator<FProperty> It(Func); It; ++It) It->DestroyValue_InContainer(ParamMem);
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("class"),    SubsystemClass->GetName());
+	Result->SetStringField(TEXT("function"), Func->GetName());
+	Result->SetObjectField(TEXT("return"),   Returns);
 	return FECACommandResult::Success(Result);
 }
