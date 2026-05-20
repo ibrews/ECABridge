@@ -1023,11 +1023,17 @@ FECACommandResult FECACommand_DumpAnimationBlueprint::Execute(const TSharedPtr<F
 
 	// All graphs — AnimGraphs, state machine graphs, etc.
 	TArray<TSharedPtr<FJsonValue>> GraphsArray;
+	int32 TotalGraphs = 0;
+	int32 ParsedGraphs = 0;
+	int32 TotalNodes = 0;
+	int32 ParsedNodes = 0;
 
 	// Function graphs (includes AnimGraph)
 	for (UEdGraph* Graph : AnimBP->FunctionGraphs)
 	{
+		++TotalGraphs;
 		if (!Graph) continue;
+		++ParsedGraphs;
 		TSharedPtr<FJsonObject> GraphObj = MakeShared<FJsonObject>();
 		GraphObj->SetStringField(TEXT("name"), Graph->GetName());
 		GraphObj->SetStringField(TEXT("class"), Graph->GetClass()->GetName());
@@ -1035,9 +1041,11 @@ FECACommandResult FECACommand_DumpAnimationBlueprint::Execute(const TSharedPtr<F
 
 		// All nodes in this graph
 		TArray<TSharedPtr<FJsonValue>> NodesArray;
+		TotalNodes += Graph->Nodes.Num();
 		for (UEdGraphNode* Node : Graph->Nodes)
 		{
 			if (!Node) continue;
+			++ParsedNodes;
 			TSharedPtr<FJsonObject> NodeObj = MakeShared<FJsonObject>();
 			NodeObj->SetStringField(TEXT("node_id"), Node->NodeGuid.ToString());
 			NodeObj->SetStringField(TEXT("node_class"), Node->GetClass()->GetName());
@@ -1183,7 +1191,9 @@ FECACommandResult FECACommand_DumpAnimationBlueprint::Execute(const TSharedPtr<F
 	// Event graphs (UbergraphPages)
 	for (UEdGraph* Graph : AnimBP->UbergraphPages)
 	{
+		++TotalGraphs;
 		if (!Graph) continue;
+		++ParsedGraphs;
 		TSharedPtr<FJsonObject> GraphObj = MakeShared<FJsonObject>();
 		GraphObj->SetStringField(TEXT("name"), Graph->GetName());
 		GraphObj->SetStringField(TEXT("class"), Graph->GetClass()->GetName());
@@ -1193,6 +1203,25 @@ FECACommandResult FECACommand_DumpAnimationBlueprint::Execute(const TSharedPtr<F
 	}
 
 	Result->SetArrayField(TEXT("graphs"), GraphsArray);
+
+	// --- _meta (confidence header) ---
+	TArray<FString> Notes;
+	FString Confidence = TEXT("HIGH");
+	const int32 SkippedGraphs = TotalGraphs - ParsedGraphs;
+	if (SkippedGraphs > 0)
+	{
+		Notes.Add(FString::Printf(TEXT("Skipped %d null graph entr%s"),
+			SkippedGraphs, SkippedGraphs == 1 ? TEXT("y") : TEXT("ies")));
+		Confidence = TEXT("MEDIUM");
+	}
+	FString Coverage;
+	if (TotalNodes > 0)
+	{
+		const int32 Pct = FMath::RoundToInt(100.0 * ParsedNodes / TotalNodes);
+		Coverage = FString::Printf(TEXT("%d/%d anim nodes (%d%%)"), ParsedNodes, TotalNodes, Pct);
+	}
+	Result->SetObjectField(TEXT("_meta"),
+		MakeECADumpMeta(TEXT("AnimBP graph traversal (function + ubergraph)"), Coverage, Confidence, Notes));
 
 	return FECACommandResult::Success(Result);
 }

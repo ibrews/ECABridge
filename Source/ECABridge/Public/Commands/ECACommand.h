@@ -118,6 +118,33 @@ ECABRIDGE_API TSharedPtr<FJsonObject> MakeECAObjectRefSchema(const FString& Desc
  *  rather than a nested {path,class} object. */
 ECABRIDGE_API TSharedPtr<FJsonObject> MakeECAAssetPathSchema(const FString& Description = FString());
 
+/** Build a `_meta` JSON object summarizing how a dump was produced. Attach it
+ *  to dump_/find_/list_/search_ command results under the `_meta` key so agents
+ *  can tell at a glance whether the output is complete or includes skipped items.
+ *  Shape:
+ *  {
+ *    "method": "...",
+ *    "coverage": "...",       // omitted when empty
+ *    "confidence": "HIGH|MEDIUM|LOW",
+ *    "ue_version": "5.8",
+ *    "notes": [...]            // omitted when empty
+ *  }
+ *  Method:      short string describing the algorithm
+ *               ("K2 schema walk", "AssetRegistry query", etc.).
+ *  Coverage:    "<N>/<M> nodes parsed (<pct>%)" or similar fraction.
+ *               Pass an empty string when the total is unbounded / unknown;
+ *               the field is omitted from the output in that case.
+ *  Confidence:  "HIGH" (everything parsed cleanly), "MEDIUM" (some items
+ *               skipped — record a note), or "LOW" (dump failed on
+ *               fundamentals but returned a partial header).
+ *  Notes:       optional array describing what was skipped or partial.
+ *               Omitted when empty. */
+ECABRIDGE_API TSharedPtr<FJsonObject> MakeECADumpMeta(
+	const FString& Method,
+	const FString& Coverage,
+	const FString& Confidence,
+	const TArray<FString>& Notes = {});
+
 /**
  * Cancellation token tied to a single tool-call request. The MCP server stamps
  * the request ID into TLS for the duration of Execute(); long-running commands
