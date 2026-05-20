@@ -115,8 +115,43 @@ docs: clarify the Python sandbox return-value contract
 A two-line body explaining *why* is almost always worth writing — the
 diff already says *what*.
 
+## Clean-room discipline (very important)
+
+ECABridge is positioned as an **always-+ layer** on top of Epic's native
+`ModelContextProtocol` plugin. We clean-room reimplement Epic's MCP
+features so launcher users get them without compiling from source. This
+only works if we keep our repository legally clean.
+
+**No Epic source code in this repository. Ever.**
+
+- You may **call** Epic's public C++ headers (anything in
+  `ModelContextProtocol/Source/.../Public/`) — that's normal plugin
+  development under the UE License.
+- You may **read** Epic's source to understand behavior, but **do not
+  paste or paraphrase** more than a few lines into our files. Write the
+  behavior down in plain English in an internal spec note first, then
+  implement against the spec.
+- When porting a feature, the PR description should link to:
+  - The behavioral spec we wrote (often a tool agent's output or a doc
+    in our internal KB)
+  - The native commit(s) the feature originated in, for traceability
+- Do not include or modify any file that has Epic's copyright header.
+
+If you find that something is much easier to do by copying Epic's code,
+escalate to a maintainer before doing it. The right answer is usually
+a thin wrapper that calls Epic's public API, not a copy.
+
+For the full reasoning, see `intelligence/tools/ue5-eula-mcp-redistribution.md`
+in our internal KB (summary: UE EULA §1(A)(b) restricts source
+redistribution to fellow licensees on the matching version, which a
+public GitHub repo can't enforce; clean-room API reimplementation is
+explicitly allowed).
+
 ## What we can't accept
 
+- **Any Epic source code copied into our repo, even with attribution.**
+  Headers from `#include` are fine; literal source is not. See the
+  clean-room discipline section above.
 - Anything that breaks the 5.7 build without a `#if UE_VERSION_OLDER_THAN`
   guard around the change.
 - New hard dependencies on engine plugins that aren't enabled by default
