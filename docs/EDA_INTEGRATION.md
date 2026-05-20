@@ -181,6 +181,50 @@ Each port should return a JSON object with a `result.tools[]` array. If one of t
 
 ---
 
+## 6a. Schema conventions (Batch K — convergence with native)
+
+Where ECABridge and the native `ModelContextProtocol` plugin overlap, we try to
+emit schemas in the same shape so EDA renders results consistently regardless
+of which server answered. The conventions:
+
+**Input schemas (`inputSchema` on `tools/list`)**
+
+- `$schema: http://json-schema.org/draft-07/schema#` on every tool.
+- `type: "object"` with `additionalProperties: false` — unknown args are a
+  client error, not a silent drop.
+- `title` at the top level (TitleCased command name) and on every property.
+- `description` at the top level (= the command's `GetDescription()`) and on
+  every property.
+- `required: [...]` for non-optional args, omitted entirely when no args are
+  required (vs. an empty array).
+
+**Output schemas (`outputSchema` on `tools/list`)**
+
+- `type: "object"` with `properties: {...}`. We do not currently advertise
+  `required` on output schemas — the agent should treat any absent field as
+  "not present in this response" rather than an error.
+- UObject references are nested objects with the shape
+  `{path: string<uobject-path>, class: string}`. Build via
+  `MakeECAObjectRefSchema(Description)`.
+- Asset path strings (the kind a command takes as an arg) use
+  `type: "string", format: "uobject-path"`. Build via
+  `MakeECAAssetPathSchema(Description)`.
+- Error structures travel via JSON-RPC `isError: true` + a text content block
+  whose payload is the validation message + embedded input schema. We do not
+  use `outputSchema` for error shapes.
+
+**Divergences from native we intentionally keep**
+
+- ECABridge attaches an `example` field on each tool (sourced from
+  `Resources/command-examples.json`). Native does not. EDA renders it in the
+  tool inspector; clients that don't understand the field ignore it per the
+  JSON Schema additionalProperties rule on the *tool descriptor*, which is
+  open (only the *inputSchema* is strict).
+- ECABridge uses MCP `notifications/tools/list_changed` when the lazy registry
+  loads a category. Native ships its full surface up front.
+
+---
+
 ## 7. Customizing ECABridge for EDA
 
 Two settings in **Project Settings → Plugins → ECABridge** matter for EDA integration:

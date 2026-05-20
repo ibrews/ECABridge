@@ -82,6 +82,19 @@ struct FECASchemaField
  *  Helper for GetOutputSchema() overrides — minimal, no nested object schemas. */
 ECABRIDGE_API TSharedPtr<FJsonObject> MakeECAObjectSchema(const TArray<FECASchemaField>& Fields);
 
+/** Build a JSON Schema fragment describing a UObject reference the way native
+ *  MCP servers serialize them: a top-level object with a `path` (package path)
+ *  and `class` (UClass leaf name) field. Use this for any output field that
+ *  returns an asset/actor reference so EDA + Cursor render it consistently. */
+ECABRIDGE_API TSharedPtr<FJsonObject> MakeECAObjectRefSchema(const FString& Description = FString());
+
+/** Build a JSON Schema fragment describing an asset path string with a
+ *  `format: "uobject-path"` hint (UE-specific JSON Schema extension). Use this
+ *  for parameters/outputs that take a `/Game/Path/To/Asset.AssetName` string.
+ *  Distinct from MakeECAObjectRefSchema in that the value is a plain string
+ *  rather than a nested {path,class} object. */
+ECABRIDGE_API TSharedPtr<FJsonObject> MakeECAAssetPathSchema(const FString& Description = FString());
+
 /**
  * Cancellation token tied to a single tool-call request. The MCP server stamps
  * the request ID into TLS for the duration of Execute(); long-running commands

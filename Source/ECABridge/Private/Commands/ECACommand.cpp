@@ -110,6 +110,51 @@ TSharedPtr<FJsonObject> MakeECAObjectSchema(const TArray<FECASchemaField>& Field
 	return Schema;
 }
 
+TSharedPtr<FJsonObject> MakeECAObjectRefSchema(const FString& Description)
+{
+	TSharedPtr<FJsonObject> Schema = MakeShared<FJsonObject>();
+	Schema->SetStringField(TEXT("type"), TEXT("object"));
+	if (!Description.IsEmpty())
+	{
+		Schema->SetStringField(TEXT("description"), Description);
+	}
+
+	TSharedPtr<FJsonObject> Properties = MakeShared<FJsonObject>();
+
+	TSharedPtr<FJsonObject> Path = MakeShared<FJsonObject>();
+	Path->SetStringField(TEXT("type"), TEXT("string"));
+	Path->SetStringField(TEXT("format"), TEXT("uobject-path"));
+	Path->SetStringField(TEXT("description"), TEXT("Full package path (e.g. /Game/Foo/BP_Bar.BP_Bar)."));
+	Properties->SetObjectField(TEXT("path"), Path);
+
+	TSharedPtr<FJsonObject> Class = MakeShared<FJsonObject>();
+	Class->SetStringField(TEXT("type"), TEXT("string"));
+	Class->SetStringField(TEXT("description"), TEXT("Leaf UClass name (e.g. StaticMeshActor)."));
+	Properties->SetObjectField(TEXT("class"), Class);
+
+	Schema->SetObjectField(TEXT("properties"), Properties);
+
+	TArray<TSharedPtr<FJsonValue>> Required;
+	Required.Add(MakeShared<FJsonValueString>(TEXT("path")));
+	Schema->SetArrayField(TEXT("required"), Required);
+	return Schema;
+}
+
+TSharedPtr<FJsonObject> MakeECAAssetPathSchema(const FString& Description)
+{
+	TSharedPtr<FJsonObject> Schema = MakeShared<FJsonObject>();
+	Schema->SetStringField(TEXT("type"), TEXT("string"));
+	// `format: uobject-path` is a UE-specific JSON Schema extension that mirrors
+	// what native MCP emits for asset path arguments. Tools that don't recognize
+	// the format MUST still treat the value as a plain string per JSON Schema rules.
+	Schema->SetStringField(TEXT("format"), TEXT("uobject-path"));
+	if (!Description.IsEmpty())
+	{
+		Schema->SetStringField(TEXT("description"), Description);
+	}
+	return Schema;
+}
+
 // Title-case helper: "actor_name" -> "Actor Name". Used to surface a human
 // label on each schema property so clients (Claude Code's tools panel, EDA,
 // Inspector tools) can render a nicer label than the raw snake-case key.
