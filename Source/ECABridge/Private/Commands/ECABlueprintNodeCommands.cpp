@@ -1254,6 +1254,35 @@ FECACommandResult FECACommand_FindBlueprintNodes::Execute(const TSharedPtr<FJson
 }
 
 //------------------------------------------------------------------------------
+// ResolveVarClass — shared helper for cross-BP variable_class resolution
+// Accepts: Blueprint asset path, full class path, or short class name (±_C suffix)
+//------------------------------------------------------------------------------
+static UClass* ResolveVarClass(const FString& ClassName)
+{
+	if (ClassName.IsEmpty()) return nullptr;
+
+	// 1. Try as a Blueprint asset path → generated class
+	if (UBlueprint* BP = LoadObject<UBlueprint>(nullptr, *ClassName))
+	{
+		if (BP->GeneratedClass) return BP->GeneratedClass;
+	}
+
+	// 2. Try as a direct fully-qualified class path
+	if (UClass* C = FindObject<UClass>(nullptr, *ClassName)) return C;
+
+	// 3. Short-name search (case-insensitive, tolerates presence/absence of _C suffix)
+	FString Short = ClassName;
+	Short.RemoveFromEnd(TEXT("_C"));
+	for (TObjectIterator<UClass> It; It; ++It)
+	{
+		FString ItShort = It->GetName();
+		ItShort.RemoveFromEnd(TEXT("_C"));
+		if (ItShort.Equals(Short, ESearchCase::IgnoreCase)) return *It;
+	}
+	return nullptr;
+}
+
+//------------------------------------------------------------------------------
 // AddBlueprintVariableGetNode
 //------------------------------------------------------------------------------
 
@@ -1287,25 +1316,36 @@ FECACommandResult FECACommand_AddBlueprintVariableGetNode::Execute(const TShared
 	}
 	
 	FVector2D Position = GetNodePosition(Params, Graph);
-	
+
+	// Optional: variable_class lets you target a variable on an external class.
+	// When provided, the node gets a 'self' input pin typed to that class so a
+	// cast result can be wired in — enabling cross-BP variable access.
+	FString VarClassName;
+	GetStringParam(Params, TEXT("variable_class"), VarClassName, false);
+	UClass* VarClass = ResolveVarClass(VarClassName);
+
 	UK2Node_VariableGet* GetNode = NewObject<UK2Node_VariableGet>(Graph);
-	GetNode->VariableReference.SetSelfMember(FName(*VariableName));
+	if (VarClass)
+		GetNode->VariableReference.SetExternalMember(FName(*VariableName), VarClass);
+	else
+		GetNode->VariableReference.SetSelfMember(FName(*VariableName));
 	GetNode->NodePosX = Position.X;
 	GetNode->NodePosY = Position.Y;
-	
+
 	Graph->AddNode(GetNode, false, false);
 	GetNode->AllocateDefaultPins();
 	EnsureBPNodeHasValidGuid(GetNode);
 	GetNode->ReconstructNode();
-	
+
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
-	
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetStringField(TEXT("node_id"), GetNode->NodeGuid.ToString());
 	Result->SetStringField(TEXT("variable_name"), VariableName);
+	if (VarClass) Result->SetStringField(TEXT("variable_class"), VarClass->GetName());
 	Result->SetObjectField(TEXT("node"), NodeToJson(GetNode));
 	AddNodeErrorInfo(Result, GetNode);
-	
+
 	return FECACommandResult::Success(Result);
 }
 
@@ -1344,24 +1384,33 @@ FECACommandResult FECACommand_AddBlueprintVariableSetNode::Execute(const TShared
 	
 	FVector2D Position = GetNodePosition(Params, Graph);
 	
+	// Optional: variable_class for cross-BP variable access (see AddBlueprintVariableGetNode)
+	FString VarClassName;
+	GetStringParam(Params, TEXT("variable_class"), VarClassName, false);
+	UClass* VarClass = ResolveVarClass(VarClassName);
+
 	UK2Node_VariableSet* SetNode = NewObject<UK2Node_VariableSet>(Graph);
-	SetNode->VariableReference.SetSelfMember(FName(*VariableName));
+	if (VarClass)
+		SetNode->VariableReference.SetExternalMember(FName(*VariableName), VarClass);
+	else
+		SetNode->VariableReference.SetSelfMember(FName(*VariableName));
 	SetNode->NodePosX = Position.X;
 	SetNode->NodePosY = Position.Y;
-	
+
 	Graph->AddNode(SetNode, false, false);
 	SetNode->AllocateDefaultPins();
 	EnsureBPNodeHasValidGuid(SetNode);
 	SetNode->ReconstructNode();
-	
+
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
-	
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetStringField(TEXT("node_id"), SetNode->NodeGuid.ToString());
 	Result->SetStringField(TEXT("variable_name"), VariableName);
+	if (VarClass) Result->SetStringField(TEXT("variable_class"), VarClass->GetName());
 	Result->SetObjectField(TEXT("node"), NodeToJson(SetNode));
 	AddNodeErrorInfo(Result, SetNode);
-	
+
 	return FECACommandResult::Success(Result);
 }
 
@@ -1636,9 +1685,17 @@ FECACommandResult FECACommand_BatchEditBlueprintNodes::Execute(const TSharedPtr<
 				Errors.Add(FString::Printf(TEXT("Node '%s' of type 'variable_get' missing 'variable_name'"), *TempId));
 				continue;
 			}
-			
+
+			// Optional variable_class for cross-BP variable access
+			FString VarClassName;
+			NodeDef->TryGetStringField(TEXT("variable_class"), VarClassName);
+			UClass* VarClass = ResolveVarClass(VarClassName);
+
 			UK2Node_VariableGet* GetNode = NewObject<UK2Node_VariableGet>(Graph);
-			GetNode->VariableReference.SetSelfMember(FName(*VariableName));
+			if (VarClass)
+				GetNode->VariableReference.SetExternalMember(FName(*VariableName), VarClass);
+			else
+				GetNode->VariableReference.SetSelfMember(FName(*VariableName));
 			CreatedNode = GetNode;
 		}
 		else if (NodeType == TEXT("variable_set"))
@@ -1649,9 +1706,17 @@ FECACommandResult FECACommand_BatchEditBlueprintNodes::Execute(const TSharedPtr<
 				Errors.Add(FString::Printf(TEXT("Node '%s' of type 'variable_set' missing 'variable_name'"), *TempId));
 				continue;
 			}
-			
+
+			// Optional variable_class for cross-BP variable access
+			FString VarClassName;
+			NodeDef->TryGetStringField(TEXT("variable_class"), VarClassName);
+			UClass* VarClass = ResolveVarClass(VarClassName);
+
 			UK2Node_VariableSet* SetNode = NewObject<UK2Node_VariableSet>(Graph);
-			SetNode->VariableReference.SetSelfMember(FName(*VariableName));
+			if (VarClass)
+				SetNode->VariableReference.SetExternalMember(FName(*VariableName), VarClass);
+			else
+				SetNode->VariableReference.SetSelfMember(FName(*VariableName));
 			CreatedNode = SetNode;
 		}
 		else if (NodeType == TEXT("self"))
