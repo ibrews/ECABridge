@@ -28,6 +28,8 @@
 REGISTER_ECA_COMMAND(FECACommand_CreatePhysicsAssetFromMesh)
 REGISTER_ECA_COMMAND(FECACommand_AddBody)
 REGISTER_ECA_COMMAND(FECACommand_RemoveBody)
+REGISTER_ECA_COMMAND(FECACommand_GetBodyNames)
+REGISTER_ECA_COMMAND(FECACommand_GetBodyShapes)
 
 // =============================================================================
 // Local helpers
@@ -312,15 +314,130 @@ FECACommandResult FECACommand_RemoveBody::Execute(const TSharedPtr<FJsonObject>&
 }
 
 // =============================================================================
-// Tasks 2-5 declared in header; implementations land in subsequent commits.
+// get_body_names
+// =============================================================================
+FECACommandResult FECACommand_GetBodyNames::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString PAPath;
+	if (!GetStringParam(Params, TEXT("physics_asset_path"), PAPath))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: physics_asset_path"));
+	}
+
+	UPhysicsAsset* PA = ECAPhysicsHelpers::LoadAssetTolerant<UPhysicsAsset>(PAPath);
+	if (!PA)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not load UPhysicsAsset at: %s"), *PAPath));
+	}
+
+	TArray<TSharedPtr<FJsonValue>> Names;
+	for (USkeletalBodySetup* Body : PA->SkeletalBodySetups)
+	{
+		if (!Body) continue;
+		Names.Add(MakeShared<FJsonValueString>(Body->BoneName.ToString()));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetArrayField(TEXT("bone_names"), Names);
+	return FECACommandResult::Success(Result);
+}
+
+// =============================================================================
+// get_body_shapes
+// =============================================================================
+namespace ECAPhysicsAssetLocal
+{
+	static TSharedPtr<FJsonObject> VecToJson(const FVector& V)
+	{
+		TSharedPtr<FJsonObject> O = MakeShared<FJsonObject>();
+		O->SetNumberField(TEXT("x"), V.X);
+		O->SetNumberField(TEXT("y"), V.Y);
+		O->SetNumberField(TEXT("z"), V.Z);
+		return O;
+	}
+	static TSharedPtr<FJsonObject> RotToJson(const FRotator& R)
+	{
+		TSharedPtr<FJsonObject> O = MakeShared<FJsonObject>();
+		O->SetNumberField(TEXT("pitch"), R.Pitch);
+		O->SetNumberField(TEXT("yaw"),   R.Yaw);
+		O->SetNumberField(TEXT("roll"),  R.Roll);
+		return O;
+	}
+}
+
+FECACommandResult FECACommand_GetBodyShapes::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString PAPath, BoneNameStr;
+	if (!GetStringParam(Params, TEXT("physics_asset_path"), PAPath))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: physics_asset_path"));
+	}
+	if (!GetStringParam(Params, TEXT("bone_name"), BoneNameStr))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: bone_name"));
+	}
+
+	UPhysicsAsset* PA = ECAPhysicsHelpers::LoadAssetTolerant<UPhysicsAsset>(PAPath);
+	if (!PA)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Could not load UPhysicsAsset at: %s"), *PAPath));
+	}
+
+	const FName BoneName(*BoneNameStr);
+	USkeletalBodySetup* Body = ECAPhysicsAssetLocal::FindBodyForBone(PA, BoneName);
+	if (!Body)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("No body found for bone '%s'"), *BoneNameStr));
+	}
+
+	TArray<TSharedPtr<FJsonValue>> Shapes;
+	for (const FKSphereElem& E : Body->AggGeom.SphereElems)
+	{
+		TSharedPtr<FJsonObject> O = MakeShared<FJsonObject>();
+		O->SetStringField(TEXT("shape_name"), E.GetName().ToString());
+		O->SetStringField(TEXT("shape_type"), TEXT("Sphere"));
+		O->SetObjectField(TEXT("center"), ECAPhysicsAssetLocal::VecToJson(E.Center));
+		O->SetNumberField(TEXT("radius"), E.Radius);
+		Shapes.Add(MakeShared<FJsonValueObject>(O));
+	}
+	for (const FKSphylElem& E : Body->AggGeom.SphylElems)
+	{
+		TSharedPtr<FJsonObject> O = MakeShared<FJsonObject>();
+		O->SetStringField(TEXT("shape_name"), E.GetName().ToString());
+		O->SetStringField(TEXT("shape_type"), TEXT("Capsule"));
+		O->SetObjectField(TEXT("center"),   ECAPhysicsAssetLocal::VecToJson(E.Center));
+		O->SetObjectField(TEXT("rotation"), ECAPhysicsAssetLocal::RotToJson(E.Rotation));
+		O->SetNumberField(TEXT("radius"), E.Radius);
+		O->SetNumberField(TEXT("length"), E.Length);
+		Shapes.Add(MakeShared<FJsonValueObject>(O));
+	}
+	for (const FKBoxElem& E : Body->AggGeom.BoxElems)
+	{
+		TSharedPtr<FJsonObject> O = MakeShared<FJsonObject>();
+		O->SetStringField(TEXT("shape_name"), E.GetName().ToString());
+		O->SetStringField(TEXT("shape_type"), TEXT("Box"));
+		O->SetObjectField(TEXT("center"),   ECAPhysicsAssetLocal::VecToJson(E.Center));
+		O->SetObjectField(TEXT("rotation"), ECAPhysicsAssetLocal::RotToJson(E.Rotation));
+		O->SetNumberField(TEXT("extent_x"), E.X);
+		O->SetNumberField(TEXT("extent_y"), E.Y);
+		O->SetNumberField(TEXT("extent_z"), E.Z);
+		Shapes.Add(MakeShared<FJsonValueObject>(O));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("bone_name"), BoneNameStr);
+	Result->SetArrayField(TEXT("shapes"), Shapes);
+	return FECACommandResult::Success(Result);
+}
+
+// =============================================================================
+// Tasks 3-5 declared in header; implementations land in subsequent commits.
 // Stubs below satisfy linker for the not-yet-registered classes.
 // =============================================================================
 #define ECA_TASK_STUB(ClassName) \
 	FECACommandResult ClassName::Execute(const TSharedPtr<FJsonObject>&) { \
 		return FECACommandResult::Error(TEXT(#ClassName " not implemented yet")); }
 
-ECA_TASK_STUB(FECACommand_GetBodyNames)
-ECA_TASK_STUB(FECACommand_GetBodyShapes)
 ECA_TASK_STUB(FECACommand_SetBodySphere)
 ECA_TASK_STUB(FECACommand_SetBodyCapsule)
 ECA_TASK_STUB(FECACommand_SetBodyBox)
