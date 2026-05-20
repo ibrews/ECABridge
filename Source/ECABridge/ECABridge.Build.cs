@@ -59,6 +59,17 @@ public class ECABridge : ModuleRules
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 		CppStandard = CppStandardVersion.Cpp23;
 
+		// Force Latest include-order so transitive engine-plugin editor headers don't
+		// trigger C4668 warning-as-error storms on 5.7 (where their include chain
+		// doesn't carry the UE_ENABLE_INCLUDE_ORDER_DEPRECATED_IN_5_x defines).
+		IncludeOrderVersion = EngineIncludeOrderVersion.Latest;
+
+		// Even with Latest, some engine headers reference deprecation macros that
+		// are conditionally defined elsewhere. Disable C4668 (undefined-id-in-#if)
+		// to avoid spurious warnings-as-errors when transitive includes chain
+		// through editor-only modules.
+		bEnableUndefinedIdentifierWarnings = false;
+
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core", "CoreUObject", "Engine", "EngineSettings", "Json", "JsonUtilities",
