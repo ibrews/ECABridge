@@ -632,23 +632,28 @@ FECACommandResult FECACommand_AddBlueprintFunctionNode::Execute(const TSharedPtr
 	}
 	
 	FVector2D Position = GetNodePosition(Params, Graph);
-	
+
 	// Find the function
 	UFunction* Function = nullptr;
-	
+
 	// Try common library classes first
 	TArray<UClass*> ClassesToSearch;
-	
-	if (!TargetClass.IsEmpty())
+
+	// Resolve the explicit target_class (if any) up front. Knowing whether the
+	// caller pinned a specific class changes our error behavior: a pinned target
+	// that doesn't resolve the function must NOT silently fall back to the
+	// calling BP or to any BlueprintFunctionLibrary — that's the silent
+	// mis-resolution documented in ecabridge-mcp-gotchas #4 and #14.
+	UClass* ResolvedTargetClass = nullptr;
+	const bool bHasExplicitTarget = !TargetClass.IsEmpty();
+	if (bHasExplicitTarget)
 	{
-		UClass* SpecificClass = nullptr;
-		// Try as a fully-qualified path first
-		SpecificClass = FindObject<UClass>(nullptr, *TargetClass);
-		if (!SpecificClass)
+		ResolvedTargetClass = FindObject<UClass>(nullptr, *TargetClass);
+		if (!ResolvedTargetClass)
 		{
-			SpecificClass = LoadObject<UClass>(nullptr, *TargetClass);
+			ResolvedTargetClass = LoadObject<UClass>(nullptr, *TargetClass);
 		}
-		// Otherwise try well-known script modules
+		// Try well-known script modules by short name.
 		static const TCHAR* ScriptModulePrefixes[] = {
 			TEXT("/Script/Engine."),
 			TEXT("/Script/CoreUObject."),
@@ -661,28 +666,68 @@ FECACommandResult FECACommand_AddBlueprintFunctionNode::Execute(const TSharedPtr
 		};
 		for (const TCHAR* Prefix : ScriptModulePrefixes)
 		{
-			if (SpecificClass) break;
+			if (ResolvedTargetClass) break;
 			FString Candidate = FString(Prefix) + TargetClass;
-			SpecificClass = FindObject<UClass>(nullptr, *Candidate);
-			if (!SpecificClass)
+			ResolvedTargetClass = FindObject<UClass>(nullptr, *Candidate);
+			if (!ResolvedTargetClass)
 			{
-				SpecificClass = LoadObject<UClass>(nullptr, *Candidate);
+				ResolvedTargetClass = LoadObject<UClass>(nullptr, *Candidate);
 			}
 		}
-		if (SpecificClass)
+		// Try `/Game/<path>.<name>_C` for Blueprint-generated classes when the
+		// caller passes the bare asset path.
+		if (!ResolvedTargetClass && !TargetClass.Contains(TEXT(".")))
 		{
-			ClassesToSearch.Add(SpecificClass);
+			int32 LastSlash;
+			if (TargetClass.FindLastChar('/', LastSlash))
+			{
+				const FString AssetName = TargetClass.Mid(LastSlash + 1);
+				const FString Expanded = TargetClass + TEXT(".") + AssetName + TEXT("_C");
+				ResolvedTargetClass = LoadObject<UClass>(nullptr, *Expanded);
+			}
 		}
-	}
-	
-	// First, check if this is a function defined in the Blueprint itself
-	bool bIsBlueprintFunction = false;
-	for (UEdGraph* FuncGraph : Blueprint->FunctionGraphs)
-	{
-		if (FuncGraph && FuncGraph->GetFName() == FName(*FunctionName))
+
+		if (!ResolvedTargetClass)
 		{
-			bIsBlueprintFunction = true;
-			break;
+			return FECACommandResult::Error(FString::Printf(
+				TEXT("target_class '%s' could not be resolved. Use a fully-qualified path (e.g., '/Script/Engine.GameplayStatics' or '/Game/Path/BP_Foo.BP_Foo_C')."),
+				*TargetClass));
+		}
+
+		// When a target_class is pinned, resolve function strictly against it
+		// (walking the parent chain via FindFunctionByName, which is what UE
+		// does for normal call sites). No fall-back to self / BFL search.
+		Function = ResolvedTargetClass->FindFunctionByName(*FunctionName);
+		if (!Function)
+		{
+			Function = ResolvedTargetClass->FindFunctionByName(*FString::Printf(TEXT("K2_%s"), *FunctionName));
+		}
+
+		if (!Function)
+		{
+			return FECACommandResult::Error(FString::Printf(
+				TEXT("Function '%s' not found on %s. ")
+				TEXT("CustomEvents do not enumerate cross-BP via this API; use Blueprint Functions or the ApplyDamage relay pattern. ")
+				TEXT("See ecabridge-mcp-gotchas #4."),
+				*FunctionName, *ResolvedTargetClass->GetName()));
+		}
+		// Fall through to node creation at the end of the function with the
+		// resolved Function — skip the self / library / BFL-iteration paths.
+	}
+
+	// First, check if this is a function defined in the Blueprint itself.
+	// Only consider this path when no explicit target_class was pinned; with a
+	// pin, we already resolved (or errored) against that exact class above.
+	bool bIsBlueprintFunction = false;
+	if (!bHasExplicitTarget)
+	{
+		for (UEdGraph* FuncGraph : Blueprint->FunctionGraphs)
+		{
+			if (FuncGraph && FuncGraph->GetFName() == FName(*FunctionName))
+			{
+				bIsBlueprintFunction = true;
+				break;
+			}
 		}
 	}
 	
@@ -711,6 +756,16 @@ FECACommandResult FECACommand_AddBlueprintFunctionNode::Execute(const TSharedPtr
 		return FECACommandResult::Success(Result);
 	}
 	
+	// If target_class was pinned above, Function is already resolved (or we
+	// already errored out). Skip the broad library-class fallback search so we
+	// don't silently re-resolve to a same-named function on a different class.
+	if (Function)
+	{
+		// Skip ahead — no further searching needed.
+	}
+	else
+	{
+
 	// Add common classes for engine/library functions
 	ClassesToSearch.Add(UKismetSystemLibrary::StaticClass());
 	ClassesToSearch.Add(UKismetMathLibrary::StaticClass());
@@ -849,7 +904,9 @@ FECACommandResult FECACommand_AddBlueprintFunctionNode::Execute(const TSharedPtr
 	{
 		return FECACommandResult::Error(FString::Printf(TEXT("Function not found: %s. Searched %d classes including Geometry Script libraries."), *FunctionName, ClassesToSearch.Num()));
 	}
-	
+
+	} // end of `else` branch: implicit-target fallback search path
+
 	// Create the call function node
 	UK2Node_CallFunction* CallNode = NewObject<UK2Node_CallFunction>(Graph);
 	CallNode->SetFromFunction(Function);
@@ -2629,9 +2686,8 @@ FECACommandResult FECACommand_SetBlueprintPinValue::Execute(const TSharedPtr<FJs
 		}
 		else
 		{
-			// Other struct types: pass through verbatim. Callers are responsible
-			// for the correct text-import form for that struct (e.g., Vector
-			// as "(X=0,Y=0,Z=0)" or "0,0,0").
+			// Other struct types: pass through (caller is responsible for the
+			// correct text-import format for that struct).
 			Pin->DefaultValue = Value;
 			bSuccess = true;
 			ResultMessage = TEXT("Set struct value");
