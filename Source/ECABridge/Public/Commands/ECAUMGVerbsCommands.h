@@ -171,6 +171,66 @@ public:
 };
 
 /**
+ * Toggle a widget's bIsVariable flag — exposes (or hides) it as a blueprint
+ * member variable on the next compile.
+ */
+class FECACommand_SetWidgetAsVariable : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_widget_as_variable"); }
+	virtual FString GetDescription() const override { return TEXT("Set a widget's bIsVariable flag. When true, the next compile generates a blueprint member variable for the widget."); }
+	virtual FString GetCategory() const override { return TEXT("UMG"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("widget_blueprint_path"), TEXT("string"),  TEXT("Path to a UWidgetBlueprint asset"), true },
+			{ TEXT("widget_name"),           TEXT("string"),  TEXT("Widget name"), true },
+			{ TEXT("is_variable"),           TEXT("boolean"), TEXT("Target value for bIsVariable"), true }
+		};
+	}
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("widget_name"), TEXT("string"),  TEXT("Widget name") },
+			{ TEXT("is_variable"), TEXT("boolean"), TEXT("Resulting flag state") }
+		});
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Reparent a Widget Blueprint to a different UUserWidget subclass and recompile.
+ */
+class FECACommand_ReparentWidgetBlueprint : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("reparent_widget_blueprint"); }
+	virtual FString GetDescription() const override { return TEXT("Reparent a Widget Blueprint to a different UUserWidget subclass and recompile."); }
+	virtual FString GetCategory() const override { return TEXT("UMG"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("widget_blueprint_path"), TEXT("string"), TEXT("Path to a UWidgetBlueprint asset"), true },
+			{ TEXT("new_parent_class"),      TEXT("string"), TEXT("New parent class (must be a UUserWidget subclass)"), true }
+		};
+	}
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("widget_blueprint_path"), TEXT("string"), TEXT("Echo of the asset path") },
+			{ TEXT("new_parent_class"),      TEXT("string"), TEXT("New parent class") }
+		});
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
  * List named-slot bindings (NamedSlotInterface implementers + UContentWidget content slots).
  */
 class FECACommand_GetNamedSlots : public IECACommand

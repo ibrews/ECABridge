@@ -12,6 +12,8 @@
 #include "Components/ContentWidget.h"
 #include "Components/NamedSlotInterface.h"
 #include "Kismet2/BlueprintEditorUtils.h"
+#include "Kismet2/KismetEditorUtilities.h"
+#include "Kismet2/CompilerResultsLog.h"
 
 REGISTER_ECA_COMMAND(FECACommand_AddWidget)
 REGISTER_ECA_COMMAND(FECACommand_SetNamedSlotContent)
@@ -19,6 +21,8 @@ REGISTER_ECA_COMMAND(FECACommand_GetNamedSlots)
 REGISTER_ECA_COMMAND(FECACommand_MoveWidget)
 REGISTER_ECA_COMMAND(FECACommand_RemoveWidget)
 REGISTER_ECA_COMMAND(FECACommand_RenameWidget)
+REGISTER_ECA_COMMAND(FECACommand_SetWidgetAsVariable)
+REGISTER_ECA_COMMAND(FECACommand_ReparentWidgetBlueprint)
 
 //------------------------------------------------------------------------------
 // add_widget — polymorphic widget construction + attachment.
@@ -588,5 +592,120 @@ FECACommandResult FECACommand_RenameWidget::Execute(const TSharedPtr<FJsonObject
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetStringField(TEXT("old_name"), WidgetName);
 	Result->SetStringField(TEXT("new_name"), NewName);
+	return FECACommandResult::Success(Result);
+}
+
+//------------------------------------------------------------------------------
+// set_widget_as_variable — toggle bIsVariable for the compiler to expose it.
+//------------------------------------------------------------------------------
+
+FECACommandResult FECACommand_SetWidgetAsVariable::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString WidgetBlueprintPath;
+	if (!GetStringParam(Params, TEXT("widget_blueprint_path"), WidgetBlueprintPath))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_blueprint_path"));
+	}
+
+	FString WidgetName;
+	if (!GetStringParam(Params, TEXT("widget_name"), WidgetName))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_name"));
+	}
+
+	bool bIsVariable = false;
+	if (!GetBoolParam(Params, TEXT("is_variable"), bIsVariable))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: is_variable"));
+	}
+
+	UWidgetBlueprint* WidgetBP = ECAUMGVerbs::LoadAssetTolerant<UWidgetBlueprint>(WidgetBlueprintPath);
+	if (!WidgetBP)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Widget Blueprint not found: %s"), *WidgetBlueprintPath));
+	}
+
+	UWidgetTree* WidgetTree = WidgetBP->WidgetTree;
+	if (!WidgetTree)
+	{
+		return FECACommandResult::Error(TEXT("Widget Blueprint has no widget tree"));
+	}
+
+	UWidget* Target = WidgetTree->FindWidget(FName(*WidgetName));
+	if (!Target)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("widget_name '%s' not found"), *WidgetName));
+	}
+
+	Target->Modify();
+	Target->bIsVariable = bIsVariable;
+
+	WidgetBP->MarkPackageDirty();
+	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(WidgetBP);
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("widget_name"), WidgetName);
+	Result->SetBoolField(TEXT("is_variable"), Target->bIsVariable);
+	return FECACommandResult::Success(Result);
+}
+
+//------------------------------------------------------------------------------
+// reparent_widget_blueprint — swap the WidgetBP parent class and recompile.
+//------------------------------------------------------------------------------
+
+FECACommandResult FECACommand_ReparentWidgetBlueprint::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString WidgetBlueprintPath;
+	if (!GetStringParam(Params, TEXT("widget_blueprint_path"), WidgetBlueprintPath))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_blueprint_path"));
+	}
+
+	FString NewParentClassPath;
+	if (!GetStringParam(Params, TEXT("new_parent_class"), NewParentClassPath))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: new_parent_class"));
+	}
+
+	UWidgetBlueprint* WidgetBP = ECAUMGVerbs::LoadAssetTolerant<UWidgetBlueprint>(WidgetBlueprintPath);
+	if (!WidgetBP)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Widget Blueprint not found: %s"), *WidgetBlueprintPath));
+	}
+
+	UClass* NewParentClass = nullptr;
+	if (!NewParentClassPath.Contains(TEXT(".")) && !NewParentClassPath.Contains(TEXT("/")))
+	{
+		NewParentClass = FindObject<UClass>(nullptr, *FString::Printf(TEXT("/Script/UMG.%s"), *NewParentClassPath));
+	}
+	if (!NewParentClass)
+	{
+		NewParentClass = FindObject<UClass>(nullptr, *NewParentClassPath);
+	}
+	if (!NewParentClass)
+	{
+		NewParentClass = LoadObject<UClass>(nullptr, *NewParentClassPath);
+	}
+	if (!NewParentClass)
+	{
+		// Try the BlueprintGeneratedClass suffix for user widget assets.
+		const FString GeneratedSuffix = NewParentClassPath + TEXT("_C");
+		NewParentClass = LoadObject<UClass>(nullptr, *GeneratedSuffix);
+	}
+	if (!NewParentClass || !NewParentClass->IsChildOf(UUserWidget::StaticClass()))
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("new_parent_class '%s' is not a UUserWidget subclass"), *NewParentClassPath));
+	}
+
+	WidgetBP->Modify();
+	WidgetBP->ParentClass = NewParentClass;
+	FBlueprintEditorUtils::RefreshAllNodes(WidgetBP);
+	WidgetBP->MarkPackageDirty();
+	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(WidgetBP);
+	FKismetEditorUtilities::CompileBlueprint(WidgetBP);
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("widget_blueprint_path"), WidgetBlueprintPath);
+	Result->SetStringField(TEXT("new_parent_class"), NewParentClass->GetPathName());
 	return FECACommandResult::Success(Result);
 }
