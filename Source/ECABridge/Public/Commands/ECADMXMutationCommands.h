@@ -62,3 +62,61 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+/**
+ * set_dmx_universe — change the universe ID (and optionally starting channel /
+ * active mode) of an existing UDMXEntityFixturePatch.
+ *
+ * Identify the patch via library_path + (patch_id OR patch_name). Calls
+ * UDMXEntityFixturePatch::SetUniverseID and friends, then saves the library
+ * when save=true.
+ */
+class FECACommand_SetDmxUniverse : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_dmx_universe"); }
+	virtual FString GetDescription() const override { return TEXT("Set the universe ID (and optionally starting_channel / active_mode) of a UDMXEntityFixturePatch. Identify the patch by library_path + patch_id (preferred) or patch_name."); }
+	virtual FString GetCategory() const override { return TEXT("DMX"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("library_path"), TEXT("string"), TEXT("Asset path to the UDMXLibrary containing the patch."), true, TEXT("") },
+			{ TEXT("patch_id"), TEXT("string"), TEXT("GUID of the fixture patch (preferred — unique). Use list_dmx_libraries / dump_dmx_patch to find it."), false, TEXT("") },
+			{ TEXT("patch_name"), TEXT("string"), TEXT("Display name of the fixture patch — used when patch_id is empty. Ambiguous if multiple patches share the name."), false, TEXT("") },
+			{ TEXT("universe_id"), TEXT("integer"), TEXT("New local universe ID."), true, TEXT("") },
+			{ TEXT("starting_channel"), TEXT("integer"), TEXT("Optional new starting channel (1-512)."), false, TEXT("") },
+			{ TEXT("active_mode"), TEXT("integer"), TEXT("Optional new active mode index."), false, TEXT("") },
+			{ TEXT("save"), TEXT("boolean"), TEXT("Whether to save the library after the change (default true)."), false, TEXT("true") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * send_dmx_values — push a channel→value map to every FDMXOutputPort bound to a
+ * UDMXLibrary, targeting the given local universe.
+ *
+ * Walks Library->GetOutputPorts() and calls FDMXOutputPort::SendDMX(local_universe,
+ * channel_values) on each. Channel keys are 1-based (1..512), values clamped to
+ * uint8 (0..255). Returns the number of ports written to.
+ */
+class FECACommand_SendDmxValues : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("send_dmx_values"); }
+	virtual FString GetDescription() const override { return TEXT("Send a raw channel->value map to every FDMXOutputPort bound to a UDMXLibrary, on the given local universe. Channel keys 1-512, values 0-255. Returns the number of ports written to."); }
+	virtual FString GetCategory() const override { return TEXT("DMX"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("library_path"), TEXT("string"), TEXT("Asset path to a UDMXLibrary whose output ports will be used."), true, TEXT("") },
+			{ TEXT("universe_id"), TEXT("integer"), TEXT("Local DMX universe ID to send on."), true, TEXT("") },
+			{ TEXT("values"), TEXT("object"), TEXT("JSON object mapping channel (string key, 1..512) to integer value (0..255). e.g. { \"1\": 255, \"2\": 128 }."), true, TEXT("") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};

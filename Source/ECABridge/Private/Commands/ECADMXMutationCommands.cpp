@@ -8,6 +8,7 @@
 #include "Library/DMXEntityFixturePatch.h"
 #include "Library/DMXEntityFixtureType.h"
 #include "Library/DMXEntityReference.h"
+#include "IO/DMXOutputPort.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "UObject/Package.h"
@@ -206,5 +207,170 @@ FECACommandResult FECACommand_AddDmxFixture::Execute(const TSharedPtr<FJsonObjec
 }
 
 REGISTER_ECA_COMMAND(FECACommand_AddDmxFixture);
+
+namespace
+{
+	UDMXEntityFixturePatch* FindPatchInLibrary(UDMXLibrary* Library, const FString& PatchId, const FString& PatchName)
+	{
+		if (!Library) return nullptr;
+		const TArray<UDMXEntityFixturePatch*> All = Library->GetEntitiesTypeCast<UDMXEntityFixturePatch>();
+
+		if (!PatchId.IsEmpty())
+		{
+			FGuid Id;
+			if (FGuid::Parse(PatchId, Id))
+			{
+				for (UDMXEntityFixturePatch* P : All)
+				{
+					if (P && P->GetID() == Id) return P;
+				}
+			}
+		}
+		if (!PatchName.IsEmpty())
+		{
+			for (UDMXEntityFixturePatch* P : All)
+			{
+				if (P && P->GetDisplayName() == PatchName) return P;
+			}
+		}
+		return nullptr;
+	}
+}
+
+FECACommandResult FECACommand_SetDmxUniverse::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString LibraryPath;
+	if (!GetStringParam(Params, TEXT("library_path"), LibraryPath, true))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("library_path is required"));
+	}
+	int32 UniverseId = 0;
+	if (!GetIntParam(Params, TEXT("universe_id"), UniverseId, true))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("universe_id is required"));
+	}
+	FString PatchId, PatchName;
+	GetStringParam(Params, TEXT("patch_id"), PatchId, false);
+	GetStringParam(Params, TEXT("patch_name"), PatchName, false);
+	if (PatchId.IsEmpty() && PatchName.IsEmpty())
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Either patch_id or patch_name must be provided"));
+	}
+
+	UDMXLibrary* Library = LoadDmxLibrary(LibraryPath);
+	if (!Library)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Failed to load UDMXLibrary at '%s'."), *LibraryPath));
+	}
+
+	UDMXEntityFixturePatch* Patch = FindPatchInLibrary(Library, PatchId, PatchName);
+	if (!Patch)
+	{
+		return FECACommandResult::Error(TEXT("Could not find a fixture patch matching patch_id/patch_name in the library."));
+	}
+
+	Patch->SetUniverseID(UniverseId);
+
+	int32 StartingChannel = 0;
+	if (GetIntParam(Params, TEXT("starting_channel"), StartingChannel, false))
+	{
+		Patch->SetStartingChannel(StartingChannel);
+	}
+	int32 ActiveMode = 0;
+	if (GetIntParam(Params, TEXT("active_mode"), ActiveMode, false))
+	{
+		Patch->SetActiveModeIndex(ActiveMode);
+	}
+
+	bool bSave = true;
+	GetBoolParam(Params, TEXT("save"), bSave, false);
+
+	UPackage* Package = Library->GetOutermost();
+	if (Package) Package->MarkPackageDirty();
+
+	FString SavedTo, SaveError;
+	bool bSaved = false;
+	if (bSave && Package)
+	{
+		bSaved = SavePackageToDisk(Package, Library, SavedTo, SaveError);
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("library_path"), Library->GetPathName());
+	Result->SetStringField(TEXT("patch_id"), Patch->GetID().ToString(EGuidFormats::DigitsWithHyphens));
+	Result->SetStringField(TEXT("patch_name"), Patch->GetDisplayName());
+	Result->SetNumberField(TEXT("universe_id"), Patch->GetUniverseID());
+	Result->SetNumberField(TEXT("starting_channel"), Patch->GetStartingChannel());
+	Result->SetBoolField(TEXT("saved"), bSaved);
+	if (bSave && !bSaved) Result->SetStringField(TEXT("save_error"), SaveError);
+	return FECACommandResult::Success(Result);
+}
+
+REGISTER_ECA_COMMAND(FECACommand_SetDmxUniverse);
+
+FECACommandResult FECACommand_SendDmxValues::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString LibraryPath;
+	if (!GetStringParam(Params, TEXT("library_path"), LibraryPath, true))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("library_path is required"));
+	}
+	int32 UniverseId = 0;
+	if (!GetIntParam(Params, TEXT("universe_id"), UniverseId, true))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("universe_id is required"));
+	}
+
+	const TSharedPtr<FJsonObject>* ValuesObj = nullptr;
+	if (!GetObjectParam(Params, TEXT("values"), ValuesObj, true) || !ValuesObj || !ValuesObj->IsValid())
+	{
+		return FECACommandResult::ValidationError(this, TEXT("values (object) is required"));
+	}
+
+	UDMXLibrary* Library = LoadDmxLibrary(LibraryPath);
+	if (!Library)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Failed to load UDMXLibrary at '%s'."), *LibraryPath));
+	}
+
+	TMap<int32, uint8> ChannelValues;
+	for (const TPair<FString, TSharedPtr<FJsonValue>>& KV : (*ValuesObj)->Values)
+	{
+		int32 Channel = FCString::Atoi(*KV.Key);
+		if (Channel < 1 || Channel > 512) continue;
+		double V = 0.0;
+		if (KV.Value.IsValid() && KV.Value->TryGetNumber(V))
+		{
+			int32 Clamped = FMath::Clamp<int32>(FMath::RoundToInt(V), 0, 255);
+			ChannelValues.Add(Channel, static_cast<uint8>(Clamped));
+		}
+	}
+
+	if (ChannelValues.Num() == 0)
+	{
+		return FECACommandResult::ValidationError(this, TEXT("values contained no usable channel/value pairs (channel keys must be integers 1..512)"));
+	}
+
+	const TSet<FDMXOutputPortSharedRef>& OutputPorts = Library->GetOutputPorts();
+	TArray<TSharedPtr<FJsonValue>> PortInfos;
+	for (const FDMXOutputPortSharedRef& Port : OutputPorts)
+	{
+		Port->SendDMX(UniverseId, ChannelValues);
+
+		TSharedPtr<FJsonObject> Info = MakeShared<FJsonObject>();
+		Info->SetStringField(TEXT("port_guid"), Port->GetPortGuid().ToString(EGuidFormats::DigitsWithHyphens));
+		PortInfos.Add(MakeShared<FJsonValueObject>(Info));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("library_path"), Library->GetPathName());
+	Result->SetNumberField(TEXT("universe_id"), UniverseId);
+	Result->SetNumberField(TEXT("port_count"), PortInfos.Num());
+	Result->SetNumberField(TEXT("channel_count"), ChannelValues.Num());
+	Result->SetArrayField(TEXT("ports"), PortInfos);
+	return FECACommandResult::Success(Result);
+}
+
+REGISTER_ECA_COMMAND(FECACommand_SendDmxValues);
 
 #endif // WITH_ECA_DMX
