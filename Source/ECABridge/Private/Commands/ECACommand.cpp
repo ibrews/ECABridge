@@ -458,27 +458,53 @@ bool FECACommandRegistry::IsLazyMode() const
 
 int32 FECACommandRegistry::LoadCategory(const FString& Category)
 {
-	FScopeLock Lock(&CommandsLock);
-	LoadedCategories.Add(Category);
+	bool bChanged = false;
 	int32 N = 0;
-	for (const auto& Pair : Commands)
+	TFunction<void()> CallbackCopy;
 	{
-		if (Pair.Value.IsValid() && Pair.Value->GetCategory() == Category)
+		FScopeLock Lock(&CommandsLock);
+		bChanged = !LoadedCategories.Contains(Category);
+		LoadedCategories.Add(Category);
+		for (const auto& Pair : Commands)
 		{
-			++N;
+			if (Pair.Value.IsValid() && Pair.Value->GetCategory() == Category)
+			{
+				++N;
+			}
 		}
+		CallbackCopy = OnVisibleToolsChanged;
+	}
+	if (bChanged && CallbackCopy)
+	{
+		CallbackCopy();
 	}
 	return N;
 }
 
 bool FECACommandRegistry::UnloadCategory(const FString& Category)
 {
-	FScopeLock Lock(&CommandsLock);
-	if (Category == MetaCategory)
+	bool bRemoved = false;
+	TFunction<void()> CallbackCopy;
 	{
-		return false; // Never hide the meta-tools.
+		FScopeLock Lock(&CommandsLock);
+		if (Category == MetaCategory)
+		{
+			return false; // Never hide the meta-tools.
+		}
+		bRemoved = LoadedCategories.Remove(Category) > 0;
+		CallbackCopy = OnVisibleToolsChanged;
 	}
-	return LoadedCategories.Remove(Category) > 0;
+	if (bRemoved && CallbackCopy)
+	{
+		CallbackCopy();
+	}
+	return bRemoved;
+}
+
+void FECACommandRegistry::SetOnVisibleToolsChanged(TFunction<void()> Callback)
+{
+	FScopeLock Lock(&CommandsLock);
+	OnVisibleToolsChanged = MoveTemp(Callback);
 }
 
 bool FECACommandRegistry::IsCategoryVisible(const FString& Category) const

@@ -202,6 +202,12 @@ public:
 	/** Get the set of currently loaded categories (visible via tools/list). */
 	TArray<FString> GetLoadedCategories() const;
 
+	/** Set a callback the registry invokes whenever the visible tool surface changes
+	 *  (lazy load/unload, optional-subsystem prune). The MCP server uses this to
+	 *  emit `notifications/tools/list_changed` per the MCP 2025-03-26 spec.
+	 *  Pass nullptr to clear. Replaces any prior callback. */
+	void SetOnVisibleToolsChanged(TFunction<void()> Callback);
+
 	/** Return the commands that should appear in tools/list right now, honoring
 	 *  lazy mode and an optional category filter (case-sensitive). When
 	 *  CategoryFilter is non-empty, ONLY commands in that category are returned
@@ -232,6 +238,8 @@ private:
 
 	bool bLazyMode = false;
 	TSet<FString> LoadedCategories;
+
+	TFunction<void()> OnVisibleToolsChanged;
 };
 
 /**

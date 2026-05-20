@@ -88,6 +88,21 @@ private:
 	/** Handle CORS preflight (OPTIONS) requests */
 	bool HandleCORSPreflight(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete);
 
+	/** Handle GET /mcp — drains queued server-initiated notifications as a
+	 *  text/event-stream response (MCP Streamable HTTP, 2025-03-26 spec).
+	 *  Clients poll this to discover notifications/tools/list_changed and
+	 *  notifications/progress events. */
+	bool HandleMCPGet(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete);
+
+public:
+	/** Enqueue a JSON-RPC notification for delivery via GET /mcp SSE. */
+	void EnqueueNotification(const TSharedPtr<FJsonObject>& Notification);
+
+	/** Build + enqueue a `notifications/tools/list_changed` notification. */
+	void BroadcastToolsListChanged();
+
+private:
+
 	/** Process a single JSON-RPC request and return the response */
 	TSharedPtr<FJsonObject> ProcessJsonRpcRequest(const TSharedPtr<FJsonObject>& Request);
 	
@@ -123,7 +138,14 @@ private:
 	
 	/** Route handles for cleanup */
 	FHttpRouteHandle MCPRouteHandle;
+	FHttpRouteHandle MCPGetRouteHandle;
 	FHttpRouteHandle HealthRouteHandle;
+
+	/** Queue of server-initiated JSON-RPC notifications awaiting delivery via
+	 *  GET /mcp. Bounded to MaxPendingNotifications; oldest entries are dropped. */
+	TArray<TSharedPtr<FJsonObject>> PendingNotifications;
+	FCriticalSection NotificationLock;
+	static constexpr int32 MaxPendingNotifications = 256;
 	
 	/** Server state */
 	bool bIsRunning = false;

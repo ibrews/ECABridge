@@ -181,6 +181,25 @@ bool FECAMCPServer::Start(int32 Port)
 		})
 	);
 
+	// Server-initiated notifications stream (MCP Streamable HTTP SSE).
+	// Clients poll this to receive notifications/tools/list_changed,
+	// notifications/progress, and notifications/resources/updated.
+	MCPGetRouteHandle = HttpRouter->BindRoute(
+		FHttpPath(TEXT("/mcp")),
+		EHttpServerRequestVerbs::VERB_GET,
+		FHttpRequestHandler::CreateLambda([this](const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)
+		{
+			return HandleMCPGet(Request, OnComplete);
+		})
+	);
+
+	// Bind registry → MCP server: whenever the visible tool surface changes,
+	// emit notifications/tools/list_changed.
+	FECACommandRegistry::Get().SetOnVisibleToolsChanged([this]()
+	{
+		BroadcastToolsListChanged();
+	});
+
 	// Health check endpoint
 	HealthRouteHandle = HttpRouter->BindRoute(
 		FHttpPath(TEXT("/health")),
@@ -212,10 +231,14 @@ void FECAMCPServer::Stop()
 		return;
 	}
 
+	// Detach the registry callback so a stale pointer isn't invoked after Stop.
+	FECACommandRegistry::Get().SetOnVisibleToolsChanged(nullptr);
+
 	// Unbind routes
 	if (HttpRouter.IsValid())
 	{
 		HttpRouter->UnbindRoute(MCPRouteHandle);
+		HttpRouter->UnbindRoute(MCPGetRouteHandle);
 		HttpRouter->UnbindRoute(HealthRouteHandle);
 	}
 
@@ -462,7 +485,7 @@ TSharedPtr<FJsonObject> FECAMCPServer::HandleInitialize(const TSharedPtr<FJsonOb
 	
 	// Tools capability
 	TSharedPtr<FJsonObject> ToolsCap = MakeShared<FJsonObject>();
-	ToolsCap->SetBoolField(TEXT("listChanged"), false);
+	ToolsCap->SetBoolField(TEXT("listChanged"), true);
 	Capabilities->SetObjectField(TEXT("tools"), ToolsCap);
 
 	Result->SetObjectField(TEXT("capabilities"), Capabilities);
@@ -765,4 +788,63 @@ FString FECAMCPServer::SerializeJson(const TSharedPtr<FJsonObject>& JsonObject)
 	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
 	FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer);
 	return OutputString;
+}
+
+void FECAMCPServer::EnqueueNotification(const TSharedPtr<FJsonObject>& Notification)
+{
+	if (!Notification.IsValid())
+	{
+		return;
+	}
+	FScopeLock ScopedLock(&NotificationLock);
+	if (PendingNotifications.Num() >= MaxPendingNotifications)
+	{
+		// Bounded buffer: drop oldest. Clients that haven't polled in a long time
+		// see a list_changed eventually anyway when they next call tools/list.
+		PendingNotifications.RemoveAt(0);
+	}
+	PendingNotifications.Add(Notification);
+}
+
+void FECAMCPServer::BroadcastToolsListChanged()
+{
+	TSharedPtr<FJsonObject> Notification = MakeShared<FJsonObject>();
+	Notification->SetStringField(TEXT("jsonrpc"), TEXT("2.0"));
+	Notification->SetStringField(TEXT("method"), TEXT("notifications/tools/list_changed"));
+	// No params per spec — clients re-issue tools/list to discover the new set.
+	EnqueueNotification(Notification);
+	UE_LOG(LogTemp, Log, TEXT("[ECABridge] Enqueued notifications/tools/list_changed"));
+}
+
+bool FECAMCPServer::HandleMCPGet(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)
+{
+	// Drain the queue under the lock, then serialize each as an SSE event.
+	TArray<TSharedPtr<FJsonObject>> Drained;
+	{
+		FScopeLock ScopedLock(&NotificationLock);
+		Drained = MoveTemp(PendingNotifications);
+		PendingNotifications.Reset();
+	}
+
+	FString Body;
+	// Always emit a comment line so EventSource clients see the stream open.
+	Body += TEXT(": eca-mcp\n\n");
+	for (const TSharedPtr<FJsonObject>& Note : Drained)
+	{
+		if (!Note.IsValid()) continue;
+		const FString Json = SerializeJson(Note);
+		// SSE framing per https://html.spec.whatwg.org/multipage/server-sent-events.html
+		Body += TEXT("event: message\n");
+		Body += TEXT("data: ");
+		Body += Json;
+		Body += TEXT("\n\n");
+	}
+
+	TUniquePtr<FHttpServerResponse> Response = FHttpServerResponse::Create(Body, TEXT("text/event-stream"));
+	Response->Headers.Add(TEXT("Access-Control-Allow-Origin"), { TEXT("*") });
+	Response->Headers.Add(TEXT("Cache-Control"), { TEXT("no-cache") });
+	Response->Headers.Add(TEXT("Connection"), { TEXT("keep-alive") });
+	Response->Code = EHttpServerResponseCodes::Ok;
+	OnComplete(MoveTemp(Response));
+	return true;
 }
