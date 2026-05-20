@@ -1030,4 +1030,230 @@ FECACommandResult FECACommand_GetNiagaraUserVariables::Execute(const TSharedPtr<
 	return FECACommandResult::Success(Root);
 }
 
+// ============================================================================
+// Task 4 — User variables CRUD
+// ============================================================================
+
+REGISTER_ECA_COMMAND(FECACommand_AddNiagaraUserVariables)
+REGISTER_ECA_COMMAND(FECACommand_RemoveNiagaraUserVariables)
+
+namespace ECANiagaraConvergence
+{
+	// Map a user-supplied type string to a Niagara type definition. Returns false
+	// on unknown type. Recognized: float, int / int32, bool, vec2, vec3, vec4,
+	// position, color / linearcolor, quat.
+	static bool ResolveUserVarType(const FString& In, FNiagaraTypeDefinition& Out)
+	{
+		const FString T = In.ToLower();
+		if (T == TEXT("float"))               { Out = FNiagaraTypeDefinition::GetFloatDef(); return true; }
+		if (T == TEXT("int") || T == TEXT("int32")) { Out = FNiagaraTypeDefinition::GetIntDef(); return true; }
+		if (T == TEXT("bool"))                { Out = FNiagaraTypeDefinition::GetBoolDef(); return true; }
+		if (T == TEXT("vec2") || T == TEXT("vector2")) { Out = FNiagaraTypeDefinition::GetVec2Def(); return true; }
+		if (T == TEXT("vec3") || T == TEXT("vector") || T == TEXT("vector3")) { Out = FNiagaraTypeDefinition::GetVec3Def(); return true; }
+		if (T == TEXT("vec4") || T == TEXT("vector4")) { Out = FNiagaraTypeDefinition::GetVec4Def(); return true; }
+		if (T == TEXT("position"))            { Out = FNiagaraTypeDefinition::GetPositionDef(); return true; }
+		if (T == TEXT("color") || T == TEXT("linearcolor")) { Out = FNiagaraTypeDefinition::GetColorDef(); return true; }
+		if (T == TEXT("quat"))                { Out = FNiagaraTypeDefinition::GetQuatDef(); return true; }
+		return false;
+	}
+
+	// Set Tmp's allocated buffer from a JSON default value, typed by Tmp's
+	// FNiagaraTypeDefinition. Returns false on a coerce mismatch.
+	static bool AssignDefaultToVariable(FNiagaraVariable& Tmp, const TSharedPtr<FJsonValue>& DefaultVal)
+	{
+		const FNiagaraTypeDefinition Type = Tmp.GetType();
+		if (!DefaultVal.IsValid()) return true; // accept missing default
+		if (Type == FNiagaraTypeDefinition::GetFloatDef())
+		{
+			double D = 0; if (!DefaultVal->TryGetNumber(D)) return false;
+			Tmp.SetValue(static_cast<float>(D)); return true;
+		}
+		if (Type == FNiagaraTypeDefinition::GetIntDef())
+		{
+			double D = 0; if (!DefaultVal->TryGetNumber(D)) return false;
+			Tmp.SetValue(static_cast<int32>(D)); return true;
+		}
+		if (Type == FNiagaraTypeDefinition::GetBoolDef())
+		{
+			bool B = false; if (!DefaultVal->TryGetBool(B)) return false;
+			FNiagaraBool NB; NB.SetValue(B); Tmp.SetValue(NB); return true;
+		}
+		if (Type == FNiagaraTypeDefinition::GetVec2Def())
+		{
+			const TSharedPtr<FJsonObject>* Obj = nullptr;
+			if (!DefaultVal->TryGetObject(Obj) || !Obj) return false;
+			FVector2f V(0,0);
+			V.X = (float)(*Obj)->GetNumberField(TEXT("x"));
+			V.Y = (float)(*Obj)->GetNumberField(TEXT("y"));
+			Tmp.SetValue(V); return true;
+		}
+		if (Type == FNiagaraTypeDefinition::GetVec3Def() || Type == FNiagaraTypeDefinition::GetPositionDef())
+		{
+			const TSharedPtr<FJsonObject>* Obj = nullptr;
+			if (!DefaultVal->TryGetObject(Obj) || !Obj) return false;
+			FVector3f V(0,0,0);
+			V.X = (float)(*Obj)->GetNumberField(TEXT("x"));
+			V.Y = (float)(*Obj)->GetNumberField(TEXT("y"));
+			V.Z = (float)(*Obj)->GetNumberField(TEXT("z"));
+			Tmp.SetValue(V); return true;
+		}
+		if (Type == FNiagaraTypeDefinition::GetVec4Def() || Type == FNiagaraTypeDefinition::GetQuatDef())
+		{
+			const TSharedPtr<FJsonObject>* Obj = nullptr;
+			if (!DefaultVal->TryGetObject(Obj) || !Obj) return false;
+			FVector4f V(0,0,0,0);
+			V.X = (float)(*Obj)->GetNumberField(TEXT("x"));
+			V.Y = (float)(*Obj)->GetNumberField(TEXT("y"));
+			V.Z = (float)(*Obj)->GetNumberField(TEXT("z"));
+			if ((*Obj)->HasField(TEXT("w"))) V.W = (float)(*Obj)->GetNumberField(TEXT("w"));
+			Tmp.SetValue(V); return true;
+		}
+		if (Type == FNiagaraTypeDefinition::GetColorDef())
+		{
+			const TSharedPtr<FJsonObject>* Obj = nullptr;
+			if (!DefaultVal->TryGetObject(Obj) || !Obj) return false;
+			FLinearColor C;
+			C.R = (float)(*Obj)->GetNumberField(TEXT("r"));
+			C.G = (float)(*Obj)->GetNumberField(TEXT("g"));
+			C.B = (float)(*Obj)->GetNumberField(TEXT("b"));
+			C.A = (*Obj)->HasField(TEXT("a")) ? (float)(*Obj)->GetNumberField(TEXT("a")) : 1.0f;
+			Tmp.SetValue(C); return true;
+		}
+		return false;
+	}
+}
+
+FECACommandResult FECACommand_AddNiagaraUserVariables::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SystemPath;
+	if (!GetStringParam(Params, TEXT("system_path"), SystemPath)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
+	const TArray<TSharedPtr<FJsonValue>>* Vars = nullptr;
+	if (!GetArrayParam(Params, TEXT("variables"), Vars) || !Vars) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: variables (array)"));
+
+	UNiagaraSystem* System = ResolveSystem(SystemPath);
+	if (!System) return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Niagara system: %s"), *SystemPath));
+
+	FScopedTransaction Tx(NSLOCTEXT("ECABridge", "AddNiagaraUserVariables", "Add Niagara User Variables"));
+	System->Modify();
+	FNiagaraUserRedirectionParameterStore& Store = System->GetExposedParameters();
+
+	TArray<TSharedPtr<FJsonValue>> AddedArr;
+	TArray<TSharedPtr<FJsonValue>> UpdatedArr;
+	TArray<TSharedPtr<FJsonValue>> ErrorsArr;
+
+	for (const TSharedPtr<FJsonValue>& V : *Vars)
+	{
+		const TSharedPtr<FJsonObject>* Obj = nullptr;
+		if (!V.IsValid() || !V->TryGetObject(Obj) || !Obj || !(*Obj).IsValid())
+		{
+			ErrorsArr.Add(MakeShared<FJsonValueString>(TEXT("variable entry is not an object")));
+			continue;
+		}
+		FString Name = (*Obj)->GetStringField(TEXT("name"));
+		FString TypeStr = (*Obj)->GetStringField(TEXT("type"));
+		if (Name.IsEmpty() || TypeStr.IsEmpty())
+		{
+			ErrorsArr.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("entry missing name/type: %s/%s"), *Name, *TypeStr)));
+			continue;
+		}
+		FNiagaraTypeDefinition Type;
+		if (!ResolveUserVarType(TypeStr, Type))
+		{
+			ErrorsArr.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("unknown type '%s' for var '%s'"), *TypeStr, *Name)));
+			continue;
+		}
+
+		// "User." prefix is the canonical exposed-param namespace.
+		FString FullName = Name;
+		if (!FullName.StartsWith(TEXT("User."))) FullName = FString::Printf(TEXT("User.%s"), *Name);
+
+		FNiagaraVariable Var(Type, FName(*FullName));
+		Var.AllocateData();
+
+		// Apply default if supplied; ignore missing field.
+		if ((*Obj)->HasField(TEXT("default")))
+		{
+			TSharedPtr<FJsonValue> DefVal = (*Obj)->TryGetField(TEXT("default"));
+			if (DefVal.IsValid() && !AssignDefaultToVariable(Var, DefVal))
+			{
+				ErrorsArr.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("default value type-coerce failed for var '%s'"), *Name)));
+				continue;
+			}
+		}
+
+		const bool bExisted = Store.IndexOf(Var) != INDEX_NONE;
+		if (bExisted)
+		{
+			Store.SetParameterData(Var.GetData(), Var, /*bAdd*/ false);
+			UpdatedArr.Add(MakeShared<FJsonValueString>(FullName));
+		}
+		else
+		{
+			Store.AddParameter(Var, /*bInitialize*/ true, /*bTriggerRebind*/ true);
+			Store.SetParameterData(Var.GetData(), Var, /*bAdd*/ false);
+			AddedArr.Add(MakeShared<FJsonValueString>(FullName));
+		}
+	}
+
+	System->MarkPackageDirty();
+	System->PostEditChange();
+	System->RequestCompile(false);
+
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetStringField(TEXT("system_path"), SystemPath);
+	Root->SetArrayField(TEXT("added"), AddedArr);
+	Root->SetArrayField(TEXT("updated"), UpdatedArr);
+	Root->SetArrayField(TEXT("errors"), ErrorsArr);
+	return FECACommandResult::Success(Root);
+}
+
+FECACommandResult FECACommand_RemoveNiagaraUserVariables::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SystemPath;
+	if (!GetStringParam(Params, TEXT("system_path"), SystemPath)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
+	const TArray<TSharedPtr<FJsonValue>>* Names = nullptr;
+	if (!GetArrayParam(Params, TEXT("names"), Names) || !Names) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: names (array)"));
+
+	UNiagaraSystem* System = ResolveSystem(SystemPath);
+	if (!System) return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Niagara system: %s"), *SystemPath));
+
+	FScopedTransaction Tx(NSLOCTEXT("ECABridge", "RemoveNiagaraUserVariables", "Remove Niagara User Variables"));
+	System->Modify();
+	FNiagaraUserRedirectionParameterStore& Store = System->GetExposedParameters();
+
+	TArray<TSharedPtr<FJsonValue>> Removed;
+	TArray<TSharedPtr<FJsonValue>> NotFound;
+	for (const TSharedPtr<FJsonValue>& NV : *Names)
+	{
+		FString Name; if (!NV.IsValid() || !NV->TryGetString(Name) || Name.IsEmpty()) continue;
+		FString FullName = Name;
+		if (!FullName.StartsWith(TEXT("User."))) FullName = FString::Printf(TEXT("User.%s"), *Name);
+
+		// Find any matching variable to fetch its type for the removal call.
+		bool bMatched = false;
+		for (const FNiagaraVariableWithOffset& V : Store.ReadParameterVariables())
+		{
+			if (V.GetName().ToString().Equals(FullName, ESearchCase::IgnoreCase) ||
+				V.GetName().ToString().Equals(Name, ESearchCase::IgnoreCase))
+			{
+				Store.RemoveParameter((FNiagaraVariable)V);
+				Removed.Add(MakeShared<FJsonValueString>(V.GetName().ToString()));
+				bMatched = true;
+				break;
+			}
+		}
+		if (!bMatched) NotFound.Add(MakeShared<FJsonValueString>(Name));
+	}
+
+	System->MarkPackageDirty();
+	System->PostEditChange();
+	System->RequestCompile(false);
+
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetStringField(TEXT("system_path"), SystemPath);
+	Root->SetArrayField(TEXT("removed"), Removed);
+	Root->SetArrayField(TEXT("not_found"), NotFound);
+	return FECACommandResult::Success(Root);
+}
+
 #endif // WITH_ECA_NIAGARA
