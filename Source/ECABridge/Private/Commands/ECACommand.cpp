@@ -431,6 +431,93 @@ UBlueprint* IECACommand::LoadBlueprintByPath(const FString& BlueprintPath)
 }
 
 //------------------------------------------------------------------------------
+// FECACancellationRegistry
+//------------------------------------------------------------------------------
+
+FECACancellationRegistry& FECACancellationRegistry::Get()
+{
+	static FECACancellationRegistry Instance;
+	return Instance;
+}
+
+void FECACancellationRegistry::EnsureTlsSlot()
+{
+	if (TlsSlot == 0xFFFFFFFFu)
+	{
+		TlsSlot = FPlatformTLS::AllocTlsSlot();
+	}
+}
+
+TSharedRef<FECACancellationToken> FECACancellationRegistry::RegisterRequest(const FString& RequestId)
+{
+	FScopeLock ScopedLock(&Lock);
+	EnsureTlsSlot();
+
+	TSharedRef<FECACancellationToken> Token = MakeShared<FECACancellationToken>();
+	if (!RequestId.IsEmpty())
+	{
+		Tokens.Add(RequestId, Token);
+		// Stash the request ID on the calling thread so commands can resolve back
+		// to their token via IsCurrentRequestCancelled().
+		FString* Heap = new FString(RequestId);
+		FString* Prev = static_cast<FString*>(FPlatformTLS::GetTlsValue(TlsSlot));
+		if (Prev) { delete Prev; }
+		FPlatformTLS::SetTlsValue(TlsSlot, Heap);
+	}
+	return Token;
+}
+
+void FECACancellationRegistry::UnregisterRequest(const FString& RequestId)
+{
+	FScopeLock ScopedLock(&Lock);
+	if (!RequestId.IsEmpty())
+	{
+		Tokens.Remove(RequestId);
+	}
+	if (TlsSlot != 0xFFFFFFFFu)
+	{
+		FString* Prev = static_cast<FString*>(FPlatformTLS::GetTlsValue(TlsSlot));
+		if (Prev) { delete Prev; FPlatformTLS::SetTlsValue(TlsSlot, nullptr); }
+	}
+}
+
+bool FECACancellationRegistry::Cancel(const FString& RequestId)
+{
+	FScopeLock ScopedLock(&Lock);
+	if (TSharedRef<FECACancellationToken>* Found = Tokens.Find(RequestId))
+	{
+		(*Found)->Cancel();
+		return true;
+	}
+	return false;
+}
+
+FString FECACancellationRegistry::GetCurrentRequestId() const
+{
+	if (TlsSlot == 0xFFFFFFFFu)
+	{
+		return FString();
+	}
+	FString* Heap = static_cast<FString*>(FPlatformTLS::GetTlsValue(TlsSlot));
+	return Heap ? *Heap : FString();
+}
+
+bool FECACancellationRegistry::IsCurrentRequestCancelled() const
+{
+	const FString Id = GetCurrentRequestId();
+	if (Id.IsEmpty())
+	{
+		return false;
+	}
+	FScopeLock ScopedLock(&Lock);
+	if (const TSharedRef<FECACancellationToken>* Found = Tokens.Find(Id))
+	{
+		return (*Found)->IsCancelled();
+	}
+	return false;
+}
+
+//------------------------------------------------------------------------------
 // FECACommandRegistry
 //------------------------------------------------------------------------------
 

@@ -83,6 +83,50 @@ struct FECASchemaField
 ECABRIDGE_API TSharedPtr<FJsonObject> MakeECAObjectSchema(const TArray<FECASchemaField>& Fields);
 
 /**
+ * Cancellation token tied to a single tool-call request. The MCP server stamps
+ * the request ID into TLS for the duration of Execute(); long-running commands
+ * can poll FECACancellationRegistry::IsCurrentRequestCancelled() and bail early.
+ * Triggered by `notifications/cancelled` from the client.
+ */
+class ECABRIDGE_API FECACancellationToken
+{
+public:
+	bool IsCancelled() const { return Cancelled.GetValue() != 0; }
+	void Cancel() { Cancelled.Set(1); }
+private:
+	FThreadSafeCounter Cancelled;
+};
+
+class ECABRIDGE_API FECACancellationRegistry
+{
+public:
+	static FECACancellationRegistry& Get();
+
+	/** Register a fresh cancellation token under the given request ID and bind it
+	 *  to the calling thread (TLS). Pair with Unregister at the end of the call. */
+	TSharedRef<FECACancellationToken> RegisterRequest(const FString& RequestId);
+
+	/** Clear the TLS binding + drop the token. */
+	void UnregisterRequest(const FString& RequestId);
+
+	/** Mark the request as cancelled. No-op if the request ID is unknown. */
+	bool Cancel(const FString& RequestId);
+
+	/** Check whether the currently-executing request (TLS-bound) has been cancelled. */
+	bool IsCurrentRequestCancelled() const;
+
+	/** Current request ID bound to this thread (empty when no tool-call is running). */
+	FString GetCurrentRequestId() const;
+
+private:
+	FECACancellationRegistry() = default;
+	TMap<FString, TSharedRef<FECACancellationToken>> Tokens;
+	mutable FCriticalSection Lock;
+	uint32 TlsSlot = 0xFFFFFFFFu;
+	void EnsureTlsSlot();
+};
+
+/**
  * Base class for all ECA commands
  * 
  * Subclass this to create new commands. Commands are automatically registered

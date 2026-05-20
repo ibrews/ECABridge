@@ -420,12 +420,51 @@ TSharedPtr<FJsonObject> FECAMCPServer::ProcessJsonRpcRequest(const TSharedPtr<FJ
 	}
 	else if (Method == TEXT("tools/call"))
 	{
+		// Register a cancellation token for this request ID so the client can
+		// later send notifications/cancelled to abort. The token is published in
+		// TLS for the duration of Execute(); commands poll
+		// FECACancellationRegistry::IsCurrentRequestCancelled() to bail early.
+		FString RequestIdString;
+		if (RequestId.IsValid())
+		{
+			if (RequestId->Type == EJson::String) { RequestIdString = RequestId->AsString(); }
+			else if (RequestId->Type == EJson::Number) { RequestIdString = FString::Printf(TEXT("%lld"), (int64)RequestId->AsNumber()); }
+		}
+		FECACancellationRegistry& CancelReg = FECACancellationRegistry::Get();
+		CancelReg.RegisterRequest(RequestIdString);
 		Result = HandleToolsCall(Params);
+		CancelReg.UnregisterRequest(RequestIdString);
 	}
 	else if (Method == TEXT("notifications/initialized"))
 	{
 		// Client notification - no response needed
 		UE_LOG(LogTemp, Log, TEXT("[ECABridge] Client initialized notification received"));
+		return nullptr;
+	}
+	else if (Method == TEXT("notifications/cancelled"))
+	{
+		// MCP 2025-03-26 cancellation: params.requestId identifies the in-flight
+		// tool-call to abort. Long-running commands poll IsCurrentRequestCancelled.
+		if (Params.IsValid())
+		{
+			FString CancelledId;
+			if (!Params->TryGetStringField(TEXT("requestId"), CancelledId))
+			{
+				double Num = 0.0;
+				if (Params->TryGetNumberField(TEXT("requestId"), Num))
+				{
+					CancelledId = FString::Printf(TEXT("%lld"), (int64)Num);
+				}
+			}
+			if (!CancelledId.IsEmpty())
+			{
+				const bool bMarked = FECACancellationRegistry::Get().Cancel(CancelledId);
+				FString Reason;
+				Params->TryGetStringField(TEXT("reason"), Reason);
+				UE_LOG(LogTemp, Log, TEXT("[ECABridge] notifications/cancelled requestId=%s found=%s reason=%s"),
+					*CancelledId, bMarked ? TEXT("true") : TEXT("false"), *Reason);
+			}
+		}
 		return nullptr;
 	}
 	else if (Method == TEXT("ping"))
