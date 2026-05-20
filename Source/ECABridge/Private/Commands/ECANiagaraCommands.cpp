@@ -4274,7 +4274,8 @@ FECACommandResult FECACommand_SetNiagaraDynamicInput::Execute(const TSharedPtr<F
 		FString RandomScriptPath = TEXT("/Niagara/Modules/DynamicInputs/UniformRangedFloat.UniformRangedFloat");
 		
 		// Check if we have vector values
-		FVector MinVec, MaxVec;
+		FVector MinVec = FVector::ZeroVector;
+		FVector MaxVec = FVector::OneVector;
 		double MinFloat = 0.0, MaxFloat = 1.0;
 		bool bIsVector = false;
 		
@@ -4297,13 +4298,45 @@ FECACommandResult FECACommand_SetNiagaraDynamicInput::Execute(const TSharedPtr<F
 			FNiagaraTypeDefinition InputType = bIsVector ? FNiagaraTypeDefinition::GetVec3Def() : FNiagaraTypeDefinition::GetFloatDef();
 			UEdGraphPin& OverridePin = FNiagaraStackGraphUtilities::GetOrCreateStackFunctionInputOverridePin(
 				*ModuleNode, AliasedHandle, InputType, FGuid(), FGuid());
-			
+
 			// Set the dynamic input
 			UNiagaraNodeFunctionCall* DynamicInputNode = nullptr;
 			FNiagaraStackGraphUtilities::SetDynamicInputForFunctionInput(OverridePin, DynamicInputScript, DynamicInputNode, FGuid(), TEXT("Random"), FGuid());
-			
+
 			Result->SetStringField(TEXT("script_path"), RandomScriptPath);
 			Result->SetBoolField(TEXT("dynamic_input_created"), DynamicInputNode != nullptr);
+
+			// Apply min/max to the dynamic input node's own input pins. Without this
+			// the random range defaults to whatever the script template provides and
+			// the user's min/max parameters silently go nowhere.
+			int32 PinsWritten = 0;
+			if (DynamicInputNode)
+			{
+				const FString MinStr = bIsVector
+					? FString::Printf(TEXT("%f,%f,%f"), MinVec.X, MinVec.Y, MinVec.Z)
+					: LexToString(MinFloat);
+				const FString MaxStr = bIsVector
+					? FString::Printf(TEXT("%f,%f,%f"), MaxVec.X, MaxVec.Y, MaxVec.Z)
+					: LexToString(MaxFloat);
+
+				DynamicInputNode->Modify();
+				for (UEdGraphPin* Pin : DynamicInputNode->Pins)
+				{
+					if (!Pin || Pin->Direction != EGPD_Input || Pin->LinkedTo.Num() > 0) continue;
+					const FString PinName = Pin->PinName.ToString();
+					if (PinName.Contains(TEXT("Min")) && !PinName.Contains(TEXT("Max")))
+					{
+						Pin->DefaultValue = MinStr;
+						++PinsWritten;
+					}
+					else if (PinName.Contains(TEXT("Max")))
+					{
+						Pin->DefaultValue = MaxStr;
+						++PinsWritten;
+					}
+				}
+			}
+			Result->SetNumberField(TEXT("pins_written"), PinsWritten);
 		}
 		else
 		{
