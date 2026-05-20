@@ -93,7 +93,7 @@ FECACommandResult FECACommand_DumpStatValues::Execute(const TSharedPtr<FJsonObje
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetNumberField(TEXT("fps_average"), GAverageFPS);
 	Result->SetNumberField(TEXT("ms_average"), GAverageMS);
-	Result->SetNumberField(TEXT("delta_time_seconds"), FApp::GetDeltaTime());
+	Result->SetNumberField(TEXT("delta_time_seconds"), GWorld ? GWorld->GetDeltaSeconds() : 0.0);
 	Result->SetNumberField(TEXT("used_physical_mb"), (double)Mem.UsedPhysical / (1024.0 * 1024.0));
 	Result->SetNumberField(TEXT("peak_used_physical_mb"), (double)Mem.PeakUsedPhysical / (1024.0 * 1024.0));
 	Result->SetNumberField(TEXT("uobject_count"), ObjectCount);
