@@ -25,6 +25,7 @@
 #include "Commands/ECACommand.h"
 #include "Dom/JsonObject.h"
 #include "ECAMCPServer.h"
+#include "ECAClientConfigWriter.h"
 
 #define LOCTEXT_NAMESPACE "FECABridgeModule"
 
@@ -148,6 +149,42 @@ void FECABridgeModule::RegisterConsoleCommands()
 				{
 					B->LogRegisteredCommands();
 				}
+			}
+		}),
+		ECVF_Default
+	);
+
+	// ECA.GenerateClientConfig <ClaudeCode|Cursor|VSCode|Gemini|Codex|All>
+	// Writes (or upserts into) the named client's MCP config file so it
+	// auto-connects to this ECABridge server. Clean-room reimplementation of
+	// Epic's ModelContextProtocol.GenerateClientConfig — see
+	// ECAClientConfigWriter.h for the design contract.
+	IConsoleManager::Get().RegisterConsoleCommand(
+		TEXT("ECABridge.GenerateClientConfig"),
+		TEXT("Write MCP client config file. Usage: ECABridge.GenerateClientConfig <ClaudeCode|Cursor|VSCode|Gemini|Codex|All>"),
+		FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+		{
+			if (Args.Num() == 0)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("[ECABridge] Usage: ECABridge.GenerateClientConfig <ClaudeCode|Cursor|VSCode|Gemini|Codex|All>"));
+				return;
+			}
+			EECAMCPClient Client = EECAMCPClient::ClaudeCode;
+			bool bAll = false;
+			if (!FECAClientConfigWriter::ParseClientArg(Args[0], Client, bAll))
+			{
+				UE_LOG(LogTemp, Warning, TEXT("[ECABridge] Unknown client '%s'. Valid: ClaudeCode, Cursor, VSCode, Gemini, Codex, All"), *Args[0]);
+				return;
+			}
+			if (bAll)
+			{
+				const int32 Written = FECAClientConfigWriter::WriteAllClientConfigs();
+				UE_LOG(LogTemp, Log, TEXT("[ECABridge] Wrote %d client config(s)"), Written);
+			}
+			else
+			{
+				const bool bOk = FECAClientConfigWriter::WriteClientConfig(Client);
+				UE_LOG(LogTemp, Log, TEXT("[ECABridge] WriteClientConfig: %s"), bOk ? TEXT("OK") : TEXT("FAILED"));
 			}
 		}),
 		ECVF_Default
