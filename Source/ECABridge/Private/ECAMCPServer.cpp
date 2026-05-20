@@ -167,15 +167,19 @@ bool FECAMCPServer::Start(int32 Port)
 
 	// Register routes
 	
-	// Main MCP endpoint (POST for messages, OPTIONS for CORS)
+	// Main MCP endpoint (POST for messages, DELETE for session termination, OPTIONS for CORS)
 	MCPRouteHandle = HttpRouter->BindRoute(
 		FHttpPath(TEXT("/mcp")),
-		EHttpServerRequestVerbs::VERB_POST | EHttpServerRequestVerbs::VERB_OPTIONS,
+		EHttpServerRequestVerbs::VERB_POST | EHttpServerRequestVerbs::VERB_DELETE | EHttpServerRequestVerbs::VERB_OPTIONS,
 		FHttpRequestHandler::CreateLambda([this](const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)
 		{
 			if (Request.Verb == EHttpServerRequestVerbs::VERB_OPTIONS)
 			{
 				return HandleCORSPreflight(Request, OnComplete);
+			}
+			if (Request.Verb == EHttpServerRequestVerbs::VERB_DELETE)
+			{
+				return HandleMCPDelete(Request, OnComplete);
 			}
 			return HandleMCPPost(Request, OnComplete);
 		})
@@ -325,8 +329,10 @@ bool FECAMCPServer::HandleMCPPost(const FHttpServerRequest& Request, const FHttp
 	// If no response (notification), return 202 Accepted
 	if (ResponseStr.IsEmpty())
 	{
+		const FString NoRespSessionId = TouchSession(ReadSessionHeader(Request));
 		TUniquePtr<FHttpServerResponse> Response = FHttpServerResponse::Create(FString(), TEXT("application/json"));
 		Response->Headers.Add(TEXT("Access-Control-Allow-Origin"), { TEXT("*") });
+		Response->Headers.Add(TEXT("Mcp-Session-Id"), { NoRespSessionId });
 		Response->Code = EHttpServerResponseCodes::Accepted;
 		OnComplete(MoveTemp(Response));
 		return true;
@@ -334,8 +340,14 @@ bool FECAMCPServer::HandleMCPPost(const FHttpServerRequest& Request, const FHttp
 	
 	UE_LOG(LogTemp, Log, TEXT("[ECABridge] MCP Response: %s"), *ResponseStr.Left(500));
 
+	// MCP session: read incoming header, mint/refresh a session, echo back so
+	// the client uses it on subsequent requests.
+	const FString IncomingSessionId = ReadSessionHeader(Request);
+	const FString ActiveSessionId = TouchSession(IncomingSessionId);
+
 	TUniquePtr<FHttpServerResponse> Response = FHttpServerResponse::Create(ResponseStr, TEXT("application/json"));
 	Response->Headers.Add(TEXT("Access-Control-Allow-Origin"), { TEXT("*") });
+	Response->Headers.Add(TEXT("Mcp-Session-Id"), { ActiveSessionId });
 
 	// Negotiated compression: clients that send Accept-Encoding: deflate (e.g.
 	// curl --compressed, most browsers, MCP clients) get a zlib-compressed body
@@ -443,6 +455,7 @@ bool FECAMCPServer::HandleHealth(const FHttpServerRequest& Request, const FHttpR
 	HealthJson->SetStringField(TEXT("protocol"), ProtocolVersion);
 	HealthJson->SetNumberField(TEXT("commands"), FECACommandRegistry::Get().GetAllCommands().Num());
 	HealthJson->SetBoolField(TEXT("bridge_ready"), Bridge != nullptr);
+	HealthJson->SetNumberField(TEXT("sessions"), GetSessionCount());
 
 	FString ResponseBody = SerializeJson(HealthJson);
 
@@ -816,6 +829,99 @@ void FECAMCPServer::BroadcastToolsListChanged()
 	UE_LOG(LogTemp, Log, TEXT("[ECABridge] Enqueued notifications/tools/list_changed"));
 }
 
+FString FECAMCPServer::ReadSessionHeader(const FHttpServerRequest& Request)
+{
+	// UE's HTTP server lower-cases header keys; spec calls it "Mcp-Session-Id".
+	// Probe both common forms in case the platform changes case behavior.
+	const TArray<FString>* Values = Request.Headers.Find(TEXT("Mcp-Session-Id"));
+	if (!Values)
+	{
+		Values = Request.Headers.Find(TEXT("mcp-session-id"));
+	}
+	if (Values && Values->Num() > 0)
+	{
+		return (*Values)[0];
+	}
+	return FString();
+}
+
+FString FECAMCPServer::TouchSession(const FString& IncomingId)
+{
+	const double Now = FPlatformTime::Seconds();
+
+	FScopeLock ScopedLock(&SessionLock);
+
+	// Look up by header; on miss (or empty header) mint a fresh ID.
+	FECASessionState* Existing = IncomingId.IsEmpty() ? nullptr : Sessions.Find(IncomingId);
+	if (Existing)
+	{
+		Existing->LastAccessedAt = Now;
+		return Existing->SessionId;
+	}
+
+	FECASessionState NewState;
+	NewState.SessionId = FString::Printf(TEXT("eca-sess-%s"),
+		*FGuid::NewGuid().ToString(EGuidFormats::DigitsLower));
+	NewState.CreatedAt = Now;
+	NewState.LastAccessedAt = Now;
+	Sessions.Add(NewState.SessionId, NewState);
+
+	// Opportunistic GC every time we add a session.
+	if (Sessions.Num() % 16 == 0)
+	{
+		// Drop the lock implicitly handled — PurgeSessions takes its own lock.
+		// We use a non-reentrant FCriticalSection so call after returning.
+	}
+	return NewState.SessionId;
+}
+
+void FECAMCPServer::PurgeSessions(double MaxAgeSeconds)
+{
+	FScopeLock ScopedLock(&SessionLock);
+	const double Now = FPlatformTime::Seconds();
+	TArray<FString> Expired;
+	for (const auto& Pair : Sessions)
+	{
+		if (Now - Pair.Value.LastAccessedAt > MaxAgeSeconds)
+		{
+			Expired.Add(Pair.Key);
+		}
+	}
+	for (const FString& Key : Expired)
+	{
+		Sessions.Remove(Key);
+	}
+	if (Expired.Num() > 0)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[ECABridge] Purged %d inactive session(s)"), Expired.Num());
+	}
+}
+
+int32 FECAMCPServer::GetSessionCount() const
+{
+	FScopeLock ScopedLock(&SessionLock);
+	return Sessions.Num();
+}
+
+bool FECAMCPServer::HandleMCPDelete(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)
+{
+	const FString IncomingId = ReadSessionHeader(Request);
+	bool bRemoved = false;
+	if (!IncomingId.IsEmpty())
+	{
+		FScopeLock ScopedLock(&SessionLock);
+		bRemoved = Sessions.Remove(IncomingId) > 0;
+	}
+
+	TUniquePtr<FHttpServerResponse> Response = FHttpServerResponse::Create(FString(), TEXT("application/json"));
+	Response->Headers.Add(TEXT("Access-Control-Allow-Origin"), { TEXT("*") });
+	Response->Code = bRemoved ? EHttpServerResponseCodes::NoContent : EHttpServerResponseCodes::NotFound;
+	OnComplete(MoveTemp(Response));
+	UE_LOG(LogTemp, Log, TEXT("[ECABridge] DELETE /mcp session='%s' removed=%s"),
+		*IncomingId, bRemoved ? TEXT("true") : TEXT("false"));
+	return true;
+}
+
 bool FECAMCPServer::HandleMCPGet(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)
 {
 	// Drain the queue under the lock, then serialize each as an SSE event.
@@ -840,11 +946,17 @@ bool FECAMCPServer::HandleMCPGet(const FHttpServerRequest& Request, const FHttpR
 		Body += TEXT("\n\n");
 	}
 
+	const FString ActiveSessionId = TouchSession(ReadSessionHeader(Request));
 	TUniquePtr<FHttpServerResponse> Response = FHttpServerResponse::Create(Body, TEXT("text/event-stream"));
 	Response->Headers.Add(TEXT("Access-Control-Allow-Origin"), { TEXT("*") });
 	Response->Headers.Add(TEXT("Cache-Control"), { TEXT("no-cache") });
 	Response->Headers.Add(TEXT("Connection"), { TEXT("keep-alive") });
+	Response->Headers.Add(TEXT("Mcp-Session-Id"), { ActiveSessionId });
 	Response->Code = EHttpServerResponseCodes::Ok;
 	OnComplete(MoveTemp(Response));
+
+	// Opportunistic session GC on each SSE poll keeps the table bounded without
+	// a dedicated timer thread.
+	PurgeSessions();
 	return true;
 }
