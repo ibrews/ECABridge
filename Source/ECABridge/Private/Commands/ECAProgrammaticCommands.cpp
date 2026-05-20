@@ -5,9 +5,12 @@
 #include "Modules/ModuleManager.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "UObject/UnrealType.h"
+#include "UObject/Class.h"
 
 REGISTER_ECA_COMMAND(FECACommand_ExecuteScript)
 REGISTER_ECA_COMMAND(FECACommand_GetExecutionEnvironment)
+REGISTER_ECA_COMMAND(FECACommand_SetUPropertyChecked)
 
 // ---------------------------------------------------------------------------
 // UECABridgeProgrammatic - the bridge between Python and the command registry.
@@ -261,4 +264,147 @@ FECACommandResult FECACommand_GetExecutionEnvironment::Execute(const TSharedPtr<
 	Result->SetNumberField(TEXT("command_count"), Names.Num());
 
 	return FECACommandResult::Success(Result);
+}
+
+// ---------------------------------------------------------------------------
+// FECACommand_SetUPropertyChecked
+// ---------------------------------------------------------------------------
+//
+// Write a UPROPERTY on a class's CDO, then read it back and compare against
+// what was requested. The point isn't the simple-string compare: it's the
+// canonical round-trip via FProperty::ImportText_Direct + ExportTextItem_Direct
+// against a scratch buffer. That gives us an apples-to-apples "what should
+// the value be after import?" vs "what does the property say now?" which holds
+// for enums (Foo::Bar vs EFoo::Bar), structs ((X=1,Y=2) vs (X=1.0,Y=2.0)), and
+// object refs (path vs qualified path), where naive string compare fails.
+
+FECACommandResult FECACommand_SetUPropertyChecked::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString ClassPath;
+	if (!GetStringParam(Params, TEXT("class_path"), ClassPath) || ClassPath.IsEmpty())
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: class_path"));
+	}
+
+	FString PropertyName;
+	if (!GetStringParam(Params, TEXT("property_name"), PropertyName) || PropertyName.IsEmpty())
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: property_name"));
+	}
+
+	FString PropertyValue;
+	if (!GetStringParam(Params, TEXT("property_value"), PropertyValue))
+	{
+		PropertyValue = TEXT("");
+	}
+
+	UClass* TargetClass = LoadObject<UClass>(nullptr, *ClassPath);
+	if (!TargetClass)
+	{
+		// Common LLM mistake: passing a /Game/X path without the trailing `.X_C`.
+		// Try the asset-path → generated-class expansion that StaticLoadClass does.
+		if (!ClassPath.Contains(TEXT(".")))
+		{
+			int32 LastSlash;
+			if (ClassPath.FindLastChar('/', LastSlash))
+			{
+				const FString AssetName = ClassPath.Mid(LastSlash + 1);
+				const FString Expanded = ClassPath + TEXT(".") + AssetName + TEXT("_C");
+				TargetClass = LoadObject<UClass>(nullptr, *Expanded);
+			}
+		}
+		if (!TargetClass)
+		{
+			return FECACommandResult::Error(FString::Printf(
+				TEXT("Class not found: %s. For Blueprints, use the form '/Game/Path/BP_Foo.BP_Foo_C'."),
+				*ClassPath));
+		}
+	}
+
+	UObject* CDO = TargetClass->GetDefaultObject();
+	if (!CDO)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Cannot get CDO for class: %s"), *ClassPath));
+	}
+
+	FProperty* Property = TargetClass->FindPropertyByName(*PropertyName);
+	if (!Property)
+	{
+		// The exact case that bites Python: snake_case name silently no-ops on
+		// attribute SET. Here we error loudly with the fix written out.
+		return FECACommandResult::Error(FString::Printf(
+			TEXT("Property '%s' not found on class %s. ")
+			TEXT("Hint: UPROPERTY names are PascalCase (e.g., 'AutoPossessAI', not 'auto_possess_ai'). ")
+			TEXT("snake_case Python attribute names silently no-op; use PascalCase via set_editor_property."),
+			*PropertyName, *ClassPath));
+	}
+
+	void* PropertyAddr = Property->ContainerPtrToValuePtr<void>(CDO);
+	if (!PropertyAddr)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Cannot get address for property '%s'"), *PropertyName));
+	}
+
+	// ---- Build the canonical "expected" value in a scratch buffer ----
+	// Allocate scratch storage aligned to the property's natural alignment,
+	// initialize it (constructs the typed value at its default), then ImportText
+	// the user's input into it. Whatever shows up via ExportTextItem on this
+	// scratch is the canonical form of "what the user asked for", in the same
+	// representation we'll get when we export from the actual CDO slot.
+	const int32 Size = Property->GetSize();
+	const int32 ScratchAlign = Property->GetMinAlignment();
+	TArray<uint8> ScratchBuf;
+	ScratchBuf.SetNumZeroed(Size + ScratchAlign);
+	uint8* Scratch = reinterpret_cast<uint8*>(Align(reinterpret_cast<UPTRINT>(ScratchBuf.GetData()), (UPTRINT)ScratchAlign));
+	Property->InitializeValue(Scratch);
+
+	const TCHAR* ImportEnd = Property->ImportText_Direct(*PropertyValue, Scratch, CDO, PPF_None);
+	if (!ImportEnd)
+	{
+		Property->DestroyValue(Scratch);
+		return FECACommandResult::Error(FString::Printf(
+			TEXT("Could not parse '%s' as a value for property '%s' of type %s. ")
+			TEXT("Hint: pass the Unreal text-import form for structs/enums/object refs (e.g., '(X=1,Y=2,Z=3)', 'EAutoPossessAI::PlacedInWorld', '/Game/.../Asset.Asset_C')."),
+			*PropertyValue, *PropertyName, *Property->GetClass()->GetName()));
+	}
+
+	FString ExpectedText;
+	Property->ExportTextItem_Direct(ExpectedText, Scratch, nullptr, CDO, PPF_None);
+
+	// ---- Apply scratch → CDO ----
+	Property->CopyCompleteValue(PropertyAddr, Scratch);
+	Property->DestroyValue(Scratch);
+
+	// Notify the object that an edit happened so any PostEditChangeProperty hooks
+	// re-derive dependent state. Mirrors what Details panel writes do.
+	FPropertyChangedEvent ChangeEvent(Property, EPropertyChangeType::ValueSet);
+	CDO->PostEditChangeProperty(ChangeEvent);
+
+	// ---- Read back ----
+	FString ActualText;
+	Property->ExportTextItem_Direct(ActualText, PropertyAddr, nullptr, CDO, PPF_None);
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("class_path"), ClassPath);
+	Result->SetStringField(TEXT("property_name"), PropertyName);
+	Result->SetStringField(TEXT("property_type"), Property->GetClass()->GetName());
+	Result->SetStringField(TEXT("expected"), ExpectedText);
+	Result->SetStringField(TEXT("actual"), ActualText);
+
+	if (ActualText.Equals(ExpectedText, ESearchCase::CaseSensitive))
+	{
+		Result->SetBoolField(TEXT("verified"), true);
+		return FECACommandResult::Success(Result);
+	}
+
+	Result->SetBoolField(TEXT("verified"), false);
+	const FString ErrorMsg = FString::Printf(
+		TEXT("Property write verification failed for %s.%s. Expected: '%s', Actual: '%s'. ")
+		TEXT("Hint: snake_case Python attribute names silently no-op; use PascalCase via set_editor_property."),
+		*ClassPath, *PropertyName, *ExpectedText, *ActualText);
+	FECACommandResult Out;
+	Out.bSuccess = false;
+	Out.ErrorMessage = ErrorMsg;
+	Out.ResultData = Result;
+	return Out;
 }

@@ -106,3 +106,41 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+/**
+ * Set a property on a class's CDO (ClassDefaultObject) with read-back verification.
+ * Sets the property, reads it back, and compares. On mismatch, returns an error
+ * with a hint about snake_case vs PascalCase property naming issues.
+ */
+class FECACommand_SetUPropertyChecked : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_uproperty_checked"); }
+	virtual FString GetDescription() const override
+	{
+		return TEXT("Set a UPROPERTY on a class's CDO and verify the write succeeded by reading back. Returns MCP error with hint if the value doesn't stick (common when Python attribute names use snake_case instead of PascalCase).");
+	}
+	virtual FString GetCategory() const override { return TEXT("Programmatic"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("class_path"), TEXT("string"), TEXT("Full class path (e.g., '/Script/Engine.Character' or '/Game/MyBP.MyBP_C')"), true },
+			{ TEXT("property_name"), TEXT("string"), TEXT("UPROPERTY name in PascalCase (e.g., 'AutoPossessAI' not 'auto_possess_ai')"), true },
+			{ TEXT("property_value"), TEXT("string"), TEXT("Value to set (will be parsed according to the property's type)"), true }
+		};
+	}
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("class_path"), TEXT("string"), TEXT("The class that was modified") },
+			{ TEXT("property_name"), TEXT("string"), TEXT("The property that was set") },
+			{ TEXT("expected"), TEXT("string"), TEXT("The value we attempted to set") },
+			{ TEXT("actual"), TEXT("string"), TEXT("The value we read back (should match expected)") },
+			{ TEXT("verified"), TEXT("boolean"), TEXT("True if read-back matched the set value") }
+		});
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
