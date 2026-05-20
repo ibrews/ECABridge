@@ -427,4 +427,328 @@ FECACommandResult FECACommand_GetNiagaraModuleSchemaFromAsset::Execute(const TSh
 	return FECACommandResult::Success(Root);
 }
 
+// ============================================================================
+// Task 2 — Topology getters
+// ============================================================================
+
+REGISTER_ECA_COMMAND(FECACommand_GetNiagaraSystemTopology)
+REGISTER_ECA_COMMAND(FECACommand_GetNiagaraEmitterTopology)
+REGISTER_ECA_COMMAND(FECACommand_GetNiagaraScriptStackTopology)
+REGISTER_ECA_COMMAND(FECACommand_GetNiagaraModuleTopology)
+REGISTER_ECA_COMMAND(FECACommand_GetNiagaraStackInputTopology)
+
+namespace ECANiagaraConvergence
+{
+	// Build the list of {script_usage, script_name} pairs an emitter exposes.
+	// On 5.7/5.8 each emitter holds: spawn/update + per-stage particle scripts +
+	// optional event handlers. We surface the four canonical scripts plus a slot
+	// for the system spawn/update scripts (these live on the system, not the emitter).
+	static TArray<ENiagaraScriptUsage> EmitterScriptUsages()
+	{
+		return {
+			ENiagaraScriptUsage::EmitterSpawnScript,
+			ENiagaraScriptUsage::EmitterUpdateScript,
+			ENiagaraScriptUsage::ParticleSpawnScript,
+			ENiagaraScriptUsage::ParticleUpdateScript,
+		};
+	}
+
+	static TArray<UNiagaraNodeFunctionCall*> CollectModulesForUsage(UNiagaraGraph* Graph, ENiagaraScriptUsage Usage)
+	{
+		TArray<UNiagaraNodeFunctionCall*> Modules;
+		if (!Graph) return Modules;
+		TArray<UNiagaraNodeFunctionCall*> All;
+		Graph->GetNodesOfClass<UNiagaraNodeFunctionCall>(All);
+		for (UNiagaraNodeFunctionCall* N : All)
+		{
+			if (!N) continue;
+			if (FNiagaraStackGraphUtilities::GetOutputNodeUsage(*N) == Usage)
+			{
+				Modules.Add(N);
+			}
+		}
+		return Modules;
+	}
+
+	// Build the {name, script, module_name} JSON for a function-call node, plus
+	// its enabled state. Used by topology and module_enabled commands.
+	static TSharedPtr<FJsonObject> ModuleNodeToJson(UNiagaraNodeFunctionCall* Node, ENiagaraScriptUsage Usage)
+	{
+		TSharedPtr<FJsonObject> O = MakeShared<FJsonObject>();
+		if (!Node) return O;
+		O->SetStringField(TEXT("module_name"), Node->GetFunctionName());
+		O->SetStringField(TEXT("script"), UsageToString(Usage));
+		O->SetBoolField(TEXT("enabled"), Node->GetDesiredEnabledState() == ENodeEnabledState::Enabled);
+		if (UNiagaraScript* FuncScript = Node->FunctionScript)
+		{
+			O->SetStringField(TEXT("module_script_path"), FuncScript->GetPathName());
+		}
+		return O;
+	}
+
+	// Walk a system + emitter to find the graph hosting the named module.
+	// Returns the function-call node + the script usage matched.
+	static UNiagaraNodeFunctionCall* FindModuleAcrossUsages(
+		UNiagaraSystem* System, FNiagaraEmitterHandle* Handle, const FString& ModuleName,
+		ENiagaraScriptUsage Usage, UNiagaraGraph** OutGraph)
+	{
+		if (!System || !Handle) return nullptr;
+		FVersionedNiagaraEmitterData* Data = Handle->GetEmitterData();
+		if (!Data) return nullptr;
+		UNiagaraScriptSource* Source = Cast<UNiagaraScriptSource>(Data->GraphSource);
+		if (!Source || !Source->NodeGraph) return nullptr;
+		UNiagaraGraph* Graph = Source->NodeGraph;
+		UNiagaraNodeFunctionCall* N = FindModuleNode(Graph, ModuleName, Usage);
+		if (N && OutGraph) *OutGraph = Graph;
+		return N;
+	}
+}
+
+FECACommandResult FECACommand_GetNiagaraSystemTopology::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SystemPath;
+	if (!GetStringParam(Params, TEXT("system_path"), SystemPath))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
+	}
+	UNiagaraSystem* System = ResolveSystem(SystemPath);
+	if (!System) return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Niagara system: %s"), *SystemPath));
+
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetStringField(TEXT("system_path"), SystemPath);
+
+	TArray<TSharedPtr<FJsonValue>> EmittersArr;
+	for (FNiagaraEmitterHandle& Handle : System->GetEmitterHandles())
+	{
+		TSharedPtr<FJsonObject> EObj = MakeShared<FJsonObject>();
+		EObj->SetStringField(TEXT("name"), Handle.GetName().ToString());
+		EObj->SetBoolField(TEXT("enabled"), Handle.GetIsEnabled());
+		FVersionedNiagaraEmitterData* Data = Handle.GetEmitterData();
+		if (Data)
+		{
+			UNiagaraScriptSource* Source = Cast<UNiagaraScriptSource>(Data->GraphSource);
+			UNiagaraGraph* Graph = Source ? Source->NodeGraph : nullptr;
+
+			TArray<TSharedPtr<FJsonValue>> ScriptsArr;
+			for (ENiagaraScriptUsage U : EmitterScriptUsages())
+			{
+				TSharedPtr<FJsonObject> SObj = MakeShared<FJsonObject>();
+				SObj->SetStringField(TEXT("script"), UsageToString(U));
+				int32 ModuleCount = 0;
+				if (Graph)
+				{
+					for (UNiagaraNodeFunctionCall* M : CollectModulesForUsage(Graph, U))
+					{
+						ModuleCount += M ? 1 : 0;
+					}
+				}
+				SObj->SetNumberField(TEXT("module_count"), ModuleCount);
+				ScriptsArr.Add(MakeShared<FJsonValueObject>(SObj));
+			}
+			EObj->SetArrayField(TEXT("scripts"), ScriptsArr);
+
+			TArray<TSharedPtr<FJsonValue>> RenderersArr;
+			int32 RIndex = 0;
+			for (UNiagaraRendererProperties* R : Data->GetRenderers())
+			{
+				TSharedPtr<FJsonObject> RObj = MakeShared<FJsonObject>();
+				RObj->SetNumberField(TEXT("index"), RIndex++);
+				RObj->SetStringField(TEXT("class"), R ? R->GetClass()->GetName() : TEXT("None"));
+				RObj->SetBoolField(TEXT("enabled"), R ? R->GetIsEnabled() : false);
+				RenderersArr.Add(MakeShared<FJsonValueObject>(RObj));
+			}
+			EObj->SetArrayField(TEXT("renderers"), RenderersArr);
+		}
+		EmittersArr.Add(MakeShared<FJsonValueObject>(EObj));
+	}
+	Root->SetArrayField(TEXT("emitters"), EmittersArr);
+	Root->SetNumberField(TEXT("emitter_count"), EmittersArr.Num());
+	return FECACommandResult::Success(Root);
+}
+
+FECACommandResult FECACommand_GetNiagaraEmitterTopology::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SystemPath, EmitterName;
+	if (!GetStringParam(Params, TEXT("system_path"), SystemPath)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
+	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: emitter_name"));
+
+	UNiagaraSystem* System = ResolveSystem(SystemPath);
+	if (!System) return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Niagara system: %s"), *SystemPath));
+	FNiagaraEmitterHandle* Handle = FindEmitterHandle(System, EmitterName);
+	if (!Handle) return FECACommandResult::Error(FString::Printf(TEXT("Emitter not found: %s"), *EmitterName));
+	FVersionedNiagaraEmitterData* Data = Handle->GetEmitterData();
+	if (!Data) return FECACommandResult::Error(TEXT("Emitter has no data"));
+	UNiagaraScriptSource* Source = Cast<UNiagaraScriptSource>(Data->GraphSource);
+	UNiagaraGraph* Graph = Source ? Source->NodeGraph : nullptr;
+
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetStringField(TEXT("system_path"), SystemPath);
+	Root->SetStringField(TEXT("emitter_name"), EmitterName);
+	Root->SetBoolField(TEXT("enabled"), Handle->GetIsEnabled());
+	Root->SetStringField(TEXT("sim_target"),
+		Data->SimTarget == ENiagaraSimTarget::CPUSim ? TEXT("cpu") : TEXT("gpu"));
+
+	TArray<TSharedPtr<FJsonValue>> ScriptsArr;
+	for (ENiagaraScriptUsage U : EmitterScriptUsages())
+	{
+		TSharedPtr<FJsonObject> SObj = MakeShared<FJsonObject>();
+		SObj->SetStringField(TEXT("script"), UsageToString(U));
+		TArray<TSharedPtr<FJsonValue>> Modules;
+		for (UNiagaraNodeFunctionCall* N : CollectModulesForUsage(Graph, U))
+		{
+			Modules.Add(MakeShared<FJsonValueObject>(ModuleNodeToJson(N, U)));
+		}
+		SObj->SetArrayField(TEXT("modules"), Modules);
+		ScriptsArr.Add(MakeShared<FJsonValueObject>(SObj));
+	}
+	Root->SetArrayField(TEXT("scripts"), ScriptsArr);
+
+	TArray<TSharedPtr<FJsonValue>> RenderersArr;
+	int32 RIndex = 0;
+	for (UNiagaraRendererProperties* R : Data->GetRenderers())
+	{
+		TSharedPtr<FJsonObject> RObj = MakeShared<FJsonObject>();
+		RObj->SetNumberField(TEXT("index"), RIndex++);
+		RObj->SetStringField(TEXT("class"), R ? R->GetClass()->GetName() : TEXT("None"));
+		RObj->SetBoolField(TEXT("enabled"), R ? R->GetIsEnabled() : false);
+		RenderersArr.Add(MakeShared<FJsonValueObject>(RObj));
+	}
+	Root->SetArrayField(TEXT("renderers"), RenderersArr);
+	return FECACommandResult::Success(Root);
+}
+
+FECACommandResult FECACommand_GetNiagaraScriptStackTopology::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SystemPath, EmitterName, ScriptStr;
+	if (!GetStringParam(Params, TEXT("system_path"), SystemPath)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
+	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: emitter_name"));
+	if (!GetStringParam(Params, TEXT("script"), ScriptStr)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: script"));
+
+	UNiagaraSystem* System = ResolveSystem(SystemPath);
+	if (!System) return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Niagara system: %s"), *SystemPath));
+	FNiagaraEmitterHandle* Handle = FindEmitterHandle(System, EmitterName);
+	if (!Handle) return FECACommandResult::Error(FString::Printf(TEXT("Emitter not found: %s"), *EmitterName));
+	FVersionedNiagaraEmitterData* Data = Handle->GetEmitterData();
+	if (!Data) return FECACommandResult::Error(TEXT("Emitter has no data"));
+	UNiagaraScriptSource* Source = Cast<UNiagaraScriptSource>(Data->GraphSource);
+	UNiagaraGraph* Graph = Source ? Source->NodeGraph : nullptr;
+	if (!Graph) return FECACommandResult::Error(TEXT("Emitter has no script graph"));
+
+	const ENiagaraScriptUsage Usage = ParseUsage(ScriptStr);
+	TArray<TSharedPtr<FJsonValue>> Modules;
+	for (UNiagaraNodeFunctionCall* N : CollectModulesForUsage(Graph, Usage))
+	{
+		Modules.Add(MakeShared<FJsonValueObject>(ModuleNodeToJson(N, Usage)));
+	}
+
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetStringField(TEXT("system_path"), SystemPath);
+	Root->SetStringField(TEXT("emitter_name"), EmitterName);
+	Root->SetStringField(TEXT("script"), UsageToString(Usage));
+	Root->SetArrayField(TEXT("modules"), Modules);
+	Root->SetNumberField(TEXT("module_count"), Modules.Num());
+	return FECACommandResult::Success(Root);
+}
+
+FECACommandResult FECACommand_GetNiagaraModuleTopology::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SystemPath, EmitterName, ScriptStr, ModuleName;
+	if (!GetStringParam(Params, TEXT("system_path"), SystemPath)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
+	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: emitter_name"));
+	if (!GetStringParam(Params, TEXT("script"), ScriptStr)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: script"));
+	if (!GetStringParam(Params, TEXT("module_name"), ModuleName)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: module_name"));
+
+	UNiagaraSystem* System = ResolveSystem(SystemPath);
+	if (!System) return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Niagara system: %s"), *SystemPath));
+	FNiagaraEmitterHandle* Handle = FindEmitterHandle(System, EmitterName);
+	if (!Handle) return FECACommandResult::Error(FString::Printf(TEXT("Emitter not found: %s"), *EmitterName));
+	const ENiagaraScriptUsage Usage = ParseUsage(ScriptStr);
+	UNiagaraGraph* Graph = nullptr;
+	UNiagaraNodeFunctionCall* Node = FindModuleAcrossUsages(System, Handle, ModuleName, Usage, &Graph);
+	if (!Node) return FECACommandResult::Error(FString::Printf(TEXT("Module '%s' not found in script '%s'"), *ModuleName, *ScriptStr));
+
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetStringField(TEXT("system_path"), SystemPath);
+	Root->SetStringField(TEXT("emitter_name"), EmitterName);
+	Root->SetStringField(TEXT("script"), UsageToString(Usage));
+	Root->SetStringField(TEXT("module_name"), ModuleName);
+	Root->SetBoolField(TEXT("enabled"), Node->GetDesiredEnabledState() == ENodeEnabledState::Enabled);
+	if (Node->FunctionScript) Root->SetStringField(TEXT("module_script_path"), Node->FunctionScript->GetPathName());
+
+	// Enumerate user-facing inputs and current override-pin values.
+	FCompileConstantResolver Resolver(Handle->GetInstance(), Usage);
+	TArray<FNiagaraVariable> InputVars;
+	TSet<FNiagaraVariable> Hidden;
+	FNiagaraStackGraphUtilities::GetStackFunctionInputs(*Node, InputVars, Hidden, Resolver,
+		FNiagaraStackGraphUtilities::ENiagaraGetStackFunctionInputPinsOptions::ModuleInputsOnly,
+		/*bIgnoreDisabled=*/false);
+
+	TArray<TSharedPtr<FJsonValue>> Inputs;
+	for (const FNiagaraVariable& V : InputVars)
+	{
+		TSharedPtr<FJsonObject> IObj = MakeShared<FJsonObject>();
+		IObj->SetStringField(TEXT("name"), V.GetName().ToString());
+		IObj->SetStringField(TEXT("type"), V.GetType().GetName());
+		IObj->SetBoolField(TEXT("hidden"), Hidden.Contains(V));
+		Inputs.Add(MakeShared<FJsonValueObject>(IObj));
+	}
+	Root->SetArrayField(TEXT("inputs"), Inputs);
+	Root->SetNumberField(TEXT("input_count"), Inputs.Num());
+	return FECACommandResult::Success(Root);
+}
+
+FECACommandResult FECACommand_GetNiagaraStackInputTopology::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SystemPath, EmitterName, ScriptStr, ModuleName, InputName;
+	if (!GetStringParam(Params, TEXT("system_path"), SystemPath)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
+	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: emitter_name"));
+	if (!GetStringParam(Params, TEXT("script"), ScriptStr)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: script"));
+	if (!GetStringParam(Params, TEXT("module_name"), ModuleName)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: module_name"));
+	if (!GetStringParam(Params, TEXT("input_name"), InputName)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: input_name"));
+
+	UNiagaraSystem* System = ResolveSystem(SystemPath);
+	if (!System) return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Niagara system: %s"), *SystemPath));
+	FNiagaraEmitterHandle* Handle = FindEmitterHandle(System, EmitterName);
+	if (!Handle) return FECACommandResult::Error(FString::Printf(TEXT("Emitter not found: %s"), *EmitterName));
+	const ENiagaraScriptUsage Usage = ParseUsage(ScriptStr);
+	UNiagaraGraph* Graph = nullptr;
+	UNiagaraNodeFunctionCall* Node = FindModuleAcrossUsages(System, Handle, ModuleName, Usage, &Graph);
+	if (!Node) return FECACommandResult::Error(FString::Printf(TEXT("Module '%s' not found in script '%s'"), *ModuleName, *ScriptStr));
+
+	FCompileConstantResolver Resolver(Handle->GetInstance(), Usage);
+	TArray<FNiagaraVariable> InputVars;
+	TSet<FNiagaraVariable> Hidden;
+	FNiagaraStackGraphUtilities::GetStackFunctionInputs(*Node, InputVars, Hidden, Resolver,
+		FNiagaraStackGraphUtilities::ENiagaraGetStackFunctionInputPinsOptions::ModuleInputsOnly,
+		/*bIgnoreDisabled=*/false);
+	const FNiagaraVariable* Match = nullptr;
+	for (const FNiagaraVariable& V : InputVars)
+	{
+		const FString Full = V.GetName().ToString();
+		FString Short = Full; int32 D; if (Full.FindLastChar('.', D)) Short = Full.Mid(D + 1);
+		if (Full.Equals(InputName, ESearchCase::IgnoreCase) || Short.Equals(InputName, ESearchCase::IgnoreCase))
+		{
+			Match = &V; break;
+		}
+	}
+	if (!Match) return FECACommandResult::Error(FString::Printf(TEXT("Input '%s' not found on module '%s'"), *InputName, *ModuleName));
+
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetStringField(TEXT("system_path"), SystemPath);
+	Root->SetStringField(TEXT("emitter_name"), EmitterName);
+	Root->SetStringField(TEXT("script"), UsageToString(Usage));
+	Root->SetStringField(TEXT("module_name"), ModuleName);
+	Root->SetStringField(TEXT("input_name"), Match->GetName().ToString());
+	Root->SetStringField(TEXT("input_type"), Match->GetType().GetName());
+
+	// Override-pin inspection (the dynamic-input substructure spec mentions) is
+	// not exposed in the read-only Niagara public DLL surface — only the
+	// create-if-missing variant is exported (FNiagaraStackGraphUtilities::
+	// GetOrCreateStackFunctionInputOverridePin) and we don't want a side-effect
+	// in a topology getter. Future batch can wire it in once a non-mutating
+	// path is plumbed through NiagaraEditor.
+	Root->SetBoolField(TEXT("has_override_inspection"), false);
+	return FECACommandResult::Success(Root);
+}
+
 #endif // WITH_ECA_NIAGARA
