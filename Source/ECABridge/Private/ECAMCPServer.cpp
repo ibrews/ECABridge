@@ -11,6 +11,129 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonWriter.h"
 #include "Serialization/JsonSerializer.h"
+#include "Misc/Guid.h"
+#include "Misc/Compression.h"
+
+namespace ECABridgeCompress
+{
+	// Compression threshold: skip compression for small responses where the
+	// CPU + framing overhead outweighs any wire-size saving.
+	static constexpr int32 MinSizeBytes = 16 * 1024;
+
+	// Inspect a CSV-style Accept-Encoding header for the named encoding.
+	// Robust to whitespace and q= quality values: "gzip;q=0.5, deflate;q=1.0".
+	static bool AcceptsEncoding(const TArray<FString>& HeaderValues, const TCHAR* Name)
+	{
+		const FString NameStr(Name);
+		for (const FString& Header : HeaderValues)
+		{
+			TArray<FString> Parts;
+			Header.ParseIntoArray(Parts, TEXT(","), true);
+			for (const FString& Part : Parts)
+			{
+				FString Trimmed = Part.TrimStartAndEnd();
+				int32 SemiIdx;
+				if (Trimmed.FindChar(TEXT(';'), SemiIdx))
+				{
+					Trimmed = Trimmed.Left(SemiIdx).TrimStartAndEnd();
+				}
+				if (Trimmed.Equals(NameStr, ESearchCase::IgnoreCase))
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	// Try to compress UTF-8 bytes with zlib (used as 'deflate'). Returns true on
+	// success with OutCompressed populated. Mismatched sizes / FCompression
+	// failures keep us on the uncompressed fall-through.
+	static bool TryDeflate(const TArray<uint8>& Uncompressed, TArray<uint8>& OutCompressed)
+	{
+		const int32 SrcSize = Uncompressed.Num();
+		int32 BoundSize = FCompression::CompressMemoryBound(NAME_Zlib, SrcSize);
+		if (BoundSize <= 0)
+		{
+			return false;
+		}
+		OutCompressed.SetNumUninitialized(BoundSize);
+		int32 CompressedSize = BoundSize;
+		const bool bOk = FCompression::CompressMemory(
+			NAME_Zlib,
+			OutCompressed.GetData(),
+			CompressedSize,
+			Uncompressed.GetData(),
+			SrcSize);
+		if (!bOk || CompressedSize <= 0 || CompressedSize >= SrcSize)
+		{
+			OutCompressed.Reset();
+			return false;
+		}
+		OutCompressed.SetNum(CompressedSize, EAllowShrinking::No);
+		return true;
+	}
+}
+
+FECAResponseChunkCache& FECAResponseChunkCache::Get()
+{
+	static FECAResponseChunkCache Instance;
+	return Instance;
+}
+
+FString FECAResponseChunkCache::StoreRemainder(const FString& RemainingText)
+{
+	FScopeLock ScopedLock(&Lock);
+	const FString Token = FString::Printf(TEXT("eca-ct-%d-%s"), NextId++, *FGuid::NewGuid().ToString(EGuidFormats::Short));
+	FEntry Entry;
+	Entry.Remaining = RemainingText;
+	Entry.StoredAt = FPlatformTime::Seconds();
+	Entries.Add(Token, MoveTemp(Entry));
+	return Token;
+}
+
+FString FECAResponseChunkCache::FetchNext(const FString& Token, int32 MaxBytes, bool& bOutFinal)
+{
+	FScopeLock ScopedLock(&Lock);
+	FEntry* Entry = Entries.Find(Token);
+	if (!Entry)
+	{
+		bOutFinal = true;
+		return FString();
+	}
+
+	if (MaxBytes <= 0 || Entry->Remaining.Len() <= MaxBytes)
+	{
+		FString Chunk = Entry->Remaining;
+		Entries.Remove(Token);
+		bOutFinal = true;
+		return Chunk;
+	}
+
+	FString Chunk = Entry->Remaining.Left(MaxBytes);
+	Entry->Remaining = Entry->Remaining.RightChop(MaxBytes);
+	Entry->StoredAt = FPlatformTime::Seconds();
+	bOutFinal = false;
+	return Chunk;
+}
+
+void FECAResponseChunkCache::Purge(double MaxAgeSeconds)
+{
+	FScopeLock ScopedLock(&Lock);
+	const double Now = FPlatformTime::Seconds();
+	TArray<FString> Expired;
+	for (const auto& Pair : Entries)
+	{
+		if (Now - Pair.Value.StoredAt > MaxAgeSeconds)
+		{
+			Expired.Add(Pair.Key);
+		}
+	}
+	for (const FString& Key : Expired)
+	{
+		Entries.Remove(Key);
+	}
+}
 
 FECAMCPServer::FECAMCPServer(UECABridge* InBridge)
 	: Bridge(InBridge)
@@ -187,9 +310,36 @@ bool FECAMCPServer::HandleMCPPost(const FHttpServerRequest& Request, const FHttp
 	}
 	
 	UE_LOG(LogTemp, Log, TEXT("[ECABridge] MCP Response: %s"), *ResponseStr.Left(500));
-	
+
 	TUniquePtr<FHttpServerResponse> Response = FHttpServerResponse::Create(ResponseStr, TEXT("application/json"));
 	Response->Headers.Add(TEXT("Access-Control-Allow-Origin"), { TEXT("*") });
+
+	// Negotiated compression: clients that send Accept-Encoding: deflate (e.g.
+	// curl --compressed, most browsers, MCP clients) get a zlib-compressed body
+	// when the response crosses the threshold. Saves ~6-8x on the JSON-heavy
+	// dump_* / find_assets responses without giving up readability for small
+	// replies.
+	if (Response->Body.Num() >= ECABridgeCompress::MinSizeBytes)
+	{
+		const TArray<FString>* AcceptEnc = Response->Headers.Find(TEXT("Accept-Encoding"));
+		if (!AcceptEnc)
+		{
+			AcceptEnc = Request.Headers.Find(TEXT("Accept-Encoding"));
+		}
+		if (AcceptEnc && ECABridgeCompress::AcceptsEncoding(*AcceptEnc, TEXT("deflate")))
+		{
+			TArray<uint8> Compressed;
+			if (ECABridgeCompress::TryDeflate(Response->Body, Compressed))
+			{
+				const int32 OriginalSize = Response->Body.Num();
+				Response->Body = MoveTemp(Compressed);
+				Response->Headers.Add(TEXT("Content-Encoding"), { TEXT("deflate") });
+				UE_LOG(LogTemp, Log, TEXT("[ECABridge] Response compressed: %d -> %d bytes (%.1f%%)"),
+					OriginalSize, Response->Body.Num(), 100.0 * Response->Body.Num() / OriginalSize);
+			}
+		}
+	}
+
 	OnComplete(MoveTemp(Response));
 	return true;
 }
@@ -231,7 +381,7 @@ TSharedPtr<FJsonObject> FECAMCPServer::ProcessJsonRpcRequest(const TSharedPtr<FJ
 	}
 	else if (Method == TEXT("tools/list"))
 	{
-		Result = HandleToolsList();
+		Result = HandleToolsList(Params);
 	}
 	else if (Method == TEXT("tools/call"))
 	{
@@ -322,13 +472,29 @@ TSharedPtr<FJsonObject> FECAMCPServer::HandleInitialize(const TSharedPtr<FJsonOb
 	return Result;
 }
 
-TSharedPtr<FJsonObject> FECAMCPServer::HandleToolsList()
+TSharedPtr<FJsonObject> FECAMCPServer::HandleToolsList(const TSharedPtr<FJsonObject>& Params)
 {
+	FString CategoryFilter;
+	if (Params.IsValid())
+	{
+		Params->TryGetStringField(TEXT("category"), CategoryFilter);
+	}
+
 	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-	Result->SetArrayField(TEXT("tools"), BuildToolDefinitions());
-	
-	UE_LOG(LogTemp, Log, TEXT("[ECABridge] Returned %d tools"), FECACommandRegistry::Get().GetAllCommands().Num());
-	
+	TArray<TSharedPtr<FJsonValue>> Tools = BuildToolDefinitions(CategoryFilter);
+	Result->SetArrayField(TEXT("tools"), Tools);
+
+	if (!CategoryFilter.IsEmpty())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[ECABridge] tools/list category='%s': %d tools"), *CategoryFilter, Tools.Num());
+	}
+	else
+	{
+		UE_LOG(LogTemp, Log, TEXT("[ECABridge] tools/list: %d tools (lazy=%s)"),
+			Tools.Num(),
+			FECACommandRegistry::Get().IsLazyMode() ? TEXT("on") : TEXT("off"));
+	}
+
 	return Result;
 }
 
@@ -423,7 +589,31 @@ TSharedPtr<FJsonObject> FECAMCPServer::HandleToolsCall(const TSharedPtr<FJsonObj
 			{
 				ResultText = TEXT("{\"success\": true}");
 			}
-			TextContent->SetStringField(TEXT("text"), ResultText);
+
+			// Response-size cap: if the serialized result exceeds the configured
+			// budget, return the first chunk and stash the remainder under a
+			// continuation token. Client retrieves the rest via continue_response.
+			const int32 Cap = MaxResponseBytes;
+			if (Cap > 0 && ResultText.Len() > Cap)
+			{
+				const int32 TotalLen = ResultText.Len();
+				FString FirstChunk = ResultText.Left(Cap);
+				FString Remainder = ResultText.RightChop(Cap);
+				const FString Token = FECAResponseChunkCache::Get().StoreRemainder(Remainder);
+
+				TextContent->SetStringField(TEXT("text"), FirstChunk);
+				Result->SetStringField(TEXT("_continuation_token"), Token);
+				Result->SetNumberField(TEXT("_chunk_chars"), FirstChunk.Len());
+				Result->SetNumberField(TEXT("_remaining_chars"), Remainder.Len());
+				Result->SetNumberField(TEXT("_total_chars"), TotalLen);
+
+				UE_LOG(LogTemp, Log, TEXT("[ECABridge] Response chunked: tool=%s total=%d cap=%d token=%s"),
+					*ToolName, TotalLen, Cap, *Token);
+			}
+			else
+			{
+				TextContent->SetStringField(TEXT("text"), ResultText);
+			}
 		}
 		else
 		{
@@ -436,14 +626,17 @@ TSharedPtr<FJsonObject> FECAMCPServer::HandleToolsCall(const TSharedPtr<FJsonObj
 
 	Result->SetArrayField(TEXT("content"), Content);
 
+	// Opportunistic GC.
+	FECAResponseChunkCache::Get().Purge();
+
 	return Result;
 }
 
-TArray<TSharedPtr<FJsonValue>> FECAMCPServer::BuildToolDefinitions()
+TArray<TSharedPtr<FJsonValue>> FECAMCPServer::BuildToolDefinitions(const FString& CategoryFilter)
 {
 	TArray<TSharedPtr<FJsonValue>> Tools;
 
-	for (const TSharedPtr<IECACommand>& Command : FECACommandRegistry::Get().GetAllCommands())
+	for (const TSharedPtr<IECACommand>& Command : FECACommandRegistry::Get().GetVisibleCommands(CategoryFilter))
 	{
 		TSharedPtr<FJsonObject> ToolDef = MakeShared<FJsonObject>();
 		ToolDef->SetStringField(TEXT("name"), Command->GetName());

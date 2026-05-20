@@ -180,6 +180,34 @@ public:
 	/** Get all category names */
 	TArray<FString> GetCategories() const;
 
+	/** Lazy-mode tools/list filtering — when enabled, only commands in the meta
+	 *  category plus any explicitly loaded categories are advertised via
+	 *  tools/list. All commands remain physically registered and callable via
+	 *  tools/call; this only affects which tools the client discovers up-front,
+	 *  cutting the baseline tools/list payload from ~330KB to ~5KB. */
+	void SetLazyMode(bool bEnabled);
+	bool IsLazyMode() const;
+
+	/** Mark a category as loaded so its tools become visible in tools/list. */
+	int32 LoadCategory(const FString& Category);
+
+	/** Drop a category from the visible-tools set (will no longer appear in
+	 *  tools/list until LoadCategory is called again). Returns true if it was
+	 *  in the set. */
+	bool UnloadCategory(const FString& Category);
+
+	/** Whether tools from this category are currently surfaced via tools/list. */
+	bool IsCategoryVisible(const FString& Category) const;
+
+	/** Get the set of currently loaded categories (visible via tools/list). */
+	TArray<FString> GetLoadedCategories() const;
+
+	/** Return the commands that should appear in tools/list right now, honoring
+	 *  lazy mode and an optional category filter (case-sensitive). When
+	 *  CategoryFilter is non-empty, ONLY commands in that category are returned
+	 *  (lazy mode is bypassed — explicit ask wins). */
+	TArray<TSharedPtr<IECACommand>> GetVisibleCommands(const FString& CategoryFilter = FString()) const;
+
 	/** Return up to MaxResults registered command names that are similar to the
 	 *  given (typically unknown) input. Useful for "did you mean" hints on errors.
 	 *  Ranks by: exact prefix > substring match > Levenshtein distance. Returns an
@@ -192,11 +220,18 @@ public:
 	/** Log all registered commands */
 	void LogCommands() const;
 
+	/** Category name used for the meta-tools (list_categories / describe_category /
+	 *  load_category / continue_response). These are always visible in lazy mode. */
+	static const FString MetaCategory;
+
 private:
 	FECACommandRegistry() = default;
-	
+
 	TMap<FString, TSharedPtr<IECACommand>> Commands;
 	mutable FCriticalSection CommandsLock;
+
+	bool bLazyMode = false;
+	TSet<FString> LoadedCategories;
 };
 
 /**

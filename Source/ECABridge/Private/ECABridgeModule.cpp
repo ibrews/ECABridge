@@ -78,6 +78,12 @@ void FECABridgeModule::StartupModule()
 		}
 	}
 
+	// Enable lazy tool registration: tools/list returns only the meta-tools
+	// (Meta category) by default. Clients call load_category to surface other
+	// categories. Cuts the baseline tools/list payload from ~330KB to ~5KB.
+	FECACommandRegistry::Get().SetLazyMode(true);
+	UE_LOG(LogTemp, Log, TEXT("[ECABridge] Lazy tool registration enabled — tools/list will return Meta tools only until load_category is called"));
+
 	// Register console commands
 	RegisterConsoleCommands();
 
