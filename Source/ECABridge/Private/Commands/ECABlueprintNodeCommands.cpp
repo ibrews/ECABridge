@@ -55,6 +55,7 @@
 #include "UObject/UObjectIterator.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "InputCoreTypes.h"
+#include "Math/Rotator.h"
 
 // Register all blueprint node commands
 REGISTER_ECA_COMMAND(FECACommand_AddBlueprintEventNode)
@@ -2544,6 +2545,87 @@ FECACommandResult FECACommand_SetBlueprintPinValue::Execute(const TSharedPtr<FJs
 			Pin->DefaultValue = Normalized;
 			bSuccess = true;
 			ResultMessage = FString::Printf(TEXT("Set FKey to: %s"), *Normalized);
+		}
+		// FRotator pins: accept canonical comma-sep ("0, -90, 0" = Pitch, Yaw, Roll),
+		// verbose `(Pitch=0, Yaw=-90, Roll=0)`, or compact `P=0,Y=-90,R=0`.
+		// Normalize to the comma-separated `Pitch,Yaw,Roll` form that the BP-pin
+		// parser accepts reliably — see ecabridge-mcp-gotchas #8.
+		else if (PinStruct && PinStruct == TBaseStructure<FRotator>::Get())
+		{
+			FString Trimmed = Value.TrimStartAndEnd();
+			double Pitch = 0.0, Yaw = 0.0, Roll = 0.0;
+			bool bParsed = false;
+
+			auto ParseNamedComponents = [&](const FString& Body) -> bool
+			{
+				// Body is the inside of `(...)` for verbose form, or the whole
+				// string for compact form. Both are comma-separated `key=value`
+				// pairs. Accept full names (Pitch/Yaw/Roll) and one-letter
+				// abbreviations (P/Y/R), case-insensitive.
+				bool bSawAny = false;
+				TArray<FString> Pairs;
+				Body.ParseIntoArray(Pairs, TEXT(","), true);
+				for (FString& Pair : Pairs)
+				{
+					Pair.TrimStartAndEndInline();
+					int32 EqIdx;
+					if (!Pair.FindChar(TEXT('='), EqIdx)) continue;
+					FString Key = Pair.Left(EqIdx).TrimStartAndEnd();
+					FString Val = Pair.Mid(EqIdx + 1).TrimStartAndEnd();
+					const double Num = FCString::Atod(*Val);
+					if (Key.Equals(TEXT("Pitch"), ESearchCase::IgnoreCase) || Key.Equals(TEXT("P"), ESearchCase::IgnoreCase))
+					{
+						Pitch = Num; bSawAny = true;
+					}
+					else if (Key.Equals(TEXT("Yaw"), ESearchCase::IgnoreCase) || Key.Equals(TEXT("Y"), ESearchCase::IgnoreCase))
+					{
+						Yaw = Num; bSawAny = true;
+					}
+					else if (Key.Equals(TEXT("Roll"), ESearchCase::IgnoreCase) || Key.Equals(TEXT("R"), ESearchCase::IgnoreCase))
+					{
+						Roll = Num; bSawAny = true;
+					}
+				}
+				return bSawAny;
+			};
+
+			if (Trimmed.StartsWith(TEXT("(")) && Trimmed.EndsWith(TEXT(")")))
+			{
+				// Verbose form: `(Pitch=..., Yaw=..., Roll=...)`
+				const FString Inner = Trimmed.Mid(1, Trimmed.Len() - 2);
+				bParsed = ParseNamedComponents(Inner);
+			}
+			else if (Trimmed.Contains(TEXT("=")))
+			{
+				// Compact form: `P=0,Y=-90,R=0` (no parens)
+				bParsed = ParseNamedComponents(Trimmed);
+			}
+			else
+			{
+				// Canonical form: `Pitch, Yaw, Roll` (three comma-separated floats)
+				TArray<FString> Parts;
+				Trimmed.ParseIntoArray(Parts, TEXT(","), true);
+				if (Parts.Num() == 3)
+				{
+					Pitch = FCString::Atod(*Parts[0].TrimStartAndEnd());
+					Yaw   = FCString::Atod(*Parts[1].TrimStartAndEnd());
+					Roll  = FCString::Atod(*Parts[2].TrimStartAndEnd());
+					bParsed = true;
+				}
+			}
+
+			if (!bParsed)
+			{
+				return FECACommandResult::Error(FString::Printf(
+					TEXT("FRotator pin value '%s' could not be parsed. Accepted forms: 'P,Y,R' (e.g., '0, -90, 0'), '(Pitch=0, Yaw=-90, Roll=0)', or 'P=0,Y=-90,R=0'."),
+					*Value));
+			}
+
+			// Canonical pin-text form: Pitch,Yaw,Roll comma-separated (no parens).
+			const FString Normalized = FString::Printf(TEXT("%g,%g,%g"), Pitch, Yaw, Roll);
+			Pin->DefaultValue = Normalized;
+			bSuccess = true;
+			ResultMessage = FString::Printf(TEXT("Set FRotator to: Pitch=%g, Yaw=%g, Roll=%g (stored as '%s')"), Pitch, Yaw, Roll, *Normalized);
 		}
 		else
 		{
