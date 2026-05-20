@@ -1,0 +1,12 @@
+Binaries/
+Intermediate/
+DerivedDataCache/
+Saved/
+Plugins/ECABridge/Binaries/
+Plugins/ECABridge/Intermediate/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
