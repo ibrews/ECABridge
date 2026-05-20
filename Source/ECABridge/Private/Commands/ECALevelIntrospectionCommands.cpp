@@ -125,11 +125,28 @@ FECACommandResult FECACommand_DumpLevel::Execute(const TSharedPtr<FJsonObject>& 
 	FString FilterTag;
 	GetStringParam(Params, TEXT("filter_tag"), FilterTag, false);
 
-	bool bIncludeProperties = false;
-	GetBoolParam(Params, TEXT("include_properties"), bIncludeProperties, false);
+	// New verbosity selector. Default = summary (smallest response).
+	FString Verbosity = TEXT("summary");
+	const bool bHasVerbosity = GetStringParam(Params, TEXT("verbosity"), Verbosity, false);
+	Verbosity = Verbosity.ToLower();
 
-	bool bIncludeComponents = true;
-	GetBoolParam(Params, TEXT("include_components"), bIncludeComponents, false);
+	bool bIncludeProperties = false;
+	const bool bHasIncludeProps = GetBoolParam(Params, TEXT("include_properties"), bIncludeProperties, false);
+
+	bool bIncludeComponents = false;
+	const bool bHasIncludeComps = GetBoolParam(Params, TEXT("include_components"), bIncludeComponents, false);
+
+	// Legacy back-compat: if caller used the old include_* flags without verbosity,
+	// treat as 'full' so existing scripts keep getting their components/props.
+	const bool bUsedDeprecatedArgs = !bHasVerbosity && (bHasIncludeProps || bHasIncludeComps);
+	if (bUsedDeprecatedArgs)
+	{
+		Verbosity = TEXT("full");
+	}
+
+	const bool bIncludeTransform = (Verbosity == TEXT("transforms") || Verbosity == TEXT("full"));
+	const bool bWantComponents = (Verbosity == TEXT("full")) && (!bHasIncludeComps || bIncludeComponents);
+	const bool bWantProperties = (Verbosity == TEXT("full")) && bIncludeProperties;
 
 	// Spatial bounds filter
 	bool bHasBoundsFilter = false;
@@ -250,7 +267,11 @@ FECACommandResult FECACommand_DumpLevel::Execute(const TSharedPtr<FJsonObject>& 
 		ActorObj->SetStringField(TEXT("name"), Actor->GetActorLabel().IsEmpty() ? Actor->GetName() : Actor->GetActorLabel());
 		ActorObj->SetStringField(TEXT("internal_name"), Actor->GetName());
 		ActorObj->SetStringField(TEXT("class"), ClassName);
-		ActorObj->SetObjectField(TEXT("transform"), ActorTransformToJson(Actor));
+
+		if (bIncludeTransform)
+		{
+			ActorObj->SetObjectField(TEXT("transform"), ActorTransformToJson(Actor));
+		}
 
 		// Folder
 		FString Folder = Actor->GetFolderPath().ToString();
@@ -270,22 +291,25 @@ FECACommandResult FECACommand_DumpLevel::Execute(const TSharedPtr<FJsonObject>& 
 			ActorObj->SetArrayField(TEXT("tags"), TagsArray);
 		}
 
-		// Mobility
-		if (Actor->GetRootComponent())
+		if (bIncludeTransform)
 		{
-			ActorObj->SetStringField(TEXT("mobility"),
-				Actor->GetRootComponent()->Mobility == EComponentMobility::Static ? TEXT("Static") :
-				Actor->GetRootComponent()->Mobility == EComponentMobility::Stationary ? TEXT("Stationary") : TEXT("Movable"));
-		}
+			// Mobility
+			if (Actor->GetRootComponent())
+			{
+				ActorObj->SetStringField(TEXT("mobility"),
+					Actor->GetRootComponent()->Mobility == EComponentMobility::Static ? TEXT("Static") :
+					Actor->GetRootComponent()->Mobility == EComponentMobility::Stationary ? TEXT("Stationary") : TEXT("Movable"));
+			}
 
-		// Attachment
-		if (Actor->GetAttachParentActor())
-		{
-			ActorObj->SetStringField(TEXT("attached_to"), Actor->GetAttachParentActor()->GetName());
+			// Attachment
+			if (Actor->GetAttachParentActor())
+			{
+				ActorObj->SetStringField(TEXT("attached_to"), Actor->GetAttachParentActor()->GetName());
+			}
 		}
 
 		// Components
-		if (bIncludeComponents)
+		if (bWantComponents)
 		{
 			TArray<TSharedPtr<FJsonValue>> ComponentsArray;
 			TInlineComponentArray<UActorComponent*> Components;
@@ -299,7 +323,7 @@ FECACommandResult FECACommand_DumpLevel::Execute(const TSharedPtr<FJsonObject>& 
 		}
 
 		// Full properties (deep mode)
-		if (bIncludeProperties)
+		if (bWantProperties)
 		{
 			TSharedPtr<FJsonObject> PropsObj = MakeShared<FJsonObject>();
 			UObject* DefaultActor = Actor->GetClass()->GetDefaultObject();
@@ -350,6 +374,13 @@ FECACommandResult FECACommand_DumpLevel::Execute(const TSharedPtr<FJsonObject>& 
 	StatsObj->SetObjectField(TEXT("class_distribution"), ClassDistObj);
 
 	Result->SetObjectField(TEXT("statistics"), StatsObj);
+	Result->SetStringField(TEXT("verbosity"), Verbosity);
+
+	if (bUsedDeprecatedArgs)
+	{
+		Result->SetStringField(TEXT("deprecation"),
+			TEXT("include_components/include_properties are deprecated; pass verbosity='summary'|'transforms'|'full' instead. Defaulted to 'full' for back-compat."));
+	}
 
 	return FECACommandResult::Success(Result);
 }
