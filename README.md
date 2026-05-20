@@ -75,6 +75,7 @@ These are the things we maintain ourselves because Epic's core toolsets don't co
 - **Virtual production / Stage (18 commands)** — DMX library + patch authoring, LiveLink, nDisplay cluster lifecycle + ICVFX inner-frustum, OpenXR session lifecycle, USD, Stage Actor
 - **World Partition mutation** — `force_load_wp_region`, `pin_wp_actors`, `unpin_wp_actors`
 - **Refactoring safety nets** — `replace_asset_references`, `bulk_rename_assets`, dry-run modes
+- **Blueprint graph editing (35 commands)** — `batch_edit_blueprint_nodes` creates and wires multiple nodes atomically; `add_blueprint_variable_get/set` with optional `variable_class` enables cross-BP variable access (read/write a variable on a cast object from a different Blueprint); `add_blueprint_flow_control_node`, `connect_blueprint_nodes`, `break_pin_connection`, `auto_layout_blueprint_graph`
 
 ## What we've absorbed from native MCP (clean-room)
 
@@ -93,6 +94,7 @@ Single branch supports UE 5.7 and 5.8. Cross-version API divergences are handled
 
 - **Verified on Fort 2026-05-19:** clean UAT `BuildPlugin`, loads in a 5.8 project, server starts on `:3000`, 500+ commands available with `Mutable`+`MovieRenderPipeline` enabled, build correctly omits the optional-dep commands when the upstream plugins aren't reachable, runs side-by-side with Epic's native `ModelContextProtocol` plugin on `:8000`.
 - **Verified on Theseus 2026-05-20:** clean `Test57Editor` + `Test58Editor` builds against both engines from the same `main` branch. UE 5.7 editor launches with `:3000` reporting `commands: 489, bridge_ready: true, sessions: 0`. `resources/list` returns a well-formed (empty for an empty test project) response. `ECABridge.GenerateClientConfig All` writes all 5 client configs with correct per-client schemas.
+- **Verified on alex-mbp (macOS) 2026-05-20:** clean build against UE 5.7 from a standard Epic Games Launcher install (Apple M1 Max). Optional plugins without Mac binaries (nDisplay, etc.) are now correctly detected and skipped via `EngineHasPluginWithBinaries()` — `EngineHasPlugin()` alone returned true for source-only plugins causing linker failures. `PublicDelayLoadDLLs` entries are now Mac-guarded via `AddDelayLoadDLL()` wrapper; on Mac, module linking is handled by UBT automatically through `PrivateDependencyModuleNames`.
 
 ## Requirements
 

@@ -155,8 +155,17 @@ explicitly allowed).
 - Anything that breaks the 5.7 build without a `#if UE_VERSION_OLDER_THAN`
   guard around the change.
 - New hard dependencies on engine plugins that aren't enabled by default
-  in a stock UE install. Add them as optional via the `EngineHasPlugin`
-  pattern instead.
+  in a stock UE install. Add them as optional using **both** helpers in
+  `ECABridge.Build.cs`:
+  - `EngineHasPluginWithBinaries("PluginName")` — not `EngineHasPlugin()`.
+    `EngineHasPlugin` checks only for the `.uplugin` file; on macOS launcher
+    installs many plugins ship as engine source without compiled binaries,
+    causing missing UHT-generated headers at compile time.
+  - `AddDelayLoadDLL("UnrealEditor-Module.dll")` — not `PublicDelayLoadDLLs.Add(...)`.
+    The wrapper gates the call to Win64 only; on Mac, `PublicDelayLoadDLLs`
+    entries get passed to clang as library paths with wrong search roots,
+    causing link failures. Module linking on Mac is handled automatically
+    by UBT through `PrivateDependencyModuleNames`.
 - Reformatting passes that touch files unrelated to the change.
 
 ## Where to ask
