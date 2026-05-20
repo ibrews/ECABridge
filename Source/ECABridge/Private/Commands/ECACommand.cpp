@@ -84,6 +84,52 @@ TSharedPtr<FJsonObject> FECACommandResult::MakeImageContent(const TArray<uint8>&
 	return Block;
 }
 
+TSharedPtr<FJsonObject> FECACommandResult::MakeTextContent(const FString& Text)
+{
+	TSharedPtr<FJsonObject> Block = MakeShared<FJsonObject>();
+	Block->SetStringField(TEXT("type"), TEXT("text"));
+	Block->SetStringField(TEXT("text"), Text);
+	return Block;
+}
+
+TSharedPtr<FJsonObject> FECACommandResult::MakeResourceContent(
+	const FString& Uri,
+	const FString& MimeType,
+	const FString& InlineText)
+{
+	TSharedPtr<FJsonObject> Block = MakeShared<FJsonObject>();
+	Block->SetStringField(TEXT("type"), TEXT("resource"));
+
+	TSharedPtr<FJsonObject> Resource = MakeShared<FJsonObject>();
+	Resource->SetStringField(TEXT("uri"), Uri);
+	if (!MimeType.IsEmpty())
+	{
+		Resource->SetStringField(TEXT("mimeType"), MimeType);
+	}
+	if (!InlineText.IsEmpty())
+	{
+		Resource->SetStringField(TEXT("text"), InlineText);
+	}
+	Block->SetObjectField(TEXT("resource"), Resource);
+	return Block;
+}
+
+TSharedPtr<FJsonObject> FECACommandResult::MakeAssetResourceContent(
+	const FString& PackagePath,
+	const FString& InlineText)
+{
+	// Compose ecabridge:// URI. A leading slash on the package path is the UE
+	// convention (e.g. "/Game/Foo/Bar.Bar"); strip duplicate slashes so the URI
+	// keeps the canonical "ecabridge:///Game/..." form regardless of input.
+	FString Stripped = PackagePath;
+	while (Stripped.StartsWith(TEXT("/")))
+	{
+		Stripped.RemoveAt(0);
+	}
+	const FString Uri = FString::Printf(TEXT("ecabridge:///%s"), *Stripped);
+	return MakeResourceContent(Uri, TEXT("application/x-ue-asset"), InlineText);
+}
+
 TSharedPtr<FJsonObject> MakeECAObjectSchema(const TArray<FECASchemaField>& Fields)
 {
 	TSharedPtr<FJsonObject> Schema = MakeShared<FJsonObject>();

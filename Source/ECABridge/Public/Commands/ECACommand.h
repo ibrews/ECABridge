@@ -50,6 +50,29 @@ struct ECABRIDGE_API FECACommandResult
 	static TSharedPtr<FJsonObject> MakeImageContent(const TArray64<uint8>& Bytes, const FString& MimeType = TEXT("image/png"));
 	static TSharedPtr<FJsonObject> MakeImageContent(const TArray<uint8>& Bytes, const FString& MimeType = TEXT("image/png"));
 
+	/** Build an MCP text content block ({type:"text", text}). Most commands
+	 *  produce text content implicitly via ToJsonString(); use this helper only
+	 *  when authoring McpContent directly. */
+	static TSharedPtr<FJsonObject> MakeTextContent(const FString& Text);
+
+	/** Build an MCP resource content block per the 2025-03-26 spec:
+	 *  {type:"resource", resource:{uri, mimeType, text?}}. Use this for asset
+	 *  references in command results so MCP clients (EDA, Inspector, Claude
+	 *  Code) can render them as resource cards instead of inline text. The
+	 *  canonical URI scheme for ECABridge resources is
+	 *      ecabridge://asset<package-path>
+	 *  e.g. ecabridge:///Game/Foo/BP_Bar.BP_Bar. */
+	static TSharedPtr<FJsonObject> MakeResourceContent(
+		const FString& Uri,
+		const FString& MimeType = TEXT("application/x-ue-asset"),
+		const FString& InlineText = FString());
+
+	/** Convenience wrapper around MakeResourceContent for UE package paths:
+	 *  given "/Game/Foo/BP_Bar.BP_Bar" returns the right content block. */
+	static TSharedPtr<FJsonObject> MakeAssetResourceContent(
+		const FString& PackagePath,
+		const FString& InlineText = FString());
+
 	/** Convert to JSON response string */
 	FString ToJsonString() const;
 };
