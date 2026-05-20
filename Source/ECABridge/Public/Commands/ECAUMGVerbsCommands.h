@@ -80,6 +80,97 @@ public:
 };
 
 /**
+ * Reparent a widget under a new panel parent. Optionally orders it at child_index.
+ */
+class FECACommand_MoveWidget : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("move_widget"); }
+	virtual FString GetDescription() const override { return TEXT("Move a widget under a new panel parent. Detaches from current parent (panel or content widget) and re-adds under new_parent_name; child_index orders in new parent (-1 = append)."); }
+	virtual FString GetCategory() const override { return TEXT("UMG"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("widget_blueprint_path"), TEXT("string"),  TEXT("Path to a UWidgetBlueprint asset"), true },
+			{ TEXT("widget_name"),           TEXT("string"),  TEXT("Name of the widget to move"), true },
+			{ TEXT("new_parent_name"),       TEXT("string"),  TEXT("Name of the new parent panel widget"), true },
+			{ TEXT("child_index"),           TEXT("integer"), TEXT("Position within new parent's children (-1 = append)"), false, TEXT("-1") }
+		};
+	}
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("widget_name"), TEXT("string"), TEXT("Name of the moved widget") },
+			{ TEXT("parent_name"), TEXT("string"), TEXT("Name of the new parent") },
+			{ TEXT("slot_class"),  TEXT("string"), TEXT("Class of the new panel slot") }
+		});
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Remove a widget and its descendants from the tree.
+ */
+class FECACommand_RemoveWidget : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("remove_widget"); }
+	virtual FString GetDescription() const override { return TEXT("Remove a widget (and its descendants) from a Widget Blueprint's tree. If the target is the root, the tree is left empty."); }
+	virtual FString GetCategory() const override { return TEXT("UMG"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("widget_blueprint_path"), TEXT("string"), TEXT("Path to a UWidgetBlueprint asset"), true },
+			{ TEXT("widget_name"),           TEXT("string"), TEXT("Name of the widget to remove"), true }
+		};
+	}
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("widget_name"), TEXT("string"),  TEXT("Name of the removed widget") },
+			{ TEXT("removed"),     TEXT("boolean"), TEXT("True if the widget was removed") }
+		});
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Rename a widget. Errors on collision with an existing widget name.
+ */
+class FECACommand_RenameWidget : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("rename_widget"); }
+	virtual FString GetDescription() const override { return TEXT("Rename a widget within a Widget Blueprint. Errors if the new name is already used by another widget in the tree."); }
+	virtual FString GetCategory() const override { return TEXT("UMG"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("widget_blueprint_path"), TEXT("string"), TEXT("Path to a UWidgetBlueprint asset"), true },
+			{ TEXT("widget_name"),           TEXT("string"), TEXT("Current widget name"), true },
+			{ TEXT("new_name"),              TEXT("string"), TEXT("Desired new widget name"), true }
+		};
+	}
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("old_name"), TEXT("string"), TEXT("Previous widget name") },
+			{ TEXT("new_name"), TEXT("string"), TEXT("New widget name") }
+		});
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
  * List named-slot bindings (NamedSlotInterface implementers + UContentWidget content slots).
  */
 class FECACommand_GetNamedSlots : public IECACommand

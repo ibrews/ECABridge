@@ -16,6 +16,9 @@
 REGISTER_ECA_COMMAND(FECACommand_AddWidget)
 REGISTER_ECA_COMMAND(FECACommand_SetNamedSlotContent)
 REGISTER_ECA_COMMAND(FECACommand_GetNamedSlots)
+REGISTER_ECA_COMMAND(FECACommand_MoveWidget)
+REGISTER_ECA_COMMAND(FECACommand_RemoveWidget)
+REGISTER_ECA_COMMAND(FECACommand_RenameWidget)
 
 //------------------------------------------------------------------------------
 // add_widget — polymorphic widget construction + attachment.
@@ -332,5 +335,258 @@ FECACommandResult FECACommand_GetNamedSlots::Execute(const TSharedPtr<FJsonObjec
 	Result->SetStringField(TEXT("widget_blueprint_path"), WidgetBlueprintPath);
 	Result->SetArrayField(TEXT("slots"), SlotsArr);
 	Result->SetNumberField(TEXT("count"), SlotsArr.Num());
+	return FECACommandResult::Success(Result);
+}
+
+//------------------------------------------------------------------------------
+// Internal: detach a widget from its current parent (panel or content host).
+//------------------------------------------------------------------------------
+
+static bool ECAUMGVerbs_DetachFromParent(UWidget* Widget)
+{
+	if (!Widget || !Widget->Slot)
+	{
+		return false;
+	}
+
+	UPanelWidget* OldPanel = Widget->Slot->Parent;
+	if (!OldPanel)
+	{
+		return false;
+	}
+
+	if (UContentWidget* OldContent = Cast<UContentWidget>(OldPanel))
+	{
+		// UContentWidget::SetContent enforces single-child semantics; clearing it
+		// breaks the slot cleanly.
+		if (OldContent->GetContent() == Widget)
+		{
+			OldContent->SetContent(nullptr);
+			return true;
+		}
+	}
+
+	return OldPanel->RemoveChild(Widget);
+}
+
+//------------------------------------------------------------------------------
+// move_widget — detach from current parent, reattach under new panel.
+//------------------------------------------------------------------------------
+
+FECACommandResult FECACommand_MoveWidget::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString WidgetBlueprintPath;
+	if (!GetStringParam(Params, TEXT("widget_blueprint_path"), WidgetBlueprintPath))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_blueprint_path"));
+	}
+
+	FString WidgetName;
+	if (!GetStringParam(Params, TEXT("widget_name"), WidgetName))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_name"));
+	}
+
+	FString NewParentName;
+	if (!GetStringParam(Params, TEXT("new_parent_name"), NewParentName))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: new_parent_name"));
+	}
+
+	int32 ChildIndex = -1;
+	GetIntParam(Params, TEXT("child_index"), ChildIndex, false);
+
+	UWidgetBlueprint* WidgetBP = ECAUMGVerbs::LoadAssetTolerant<UWidgetBlueprint>(WidgetBlueprintPath);
+	if (!WidgetBP)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Widget Blueprint not found: %s"), *WidgetBlueprintPath));
+	}
+
+	UWidgetTree* WidgetTree = WidgetBP->WidgetTree;
+	if (!WidgetTree)
+	{
+		return FECACommandResult::Error(TEXT("Widget Blueprint has no widget tree"));
+	}
+
+	UWidget* Target = WidgetTree->FindWidget(FName(*WidgetName));
+	if (!Target)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("widget_name '%s' not found"), *WidgetName));
+	}
+
+	UWidget* NewParentWidget = WidgetTree->FindWidget(FName(*NewParentName));
+	if (!NewParentWidget)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("new_parent_name '%s' not found"), *NewParentName));
+	}
+	UPanelWidget* NewParent = Cast<UPanelWidget>(NewParentWidget);
+	if (!NewParent)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("new_parent_name '%s' is not a panel widget"), *NewParentName));
+	}
+
+	if (NewParent == Target)
+	{
+		return FECACommandResult::Error(TEXT("Cannot move a widget under itself"));
+	}
+
+	WidgetTree->Modify();
+	ECAUMGVerbs_DetachFromParent(Target);
+
+	UPanelSlot* AddedSlot = NewParent->AddChild(Target);
+	if (!AddedSlot)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Failed to attach widget under '%s' (slot limit or type mismatch)"), *NewParentName));
+	}
+
+	if (ChildIndex >= 0 && ChildIndex < NewParent->GetChildrenCount())
+	{
+		NewParent->ShiftChild(ChildIndex, Target);
+	}
+
+	WidgetBP->MarkPackageDirty();
+	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(WidgetBP);
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("widget_name"), WidgetName);
+	Result->SetStringField(TEXT("parent_name"), NewParentName);
+	Result->SetStringField(TEXT("slot_class"), AddedSlot->GetClass()->GetName());
+	return FECACommandResult::Success(Result);
+}
+
+//------------------------------------------------------------------------------
+// remove_widget — drop a widget (and descendants) from the tree.
+//------------------------------------------------------------------------------
+
+FECACommandResult FECACommand_RemoveWidget::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString WidgetBlueprintPath;
+	if (!GetStringParam(Params, TEXT("widget_blueprint_path"), WidgetBlueprintPath))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_blueprint_path"));
+	}
+
+	FString WidgetName;
+	if (!GetStringParam(Params, TEXT("widget_name"), WidgetName))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_name"));
+	}
+
+	UWidgetBlueprint* WidgetBP = ECAUMGVerbs::LoadAssetTolerant<UWidgetBlueprint>(WidgetBlueprintPath);
+	if (!WidgetBP)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Widget Blueprint not found: %s"), *WidgetBlueprintPath));
+	}
+
+	UWidgetTree* WidgetTree = WidgetBP->WidgetTree;
+	if (!WidgetTree)
+	{
+		return FECACommandResult::Error(TEXT("Widget Blueprint has no widget tree"));
+	}
+
+	UWidget* Target = WidgetTree->FindWidget(FName(*WidgetName));
+	if (!Target)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("widget_name '%s' not found"), *WidgetName));
+	}
+
+	WidgetTree->Modify();
+	bool bRemoved = false;
+	if (WidgetTree->RootWidget == Target)
+	{
+		WidgetTree->RootWidget = nullptr;
+		bRemoved = true;
+	}
+	else
+	{
+		bRemoved = ECAUMGVerbs_DetachFromParent(Target);
+	}
+
+	if (bRemoved)
+	{
+		WidgetBP->MarkPackageDirty();
+		FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(WidgetBP);
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("widget_name"), WidgetName);
+	Result->SetBoolField(TEXT("removed"), bRemoved);
+	return FECACommandResult::Success(Result);
+}
+
+//------------------------------------------------------------------------------
+// rename_widget — UObject rename within the WidgetTree; rejects collisions.
+//------------------------------------------------------------------------------
+
+FECACommandResult FECACommand_RenameWidget::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString WidgetBlueprintPath;
+	if (!GetStringParam(Params, TEXT("widget_blueprint_path"), WidgetBlueprintPath))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_blueprint_path"));
+	}
+
+	FString WidgetName;
+	if (!GetStringParam(Params, TEXT("widget_name"), WidgetName))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_name"));
+	}
+
+	FString NewName;
+	if (!GetStringParam(Params, TEXT("new_name"), NewName))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: new_name"));
+	}
+
+	if (WidgetName.Equals(NewName))
+	{
+		TSharedPtr<FJsonObject> Result = MakeResult();
+		Result->SetStringField(TEXT("old_name"), WidgetName);
+		Result->SetStringField(TEXT("new_name"), NewName);
+		return FECACommandResult::Success(Result);
+	}
+
+	UWidgetBlueprint* WidgetBP = ECAUMGVerbs::LoadAssetTolerant<UWidgetBlueprint>(WidgetBlueprintPath);
+	if (!WidgetBP)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Widget Blueprint not found: %s"), *WidgetBlueprintPath));
+	}
+
+	UWidgetTree* WidgetTree = WidgetBP->WidgetTree;
+	if (!WidgetTree)
+	{
+		return FECACommandResult::Error(TEXT("Widget Blueprint has no widget tree"));
+	}
+
+	UWidget* Target = WidgetTree->FindWidget(FName(*WidgetName));
+	if (!Target)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("widget_name '%s' not found"), *WidgetName));
+	}
+
+	if (WidgetTree->FindWidget(FName(*NewName)))
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Cannot rename: a widget named '%s' already exists"), *NewName));
+	}
+
+	WidgetTree->Modify();
+	Target->Modify();
+	Target->Rename(*NewName, WidgetTree, REN_DontCreateRedirectors);
+
+	// Update editor bindings that referenced the old name.
+	for (FDelegateEditorBinding& Binding : WidgetBP->Bindings)
+	{
+		if (Binding.ObjectName == WidgetName)
+		{
+			Binding.ObjectName = NewName;
+		}
+	}
+
+	WidgetBP->MarkPackageDirty();
+	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(WidgetBP);
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("old_name"), WidgetName);
+	Result->SetStringField(TEXT("new_name"), NewName);
 	return FECACommandResult::Success(Result);
 }
