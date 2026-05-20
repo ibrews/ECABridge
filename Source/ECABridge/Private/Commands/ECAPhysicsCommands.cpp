@@ -2,6 +2,7 @@
 
 #include "Commands/ECAPhysicsCommands.h"
 #include "Commands/ECACommand.h"
+#include "ECAPhysicsHelpers.h"
 
 #include "PhysicalMaterials/PhysicalMaterial.h"
 #include "PhysicsEngine/PhysicsAsset.h"
@@ -27,36 +28,6 @@ REGISTER_ECA_COMMAND(FECACommand_DumpPhysicsAsset)
 REGISTER_ECA_COMMAND(FECACommand_DumpPhysicalMaterial)
 REGISTER_ECA_COMMAND(FECACommand_CreatePhysicalMaterial)
 REGISTER_ECA_COMMAND(FECACommand_SpawnPhysicsConstraint)
-
-namespace ECAPhysicsHelpers
-{
-	template<typename T>
-	static T* LoadAssetTolerant(const FString& Path)
-	{
-		if (Path.IsEmpty()) return nullptr;
-		T* Obj = LoadObject<T>(nullptr, *Path);
-		if (Obj) return Obj;
-
-		FString FullPath = Path;
-		if (!FullPath.Contains(TEXT(".")))
-		{
-			const FString AssetName = FPackageName::GetShortName(FullPath);
-			FullPath = FullPath + TEXT(".") + AssetName;
-			Obj = LoadObject<T>(nullptr, *FullPath);
-		}
-		return Obj;
-	}
-
-	template<typename TEnum>
-	static FString EnumToName(int64 Value)
-	{
-		if (const UEnum* Enum = StaticEnum<TEnum>())
-		{
-			return Enum->GetNameStringByValue(Value);
-		}
-		return FString::Printf(TEXT("%lld"), Value);
-	}
-}
 
 //==============================================================================
 // dump_physics_asset
