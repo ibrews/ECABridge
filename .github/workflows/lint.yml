@@ -25,7 +25,7 @@ jobs:
     name: Python helpers compile
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -42,7 +42,7 @@ jobs:
     name: JSON / uplugin parse
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Validate .uplugin and tracked JSON
         run: |
           set -euo pipefail
@@ -60,7 +60,7 @@ jobs:
     name: Field-manual cross-check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -74,7 +74,7 @@ jobs:
     name: Shellcheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Run shellcheck on tracked shell scripts
         run: |
           set -euo pipefail
