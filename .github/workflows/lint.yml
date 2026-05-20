@@ -1,0 +1,87 @@
+name: lint
+
+# Cheap, runner-friendly checks that don't need an Unreal Engine install.
+# A full BuildPlugin job will get added once we provision a self-hosted
+# Windows runner with UE 5.7/5.8 — see .github/workflows/README.md. Until
+# then, this workflow gates obvious mistakes (syntax errors in helper
+# scripts, malformed JSON, the field-manual linter).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python helpers compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: py_compile every tracked script
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(git ls-files 'scripts/*.py')
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "no python files tracked under scripts/"; exit 0
+          fi
+          python -m py_compile "${files[@]}"
+
+  json:
+    name: JSON / uplugin parse
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate .uplugin and tracked JSON
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(git ls-files '*.uplugin' '*.json')
+          fail=0
+          for f in "${files[@]}"; do
+            if ! python -m json.tool "$f" > /dev/null; then
+              echo "::error file=$f::invalid JSON"
+              fail=1
+            fi
+          done
+          exit "$fail"
+
+  skill-tools:
+    name: Field-manual cross-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: List registered commands
+        run: python scripts/lint-skill-tools.py --list > /tmp/commands.txt && wc -l /tmp/commands.txt
+      - name: Cross-check skill (advisory)
+        if: hashFiles('docs/skill/SKILL.md') != ''
+        run: python scripts/lint-skill-tools.py --skill docs/skill/SKILL.md --warn-only --ignore log_output
+
+  shellcheck:
+    name: Shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run shellcheck on tracked shell scripts
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(git ls-files '*.sh' || true)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "no shell scripts tracked"; exit 0
+          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends shellcheck
+          shellcheck "${files[@]}"
