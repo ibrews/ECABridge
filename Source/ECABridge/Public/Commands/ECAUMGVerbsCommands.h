@@ -114,7 +114,7 @@ public:
 /**
  * Remove a widget and its descendants from the tree.
  */
-class FECACommand_RemoveWidget : public IECACommand
+class FECACommand_UMGRemoveWidget : public IECACommand
 {
 public:
 	virtual FString GetName() const override { return TEXT("remove_widget"); }
@@ -224,6 +224,34 @@ public:
 		return MakeECAObjectSchema({
 			{ TEXT("widget_blueprint_path"), TEXT("string"), TEXT("Echo of the asset path") },
 			{ TEXT("new_parent_class"),      TEXT("string"), TEXT("New parent class") }
+		});
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Force-compile a Widget Blueprint, surfacing FCompilerResultsLog errors.
+ */
+class FECACommand_UMGCompileWidgetBlueprint : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("compile_widget_blueprint"); }
+	virtual FString GetDescription() const override { return TEXT("Force-compile a Widget Blueprint. Returns the compile status and any error messages from FCompilerResultsLog."); }
+	virtual FString GetCategory() const override { return TEXT("UMG"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("widget_blueprint_path"), TEXT("string"), TEXT("Path to a UWidgetBlueprint asset"), true }
+		};
+	}
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("compiled"), TEXT("boolean"), TEXT("True when the blueprint compiled without errors") },
+			{ TEXT("errors"),   TEXT("array"),   TEXT("Error messages emitted by FCompilerResultsLog") }
 		});
 	}
 

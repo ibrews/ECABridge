@@ -19,10 +19,11 @@ REGISTER_ECA_COMMAND(FECACommand_AddWidget)
 REGISTER_ECA_COMMAND(FECACommand_SetNamedSlotContent)
 REGISTER_ECA_COMMAND(FECACommand_GetNamedSlots)
 REGISTER_ECA_COMMAND(FECACommand_MoveWidget)
-REGISTER_ECA_COMMAND(FECACommand_RemoveWidget)
+REGISTER_ECA_COMMAND(FECACommand_UMGRemoveWidget)
 REGISTER_ECA_COMMAND(FECACommand_RenameWidget)
 REGISTER_ECA_COMMAND(FECACommand_SetWidgetAsVariable)
 REGISTER_ECA_COMMAND(FECACommand_ReparentWidgetBlueprint)
+REGISTER_ECA_COMMAND(FECACommand_UMGCompileWidgetBlueprint)
 
 //------------------------------------------------------------------------------
 // add_widget — polymorphic widget construction + attachment.
@@ -462,7 +463,7 @@ FECACommandResult FECACommand_MoveWidget::Execute(const TSharedPtr<FJsonObject>&
 // remove_widget — drop a widget (and descendants) from the tree.
 //------------------------------------------------------------------------------
 
-FECACommandResult FECACommand_RemoveWidget::Execute(const TSharedPtr<FJsonObject>& Params)
+FECACommandResult FECACommand_UMGRemoveWidget::Execute(const TSharedPtr<FJsonObject>& Params)
 {
 	FString WidgetBlueprintPath;
 	if (!GetStringParam(Params, TEXT("widget_blueprint_path"), WidgetBlueprintPath))
@@ -707,5 +708,48 @@ FECACommandResult FECACommand_ReparentWidgetBlueprint::Execute(const TSharedPtr<
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetStringField(TEXT("widget_blueprint_path"), WidgetBlueprintPath);
 	Result->SetStringField(TEXT("new_parent_class"), NewParentClass->GetPathName());
+	return FECACommandResult::Success(Result);
+}
+
+//------------------------------------------------------------------------------
+// compile_widget_blueprint — force-compile and surface FCompilerResultsLog
+// errors. Returns compiled=false with error strings on failure rather than
+// raising a hard error (callers want to see the messages).
+//------------------------------------------------------------------------------
+
+FECACommandResult FECACommand_UMGCompileWidgetBlueprint::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString WidgetBlueprintPath;
+	if (!GetStringParam(Params, TEXT("widget_blueprint_path"), WidgetBlueprintPath))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: widget_blueprint_path"));
+	}
+
+	UWidgetBlueprint* WidgetBP = ECAUMGVerbs::LoadAssetTolerant<UWidgetBlueprint>(WidgetBlueprintPath);
+	if (!WidgetBP)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Widget Blueprint not found: %s"), *WidgetBlueprintPath));
+	}
+
+	FCompilerResultsLog Results;
+	Results.SetSourcePath(WidgetBP->GetPathName());
+	Results.BeginEvent(TEXT("ECABridge compile_widget_blueprint"));
+	FKismetEditorUtilities::CompileBlueprint(WidgetBP, EBlueprintCompileOptions::None, &Results);
+	Results.EndEvent();
+
+	TArray<TSharedPtr<FJsonValue>> ErrorsArr;
+	for (const TSharedRef<FTokenizedMessage>& Msg : Results.Messages)
+	{
+		if (Msg->GetSeverity() == EMessageSeverity::Error)
+		{
+			ErrorsArr.Add(MakeShared<FJsonValueString>(Msg->ToText().ToString()));
+		}
+	}
+
+	const bool bCompiled = Results.NumErrors == 0;
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetBoolField(TEXT("compiled"), bCompiled);
+	Result->SetArrayField(TEXT("errors"), ErrorsArr);
 	return FECACommandResult::Success(Result);
 }
