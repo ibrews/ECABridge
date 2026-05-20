@@ -751,4 +751,283 @@ FECACommandResult FECACommand_GetNiagaraStackInputTopology::Execute(const TShare
 	return FECACommandResult::Success(Root);
 }
 
+// ============================================================================
+// Task 3 — Data read+set (8 cmds)
+// ============================================================================
+
+REGISTER_ECA_COMMAND(FECACommand_GetNiagaraSystemData)
+REGISTER_ECA_COMMAND(FECACommand_SetNiagaraSystemData)
+REGISTER_ECA_COMMAND(FECACommand_GetNiagaraEmitterData)
+REGISTER_ECA_COMMAND(FECACommand_SetNiagaraEmitterData)
+REGISTER_ECA_COMMAND(FECACommand_GetNiagaraRendererData)
+REGISTER_ECA_COMMAND(FECACommand_SetNiagaraRendererData)
+REGISTER_ECA_COMMAND(FECACommand_SetNiagaraModuleEnabled)
+REGISTER_ECA_COMMAND(FECACommand_GetNiagaraUserVariables)
+
+FECACommandResult FECACommand_GetNiagaraSystemData::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SystemPath;
+	if (!GetStringParam(Params, TEXT("system_path"), SystemPath)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
+	UNiagaraSystem* System = ResolveSystem(SystemPath);
+	if (!System) return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Niagara system: %s"), *SystemPath));
+
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetStringField(TEXT("system_path"), SystemPath);
+	Root->SetObjectField(TEXT("properties"), SerializeContainerToJson(UNiagaraSystem::StaticClass(), System));
+	return FECACommandResult::Success(Root);
+}
+
+FECACommandResult FECACommand_SetNiagaraSystemData::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SystemPath;
+	if (!GetStringParam(Params, TEXT("system_path"), SystemPath)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
+	const TSharedPtr<FJsonObject>* PropsObj = nullptr;
+	if (!GetObjectParam(Params, TEXT("properties"), PropsObj) || !PropsObj || !PropsObj->IsValid())
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: properties (object)"));
+
+	UNiagaraSystem* System = ResolveSystem(SystemPath);
+	if (!System) return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Niagara system: %s"), *SystemPath));
+
+	FScopedTransaction Tx(NSLOCTEXT("ECABridge", "SetNiagaraSystemData", "Set Niagara System Data"));
+	System->Modify();
+
+	TArray<FString> Updated;
+	TArray<TPair<FString, FString>> Skipped;
+	ApplyPartialUpdate(UNiagaraSystem::StaticClass(), System, *PropsObj, Updated, Skipped);
+
+	System->MarkPackageDirty();
+	System->PostEditChange();
+	System->RequestCompile(false);
+
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetStringField(TEXT("system_path"), SystemPath);
+	TArray<TSharedPtr<FJsonValue>> UArr; for (const FString& U : Updated) UArr.Add(MakeShared<FJsonValueString>(U));
+	Root->SetArrayField(TEXT("updated"), UArr);
+	TArray<TSharedPtr<FJsonValue>> SArr; for (const auto& S : Skipped)
+	{
+		TSharedPtr<FJsonObject> SO = MakeShared<FJsonObject>();
+		SO->SetStringField(TEXT("name"), S.Key);
+		SO->SetStringField(TEXT("reason"), S.Value);
+		SArr.Add(MakeShared<FJsonValueObject>(SO));
+	}
+	Root->SetArrayField(TEXT("skipped"), SArr);
+	return FECACommandResult::Success(Root);
+}
+
+FECACommandResult FECACommand_GetNiagaraEmitterData::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SystemPath, EmitterName;
+	if (!GetStringParam(Params, TEXT("system_path"), SystemPath)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
+	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: emitter_name"));
+	UNiagaraSystem* System = ResolveSystem(SystemPath);
+	if (!System) return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Niagara system: %s"), *SystemPath));
+	FNiagaraEmitterHandle* Handle = FindEmitterHandle(System, EmitterName);
+	if (!Handle) return FECACommandResult::Error(FString::Printf(TEXT("Emitter not found: %s"), *EmitterName));
+	FVersionedNiagaraEmitterData* Data = Handle->GetEmitterData();
+	if (!Data) return FECACommandResult::Error(TEXT("Emitter has no data"));
+
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetStringField(TEXT("system_path"), SystemPath);
+	Root->SetStringField(TEXT("emitter_name"), EmitterName);
+	Root->SetObjectField(TEXT("properties"), SerializeContainerToJson(FVersionedNiagaraEmitterData::StaticStruct(), Data));
+	return FECACommandResult::Success(Root);
+}
+
+FECACommandResult FECACommand_SetNiagaraEmitterData::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SystemPath, EmitterName;
+	if (!GetStringParam(Params, TEXT("system_path"), SystemPath)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
+	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: emitter_name"));
+	const TSharedPtr<FJsonObject>* PropsObj = nullptr;
+	if (!GetObjectParam(Params, TEXT("properties"), PropsObj) || !PropsObj || !PropsObj->IsValid())
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: properties (object)"));
+
+	UNiagaraSystem* System = ResolveSystem(SystemPath);
+	if (!System) return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Niagara system: %s"), *SystemPath));
+	FNiagaraEmitterHandle* Handle = FindEmitterHandle(System, EmitterName);
+	if (!Handle) return FECACommandResult::Error(FString::Printf(TEXT("Emitter not found: %s"), *EmitterName));
+	FVersionedNiagaraEmitterData* Data = Handle->GetEmitterData();
+	if (!Data) return FECACommandResult::Error(TEXT("Emitter has no data"));
+
+	FScopedTransaction Tx(NSLOCTEXT("ECABridge", "SetNiagaraEmitterData", "Set Niagara Emitter Data"));
+	System->Modify();
+
+	TArray<FString> Updated;
+	TArray<TPair<FString, FString>> Skipped;
+	ApplyPartialUpdate(FVersionedNiagaraEmitterData::StaticStruct(), Data, *PropsObj, Updated, Skipped);
+
+	System->MarkPackageDirty();
+	System->PostEditChange();
+	System->RequestCompile(false);
+
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetStringField(TEXT("system_path"), SystemPath);
+	Root->SetStringField(TEXT("emitter_name"), EmitterName);
+	TArray<TSharedPtr<FJsonValue>> UArr; for (const FString& U : Updated) UArr.Add(MakeShared<FJsonValueString>(U));
+	Root->SetArrayField(TEXT("updated"), UArr);
+	TArray<TSharedPtr<FJsonValue>> SArr; for (const auto& S : Skipped)
+	{
+		TSharedPtr<FJsonObject> SO = MakeShared<FJsonObject>();
+		SO->SetStringField(TEXT("name"), S.Key);
+		SO->SetStringField(TEXT("reason"), S.Value);
+		SArr.Add(MakeShared<FJsonValueObject>(SO));
+	}
+	Root->SetArrayField(TEXT("skipped"), SArr);
+	return FECACommandResult::Success(Root);
+}
+
+FECACommandResult FECACommand_GetNiagaraRendererData::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SystemPath, EmitterName;
+	int32 RendererIndex = -1;
+	if (!GetStringParam(Params, TEXT("system_path"), SystemPath)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
+	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: emitter_name"));
+	if (!GetIntParam(Params, TEXT("renderer_index"), RendererIndex)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: renderer_index"));
+
+	UNiagaraSystem* System = ResolveSystem(SystemPath);
+	if (!System) return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Niagara system: %s"), *SystemPath));
+	FNiagaraEmitterHandle* Handle = FindEmitterHandle(System, EmitterName);
+	if (!Handle) return FECACommandResult::Error(FString::Printf(TEXT("Emitter not found: %s"), *EmitterName));
+	FVersionedNiagaraEmitterData* Data = Handle->GetEmitterData();
+	if (!Data) return FECACommandResult::Error(TEXT("Emitter has no data"));
+	const TArray<UNiagaraRendererProperties*>& Renderers = Data->GetRenderers();
+	if (RendererIndex < 0 || RendererIndex >= Renderers.Num())
+		return FECACommandResult::Error(FString::Printf(TEXT("renderer_index %d out of range (count=%d)"), RendererIndex, Renderers.Num()));
+	UNiagaraRendererProperties* R = Renderers[RendererIndex];
+	if (!R) return FECACommandResult::Error(TEXT("Renderer slot is null"));
+
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetStringField(TEXT("system_path"), SystemPath);
+	Root->SetStringField(TEXT("emitter_name"), EmitterName);
+	Root->SetNumberField(TEXT("renderer_index"), RendererIndex);
+	Root->SetStringField(TEXT("class"), R->GetClass()->GetName());
+	Root->SetObjectField(TEXT("properties"), SerializeContainerToJson(R->GetClass(), R));
+	return FECACommandResult::Success(Root);
+}
+
+FECACommandResult FECACommand_SetNiagaraRendererData::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SystemPath, EmitterName;
+	int32 RendererIndex = -1;
+	if (!GetStringParam(Params, TEXT("system_path"), SystemPath)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
+	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: emitter_name"));
+	if (!GetIntParam(Params, TEXT("renderer_index"), RendererIndex)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: renderer_index"));
+	const TSharedPtr<FJsonObject>* PropsObj = nullptr;
+	if (!GetObjectParam(Params, TEXT("properties"), PropsObj) || !PropsObj || !PropsObj->IsValid())
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: properties (object)"));
+
+	UNiagaraSystem* System = ResolveSystem(SystemPath);
+	if (!System) return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Niagara system: %s"), *SystemPath));
+	FNiagaraEmitterHandle* Handle = FindEmitterHandle(System, EmitterName);
+	if (!Handle) return FECACommandResult::Error(FString::Printf(TEXT("Emitter not found: %s"), *EmitterName));
+	FVersionedNiagaraEmitterData* Data = Handle->GetEmitterData();
+	if (!Data) return FECACommandResult::Error(TEXT("Emitter has no data"));
+	const TArray<UNiagaraRendererProperties*>& Renderers = Data->GetRenderers();
+	if (RendererIndex < 0 || RendererIndex >= Renderers.Num())
+		return FECACommandResult::Error(FString::Printf(TEXT("renderer_index %d out of range (count=%d)"), RendererIndex, Renderers.Num()));
+	UNiagaraRendererProperties* R = Renderers[RendererIndex];
+	if (!R) return FECACommandResult::Error(TEXT("Renderer slot is null"));
+
+	FScopedTransaction Tx(NSLOCTEXT("ECABridge", "SetNiagaraRendererData", "Set Niagara Renderer Data"));
+	System->Modify();
+	R->Modify();
+
+	TArray<FString> Updated;
+	TArray<TPair<FString, FString>> Skipped;
+	ApplyPartialUpdate(R->GetClass(), R, *PropsObj, Updated, Skipped);
+
+	System->MarkPackageDirty();
+	R->PostEditChange();
+	System->PostEditChange();
+	System->RequestCompile(false);
+
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetStringField(TEXT("system_path"), SystemPath);
+	Root->SetStringField(TEXT("emitter_name"), EmitterName);
+	Root->SetNumberField(TEXT("renderer_index"), RendererIndex);
+	TArray<TSharedPtr<FJsonValue>> UArr; for (const FString& U : Updated) UArr.Add(MakeShared<FJsonValueString>(U));
+	Root->SetArrayField(TEXT("updated"), UArr);
+	TArray<TSharedPtr<FJsonValue>> SArr; for (const auto& S : Skipped)
+	{
+		TSharedPtr<FJsonObject> SO = MakeShared<FJsonObject>();
+		SO->SetStringField(TEXT("name"), S.Key);
+		SO->SetStringField(TEXT("reason"), S.Value);
+		SArr.Add(MakeShared<FJsonValueObject>(SO));
+	}
+	Root->SetArrayField(TEXT("skipped"), SArr);
+	return FECACommandResult::Success(Root);
+}
+
+FECACommandResult FECACommand_SetNiagaraModuleEnabled::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SystemPath, EmitterName, ScriptStr, ModuleName;
+	bool bEnabled = true;
+	if (!GetStringParam(Params, TEXT("system_path"), SystemPath)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
+	if (!GetStringParam(Params, TEXT("emitter_name"), EmitterName)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: emitter_name"));
+	if (!GetStringParam(Params, TEXT("script"), ScriptStr)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: script"));
+	if (!GetStringParam(Params, TEXT("module_name"), ModuleName)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: module_name"));
+	if (!GetBoolParam(Params, TEXT("enabled"), bEnabled)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: enabled"));
+
+	UNiagaraSystem* System = ResolveSystem(SystemPath);
+	if (!System) return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Niagara system: %s"), *SystemPath));
+	FNiagaraEmitterHandle* Handle = FindEmitterHandle(System, EmitterName);
+	if (!Handle) return FECACommandResult::Error(FString::Printf(TEXT("Emitter not found: %s"), *EmitterName));
+	const ENiagaraScriptUsage Usage = ParseUsage(ScriptStr);
+	UNiagaraGraph* Graph = nullptr;
+	UNiagaraNodeFunctionCall* Node = FindModuleAcrossUsages(System, Handle, ModuleName, Usage, &Graph);
+	if (!Node) return FECACommandResult::Error(FString::Printf(TEXT("Module '%s' not found in script '%s'"), *ModuleName, *ScriptStr));
+
+	FScopedTransaction Tx(NSLOCTEXT("ECABridge", "SetNiagaraModuleEnabled", "Set Niagara Module Enabled"));
+	Node->Modify();
+	const bool bPrev = Node->GetDesiredEnabledState() == ENodeEnabledState::Enabled;
+	Node->SetEnabledState(bEnabled ? ENodeEnabledState::Enabled : ENodeEnabledState::Disabled, /*bUserAction*/ true);
+	Node->MarkNodeRequiresSynchronization(TEXT("ECABridge: SetNiagaraModuleEnabled"), true);
+	if (Graph) Graph->NotifyGraphChanged();
+	System->MarkPackageDirty();
+	System->RequestCompile(false);
+
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetStringField(TEXT("system_path"), SystemPath);
+	Root->SetStringField(TEXT("emitter_name"), EmitterName);
+	Root->SetStringField(TEXT("script"), UsageToString(Usage));
+	Root->SetStringField(TEXT("module_name"), ModuleName);
+	Root->SetBoolField(TEXT("previous_enabled"), bPrev);
+	Root->SetBoolField(TEXT("enabled"), bEnabled);
+	return FECACommandResult::Success(Root);
+}
+
+FECACommandResult FECACommand_GetNiagaraUserVariables::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SystemPath;
+	if (!GetStringParam(Params, TEXT("system_path"), SystemPath)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
+	UNiagaraSystem* System = ResolveSystem(SystemPath);
+	if (!System) return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Niagara system: %s"), *SystemPath));
+
+	TArray<TSharedPtr<FJsonValue>> Vars;
+	const FNiagaraUserRedirectionParameterStore& Store = System->GetExposedParameters();
+	for (const FNiagaraVariableWithOffset& V : Store.ReadParameterVariables())
+	{
+		TSharedPtr<FJsonObject> O = MakeShared<FJsonObject>();
+		O->SetStringField(TEXT("name"), V.GetName().ToString());
+		O->SetStringField(TEXT("type"), V.GetType().GetName());
+		// default_value: ExportText form via the type definition's util.
+		FString DefaultStr;
+		FNiagaraVariable Tmp = (FNiagaraVariable)V;
+		Tmp.AllocateData();
+		if (Store.CopyParameterData(Tmp, Tmp.GetData()))
+		{
+			const UEdGraphSchema_Niagara* Schema = GetDefault<UEdGraphSchema_Niagara>();
+			if (Schema) Schema->TryGetPinDefaultValueFromNiagaraVariable(Tmp, DefaultStr);
+		}
+		O->SetStringField(TEXT("default_value"), DefaultStr);
+		Vars.Add(MakeShared<FJsonValueObject>(O));
+	}
+
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetStringField(TEXT("system_path"), SystemPath);
+	Root->SetArrayField(TEXT("variables"), Vars);
+	Root->SetNumberField(TEXT("count"), Vars.Num());
+	return FECACommandResult::Success(Root);
+}
+
 #endif // WITH_ECA_NIAGARA
