@@ -434,10 +434,99 @@ UBlueprint* IECACommand::LoadBlueprintByPath(const FString& BlueprintPath)
 // FECACommandRegistry
 //------------------------------------------------------------------------------
 
+const FString FECACommandRegistry::MetaCategory = TEXT("Meta");
+
 FECACommandRegistry& FECACommandRegistry::Get()
 {
 	static FECACommandRegistry Instance;
 	return Instance;
+}
+
+void FECACommandRegistry::SetLazyMode(bool bEnabled)
+{
+	FScopeLock Lock(&CommandsLock);
+	bLazyMode = bEnabled;
+	// Meta tools must always remain visible so clients can discover the rest.
+	LoadedCategories.Add(MetaCategory);
+}
+
+bool FECACommandRegistry::IsLazyMode() const
+{
+	FScopeLock Lock(&CommandsLock);
+	return bLazyMode;
+}
+
+int32 FECACommandRegistry::LoadCategory(const FString& Category)
+{
+	FScopeLock Lock(&CommandsLock);
+	LoadedCategories.Add(Category);
+	int32 N = 0;
+	for (const auto& Pair : Commands)
+	{
+		if (Pair.Value.IsValid() && Pair.Value->GetCategory() == Category)
+		{
+			++N;
+		}
+	}
+	return N;
+}
+
+bool FECACommandRegistry::UnloadCategory(const FString& Category)
+{
+	FScopeLock Lock(&CommandsLock);
+	if (Category == MetaCategory)
+	{
+		return false; // Never hide the meta-tools.
+	}
+	return LoadedCategories.Remove(Category) > 0;
+}
+
+bool FECACommandRegistry::IsCategoryVisible(const FString& Category) const
+{
+	FScopeLock Lock(&CommandsLock);
+	if (!bLazyMode)
+	{
+		return true;
+	}
+	return LoadedCategories.Contains(Category);
+}
+
+TArray<FString> FECACommandRegistry::GetLoadedCategories() const
+{
+	FScopeLock Lock(&CommandsLock);
+	return LoadedCategories.Array();
+}
+
+TArray<TSharedPtr<IECACommand>> FECACommandRegistry::GetVisibleCommands(const FString& CategoryFilter) const
+{
+	FScopeLock Lock(&CommandsLock);
+	TArray<TSharedPtr<IECACommand>> Result;
+	Result.Reserve(Commands.Num());
+
+	const bool bFilterSet = !CategoryFilter.IsEmpty();
+
+	for (const auto& Pair : Commands)
+	{
+		if (!Pair.Value.IsValid()) continue;
+		const FString Cat = Pair.Value->GetCategory();
+
+		if (bFilterSet)
+		{
+			// Explicit ask wins: bypass lazy mode entirely.
+			if (Cat == CategoryFilter)
+			{
+				Result.Add(Pair.Value);
+			}
+			continue;
+		}
+
+		if (bLazyMode && !LoadedCategories.Contains(Cat))
+		{
+			continue;
+		}
+		Result.Add(Pair.Value);
+	}
+	return Result;
 }
 
 void FECACommandRegistry::RegisterCommand(TSharedPtr<IECACommand> Command)
