@@ -12,6 +12,7 @@ scripts/*
 !scripts/example-sources/
 !scripts/point-junctions.ps1
 !scripts/refresh-batch-baselines.ps1
+!scripts/fire-batch-detached.ps1
 !scripts/SETUP-WORKTREES.md
 *.pdb
 *.lib
