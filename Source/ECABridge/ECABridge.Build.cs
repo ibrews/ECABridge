@@ -21,7 +21,17 @@ public class ECABridge : ModuleRules
 	{
 		string PluginsDir = Path.Combine(EngineDirectory, "Plugins");
 		if (!Directory.Exists(PluginsDir)) return false;
-		return Directory.GetFiles(PluginsDir, PluginName + ".uplugin", SearchOption.AllDirectories).Length > 0;
+		// .NET 8 refuses to traverse "untrusted" reparse points (e.g. PixelStreaming's
+		// node_modules pnpm symlinks under Engine/Plugins/Media/PixelStreaming/Resources).
+		// Skip reparse points + inaccessible entries so the scan can't be tripped by an
+		// engine plugin that ships with junctioned subtrees.
+		var opts = new System.IO.EnumerationOptions
+		{
+			RecurseSubdirectories = true,
+			AttributesToSkip = System.IO.FileAttributes.ReparsePoint,
+			IgnoreInaccessible = true,
+		};
+		return Directory.GetFiles(PluginsDir, PluginName + ".uplugin", opts).Length > 0;
 	}
 
 	// Adds a delay-load DLL entry on Windows only. PublicDelayLoadDLLs is a
@@ -46,12 +56,18 @@ public class ECABridge : ModuleRules
 	{
 		string PluginsDir = Path.Combine(EngineDirectory, "Plugins");
 		if (!Directory.Exists(PluginsDir)) return false;
-		string[] upluginFiles = Directory.GetFiles(PluginsDir, PluginName + ".uplugin", SearchOption.AllDirectories);
+		var opts = new System.IO.EnumerationOptions
+		{
+			RecurseSubdirectories = true,
+			AttributesToSkip = System.IO.FileAttributes.ReparsePoint,
+			IgnoreInaccessible = true,
+		};
+		string[] upluginFiles = Directory.GetFiles(PluginsDir, PluginName + ".uplugin", opts);
 		if (upluginFiles.Length == 0) return false;
 		string PluginDir = Path.GetDirectoryName(upluginFiles[0]);
 		string BinariesDir = Path.Combine(PluginDir, "Binaries");
 		return Directory.Exists(BinariesDir) &&
-		       Directory.GetFiles(BinariesDir, "*", SearchOption.AllDirectories).Length > 0;
+		       Directory.GetFiles(BinariesDir, "*", opts).Length > 0;
 	}
 
 	public ECABridge(ReadOnlyTargetRules Target) : base(Target)
