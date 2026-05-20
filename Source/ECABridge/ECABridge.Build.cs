@@ -365,6 +365,22 @@ public class ECABridge : ModuleRules
 			PublicDefinitions.Add("WITH_ECA_STATETREE=0");
 		}
 
+		// WorldConditions (composable runtime predicates). Both the runtime
+		// "WorldConditions" module (owns FWorldConditionQueryDefinition +
+		// FWorldConditionBase) and the "WorldConditionsEditor" module (UI
+		// describers) ship with the engine in 5.7+. Note the module name is
+		// "WorldConditions" (not "WorldConditionsModule") despite plugin folder
+		// naming.
+		if (EngineHasPlugin("WorldConditions"))
+		{
+			PrivateDependencyModuleNames.AddRange(new string[] { "WorldConditions", "WorldConditionsEditor" });
+			PublicDefinitions.Add("WITH_ECA_WORLDCONDITIONS=1");
+		}
+		else
+		{
+			PublicDefinitions.Add("WITH_ECA_WORLDCONDITIONS=0");
+		}
+
 		// Native MCP coexistence bridge (Batch K). Compiled only when Epic's
 		// ModelContextProtocol plugin ships with the engine (5.8+ Experimental).
 		// We deliberately do NOT add a PrivateDependencyModuleNames entry for

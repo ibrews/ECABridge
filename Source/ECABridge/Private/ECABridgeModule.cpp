@@ -71,6 +71,7 @@ void FECABridgeModule::StartupModule()
 		{ TEXT("DMXRuntime"),             TEXT("DMX"),         TEXT("DMXEngine") },
 		{ TEXT("USDStageImporter"),       TEXT("USD"),         TEXT("USDImporter") },
 		{ TEXT("StateTreeModule"),        TEXT("StateTree"),   TEXT("StateTree") },
+		{ TEXT("WorldConditions"),         TEXT("WorldConditions"), TEXT("WorldConditions") },
 	};
 	for (const FOptionalSubsystem& Subsystem : OptionalSubsystems)
 	{
