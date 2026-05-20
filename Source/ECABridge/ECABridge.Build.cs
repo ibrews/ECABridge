@@ -127,7 +127,12 @@ public class ECABridge : ModuleRules
 			// UHeadMountedDisplayFunctionLibrary. Hard-linked because the module is
 			// always available; runtime probes (GEngine->XRSystem) determine whether
 			// an actual HMD is connected. Used by the OpenXR introspection commands.
-			"HeadMountedDisplay"
+			"HeadMountedDisplay",
+
+			// PhysicsCore - engine runtime module that owns UPhysicalMaterial,
+			// EPhysicalSurface, EFrictionCombineMode reflection metadata. Needed for
+			// the batch-G physics-inspection commands to link cleanly.
+			"PhysicsCore"
 		});
 
 		// ModelViewViewModelBlueprint include path - UBT doesn't resolve it via PrivateDependencyModuleNames
