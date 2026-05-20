@@ -231,7 +231,7 @@ TSharedPtr<FJsonObject> FECAMCPServer::ProcessJsonRpcRequest(const TSharedPtr<FJ
 	}
 	else if (Method == TEXT("tools/list"))
 	{
-		Result = HandleToolsList();
+		Result = HandleToolsList(Params);
 	}
 	else if (Method == TEXT("tools/call"))
 	{
@@ -322,13 +322,29 @@ TSharedPtr<FJsonObject> FECAMCPServer::HandleInitialize(const TSharedPtr<FJsonOb
 	return Result;
 }
 
-TSharedPtr<FJsonObject> FECAMCPServer::HandleToolsList()
+TSharedPtr<FJsonObject> FECAMCPServer::HandleToolsList(const TSharedPtr<FJsonObject>& Params)
 {
+	FString CategoryFilter;
+	if (Params.IsValid())
+	{
+		Params->TryGetStringField(TEXT("category"), CategoryFilter);
+	}
+
 	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-	Result->SetArrayField(TEXT("tools"), BuildToolDefinitions());
-	
-	UE_LOG(LogTemp, Log, TEXT("[ECABridge] Returned %d tools"), FECACommandRegistry::Get().GetAllCommands().Num());
-	
+	TArray<TSharedPtr<FJsonValue>> Tools = BuildToolDefinitions(CategoryFilter);
+	Result->SetArrayField(TEXT("tools"), Tools);
+
+	if (!CategoryFilter.IsEmpty())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[ECABridge] tools/list category='%s': %d tools"), *CategoryFilter, Tools.Num());
+	}
+	else
+	{
+		UE_LOG(LogTemp, Log, TEXT("[ECABridge] tools/list: %d tools (lazy=%s)"),
+			Tools.Num(),
+			FECACommandRegistry::Get().IsLazyMode() ? TEXT("on") : TEXT("off"));
+	}
+
 	return Result;
 }
 
@@ -439,11 +455,11 @@ TSharedPtr<FJsonObject> FECAMCPServer::HandleToolsCall(const TSharedPtr<FJsonObj
 	return Result;
 }
 
-TArray<TSharedPtr<FJsonValue>> FECAMCPServer::BuildToolDefinitions()
+TArray<TSharedPtr<FJsonValue>> FECAMCPServer::BuildToolDefinitions(const FString& CategoryFilter)
 {
 	TArray<TSharedPtr<FJsonValue>> Tools;
 
-	for (const TSharedPtr<IECACommand>& Command : FECACommandRegistry::Get().GetAllCommands())
+	for (const TSharedPtr<IECACommand>& Command : FECACommandRegistry::Get().GetVisibleCommands(CategoryFilter))
 	{
 		TSharedPtr<FJsonObject> ToolDef = MakeShared<FJsonObject>();
 		ToolDef->SetStringField(TEXT("name"), Command->GetName());

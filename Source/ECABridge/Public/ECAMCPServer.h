@@ -58,14 +58,17 @@ private:
 	/** Handle MCP initialize request */
 	TSharedPtr<FJsonObject> HandleInitialize(const TSharedPtr<FJsonObject>& Params);
 	
-	/** Handle tools/list request */
-	TSharedPtr<FJsonObject> HandleToolsList();
-	
+	/** Handle tools/list request. Params may carry a `category` string to filter the
+	 *  returned tool set (custom extension on top of the spec; clients without
+	 *  awareness of it just see the lazy-mode default). */
+	TSharedPtr<FJsonObject> HandleToolsList(const TSharedPtr<FJsonObject>& Params);
+
 	/** Handle tools/call request */
 	TSharedPtr<FJsonObject> HandleToolsCall(const TSharedPtr<FJsonObject>& Params);
-	
-	/** Build MCP tool definitions from registered commands */
-	TArray<TSharedPtr<FJsonValue>> BuildToolDefinitions();
+
+	/** Build MCP tool definitions from registered commands. When CategoryFilter is
+	 *  non-empty, only commands in that category are emitted (bypasses lazy mode). */
+	TArray<TSharedPtr<FJsonValue>> BuildToolDefinitions(const FString& CategoryFilter = FString());
 	
 	/** Create JSON-RPC response wrapper */
 	TSharedPtr<FJsonObject> CreateJsonRpcResponse(const TSharedPtr<FJsonObject>& Result, const TSharedPtr<FJsonValue>& RequestId);
