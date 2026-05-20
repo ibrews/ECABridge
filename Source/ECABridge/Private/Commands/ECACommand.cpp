@@ -230,10 +230,13 @@ TSharedPtr<FJsonObject> MakeECADumpMeta(
 		Meta->SetStringField(TEXT("coverage"), Coverage);
 	}
 	Meta->SetStringField(TEXT("confidence"), Confidence);
-	// ENGINE_MAJOR_VERSION + ENGINE_MINOR_VERSION come from
-	// Runtime/Launch/Resources/Version.h, which CoreMinimal pulls in transitively.
+	// FEngineVersion::Current() is the canonical accessor — the raw
+	// ENGINE_MAJOR_VERSION / ENGINE_MINOR_VERSION macros live in a header
+	// (Runtime/Launch/Resources/Version.h) that isn't pulled in transitively
+	// from CoreMinimal under all compile configurations.
+	const FEngineVersion CurrentVersion = FEngineVersion::Current();
 	Meta->SetStringField(TEXT("ue_version"),
-		FString::Printf(TEXT("%d.%d"), ENGINE_MAJOR_VERSION, ENGINE_MINOR_VERSION));
+		FString::Printf(TEXT("%u.%u"), CurrentVersion.GetMajor(), CurrentVersion.GetMinor()));
 	if (Notes.Num() > 0)
 	{
 		TArray<TSharedPtr<FJsonValue>> NotesArr;
