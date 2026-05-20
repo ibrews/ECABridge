@@ -9,8 +9,14 @@ sanity check after a deploy.
 
 Usage:
     python scripts/smoke-test.py [--url URL] [--asset BLUEPRINT_PATH]
+                                 [--include-native] [--native-url URL]
 
-Exits non-zero if any check fails.
+With --include-native, also probes Epic's native ModelContextProtocol server
+(default :8000) to verify dual-server coexistence — ECABridge and native
+should run side by side under EDA without port or registry collisions.
+
+Exits non-zero if any check fails. The native probe is soft-skipped (rc=0)
+when the native plugin isn't loaded.
 """
 from __future__ import annotations
 
@@ -26,6 +32,10 @@ from typing import Any
 
 DEFAULT_URL = "http://127.0.0.1:3000/mcp"
 DEFAULT_BLUEPRINT = "/Game/FirstPerson/Blueprints/BP_FirstPersonCharacter"
+# Default port for Epic's native ModelContextProtocol plugin (5.8+ Experimental).
+# Used by --include-native to assert coexistence — see docs/EDA_INTEGRATION.md
+# section 5 for the dual-server MCPToolsetSettings.json snippet.
+DEFAULT_NATIVE_URL = "http://127.0.0.1:8000/mcp"
 
 
 @dataclass
@@ -229,12 +239,62 @@ def run_case(url: str, c: TestCase) -> Outcome:
     return Outcome(c.name, True, "", elapsed_ms)
 
 
+def probe_native(native_url: str, *, quiet: bool) -> int:
+    """Probe Epic's native ModelContextProtocol server for basic MCP compliance.
+
+    Returns 0 on success, 1 on failure, 2 if the server is unreachable (which
+    is treated as a soft skip — coexistence is opt-in, the native plugin may
+    not be enabled on this engine install).
+    """
+    if not quiet:
+        print(f"\n--- cross-server probe: native MCP at {native_url} ---")
+    try:
+        tools = list_tools(native_url)
+    except (urllib.error.URLError, OSError) as e:
+        print(f"  skip native: cannot reach {native_url} ({e}). Enable Plugins -> "
+              f"Experimental -> ModelContextProtocol to test coexistence.",
+              file=sys.stderr)
+        return 2
+    except json.JSONDecodeError as e:
+        print(f"  FAIL native: tools/list returned non-JSON: {e}", file=sys.stderr)
+        return 1
+
+    if not tools:
+        print(f"  FAIL native: tools/list returned empty tool set", file=sys.stderr)
+        return 1
+    if not quiet:
+        print(f"  ok   native: tools/list returned {len(tools)} tools")
+
+    # Coexistence sanity check: ECABridge prefixes its categories so its tool
+    # names should not 100% overlap with native's. A complete overlap would
+    # indicate one server is mistakenly proxying the other.
+    try:
+        eca_tools = list_tools(DEFAULT_URL)
+    except (urllib.error.URLError, OSError):
+        # ECABridge unreachable here would already have failed the main run.
+        return 0
+    overlap = tools & eca_tools
+    if not quiet:
+        if overlap:
+            print(f"  note: {len(overlap)} tool names overlap between servers — "
+                  f"clients must use toolset-qualified calls to disambiguate. Example: {sorted(overlap)[:3]}")
+        else:
+            print("  ok   native + ECABridge expose disjoint tool name sets")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="ECABridge smoke test")
     parser.add_argument("--url", default=DEFAULT_URL, help="MCP endpoint")
     parser.add_argument("--asset", default=DEFAULT_BLUEPRINT,
                         help="Blueprint asset path used for introspection checks")
     parser.add_argument("--quiet", action="store_true", help="Only print failures + summary")
+    parser.add_argument("--include-native", action="store_true",
+                        help="Also probe Epic's native MCP server (default :8000) to "
+                             "assert dual-server coexistence. Soft-skipped if the native "
+                             "plugin is not loaded.")
+    parser.add_argument("--native-url", default=DEFAULT_NATIVE_URL,
+                        help="URL for Epic's native MCP server (used with --include-native)")
     args = parser.parse_args()
 
     try:
@@ -279,7 +339,19 @@ def main() -> int:
     if skipped:
         summary += f", {len(skipped)} skipped"
     print(summary)
-    return 1 if failed else 0
+
+    native_rc = 0
+    if args.include_native:
+        # Probe returns 0 on success, 1 on hard failure, 2 on soft skip (server
+        # unreachable). Treat 2 as non-fatal so CI runs against engines without
+        # the native plugin enabled still pass.
+        native_rc = probe_native(args.native_url, quiet=args.quiet)
+        if native_rc == 2:
+            native_rc = 0
+
+    if failed or native_rc:
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

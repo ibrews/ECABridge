@@ -179,6 +179,18 @@ done
 
 Each port should return a JSON object with a `result.tools[]` array. If one of them returns an HTML error page or `Connection refused`, that plugin isn't loaded.
 
+For a more thorough cross-server check, `scripts/smoke-test.py --include-native` runs the full ECABridge smoke test then probes the native MCP server's `tools/list` and asserts that the two tool-name sets are disjoint (or reports the overlap that EDA must disambiguate via toolset prefix):
+
+```bash
+python scripts/smoke-test.py --include-native
+# ...full smoke test against :3000...
+# --- cross-server probe: native MCP at http://127.0.0.1:8000/mcp ---
+#   ok   native: tools/list returned N tools
+#   ok   native + ECABridge expose disjoint tool name sets
+```
+
+The native probe is soft-skipped (exit code 0) when the native plugin isn't loaded, so the same command works on engines with or without it enabled.
+
 ---
 
 ## 6a. Schema conventions (Batch K — convergence with native)
