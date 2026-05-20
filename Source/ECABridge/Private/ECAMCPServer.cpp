@@ -849,6 +849,25 @@ TSharedPtr<FJsonObject> FECAMCPServer::HandleToolsCall(const TSharedPtr<FJsonObj
 
 	Result->SetArrayField(TEXT("content"), Content);
 
+	// Surface command-level warnings via MCP `_meta.warnings` per the 2025-06-18 spec
+	// extension point. Includes unknown-param-key hints emitted by CollectUnknownParamKeys
+	// in the registry dispatch path, plus anything individual commands appended themselves.
+	// Without this, the warnings field on FECACommandResult only reaches the legacy HTTP
+	// path — MCP clients (Claude Code, Cursor, EDA) never see typo hints.
+	if (CommandResult.Warnings.Num() > 0)
+	{
+		TArray<TSharedPtr<FJsonValue>> WarningValues;
+		WarningValues.Reserve(CommandResult.Warnings.Num());
+		for (const FString& W : CommandResult.Warnings)
+		{
+			WarningValues.Add(MakeShared<FJsonValueString>(W));
+		}
+
+		TSharedPtr<FJsonObject> Meta = MakeShared<FJsonObject>();
+		Meta->SetArrayField(TEXT("warnings"), WarningValues);
+		Result->SetObjectField(TEXT("_meta"), Meta);
+	}
+
 	// Opportunistic GC.
 	FECAResponseChunkCache::Get().Purge();
 
