@@ -97,6 +97,40 @@ private:
 	FThreadSafeCounter Cancelled;
 };
 
+/**
+ * Per-request progress reporter (MCP 2025-03-26 `notifications/progress`).
+ * Clients opt in by passing `params._meta.progressToken`; the MCP server stamps
+ * the token into TLS for the duration of Execute(). Commands call
+ * FECAProgressRegistry::Get().Report(...) to emit a progress notification.
+ */
+class ECABRIDGE_API FECAProgressRegistry
+{
+public:
+	static FECAProgressRegistry& Get();
+
+	/** Bind a progress token to the calling thread. Empty token disables reporting. */
+	void BindTokenToThread(const FString& Token);
+	void ClearThreadBinding();
+
+	/** Current token (empty when no client requested progress for the in-flight call). */
+	FString GetCurrentToken() const;
+
+	/** Emit a progress event. No-op if no token is bound or no listener is registered.
+	 *  `Total` < 0 means "indeterminate"; clients render a spinner instead of a bar. */
+	void Report(double Progress, double Total = -1.0, const FString& Message = FString());
+
+	/** Listener that converts Report() events to MCP notifications. Set by the server. */
+	using FListener = TFunction<void(const FString& Token, double Progress, double Total, const FString& Message)>;
+	void SetListener(FListener Callback);
+
+private:
+	FECAProgressRegistry() = default;
+	mutable FCriticalSection Lock;
+	FListener ListenerFn;
+	uint32 TlsSlot = 0xFFFFFFFFu;
+	void EnsureTlsSlot();
+};
+
 class ECABRIDGE_API FECACancellationRegistry
 {
 public:

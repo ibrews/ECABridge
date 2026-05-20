@@ -204,6 +204,31 @@ bool FECAMCPServer::Start(int32 Port)
 		BroadcastToolsListChanged();
 	});
 
+	// Progress reporter → notifications/progress (MCP 2025-03-26). Long-running
+	// commands call FECAProgressRegistry::Get().Report(...) and this lambda
+	// turns each call into a queued SSE notification.
+	FECAProgressRegistry::Get().SetListener(
+		[this](const FString& Token, double Progress, double Total, const FString& Message)
+		{
+			TSharedPtr<FJsonObject> Note = MakeShared<FJsonObject>();
+			Note->SetStringField(TEXT("jsonrpc"), TEXT("2.0"));
+			Note->SetStringField(TEXT("method"), TEXT("notifications/progress"));
+
+			TSharedPtr<FJsonObject> ParamsObj = MakeShared<FJsonObject>();
+			ParamsObj->SetStringField(TEXT("progressToken"), Token);
+			ParamsObj->SetNumberField(TEXT("progress"), Progress);
+			if (Total >= 0.0)
+			{
+				ParamsObj->SetNumberField(TEXT("total"), Total);
+			}
+			if (!Message.IsEmpty())
+			{
+				ParamsObj->SetStringField(TEXT("message"), Message);
+			}
+			Note->SetObjectField(TEXT("params"), ParamsObj);
+			EnqueueNotification(Note);
+		});
+
 	// Health check endpoint
 	HealthRouteHandle = HttpRouter->BindRoute(
 		FHttpPath(TEXT("/health")),
@@ -237,6 +262,7 @@ void FECAMCPServer::Stop()
 
 	// Detach the registry callback so a stale pointer isn't invoked after Stop.
 	FECACommandRegistry::Get().SetOnVisibleToolsChanged(nullptr);
+	FECAProgressRegistry::Get().SetListener(nullptr);
 
 	// Unbind routes
 	if (HttpRouter.IsValid())
@@ -430,9 +456,32 @@ TSharedPtr<FJsonObject> FECAMCPServer::ProcessJsonRpcRequest(const TSharedPtr<FJ
 			if (RequestId->Type == EJson::String) { RequestIdString = RequestId->AsString(); }
 			else if (RequestId->Type == EJson::Number) { RequestIdString = FString::Printf(TEXT("%lld"), (int64)RequestId->AsNumber()); }
 		}
+
+		// Progress token (per MCP 2025-03-26): clients pass params._meta.progressToken
+		// to opt in to streaming notifications/progress events.
+		FString ProgressToken;
+		if (Params.IsValid())
+		{
+			const TSharedPtr<FJsonObject>* MetaPtr = nullptr;
+			if (Params->TryGetObjectField(TEXT("_meta"), MetaPtr) && MetaPtr && MetaPtr->IsValid())
+			{
+				if (!(*MetaPtr)->TryGetStringField(TEXT("progressToken"), ProgressToken))
+				{
+					double Num = 0.0;
+					if ((*MetaPtr)->TryGetNumberField(TEXT("progressToken"), Num))
+					{
+						ProgressToken = FString::Printf(TEXT("%lld"), (int64)Num);
+					}
+				}
+			}
+		}
+
 		FECACancellationRegistry& CancelReg = FECACancellationRegistry::Get();
+		FECAProgressRegistry& ProgReg = FECAProgressRegistry::Get();
 		CancelReg.RegisterRequest(RequestIdString);
+		ProgReg.BindTokenToThread(ProgressToken);
 		Result = HandleToolsCall(Params);
+		ProgReg.ClearThreadBinding();
 		CancelReg.UnregisterRequest(RequestIdString);
 	}
 	else if (Method == TEXT("notifications/initialized"))

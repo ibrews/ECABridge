@@ -431,6 +431,75 @@ UBlueprint* IECACommand::LoadBlueprintByPath(const FString& BlueprintPath)
 }
 
 //------------------------------------------------------------------------------
+// FECAProgressRegistry
+//------------------------------------------------------------------------------
+
+FECAProgressRegistry& FECAProgressRegistry::Get()
+{
+	static FECAProgressRegistry Instance;
+	return Instance;
+}
+
+void FECAProgressRegistry::EnsureTlsSlot()
+{
+	if (TlsSlot == 0xFFFFFFFFu)
+	{
+		TlsSlot = FPlatformTLS::AllocTlsSlot();
+	}
+}
+
+void FECAProgressRegistry::BindTokenToThread(const FString& Token)
+{
+	FScopeLock ScopedLock(&Lock);
+	EnsureTlsSlot();
+	FString* Prev = static_cast<FString*>(FPlatformTLS::GetTlsValue(TlsSlot));
+	if (Prev) { delete Prev; }
+	FPlatformTLS::SetTlsValue(TlsSlot, Token.IsEmpty() ? nullptr : new FString(Token));
+}
+
+void FECAProgressRegistry::ClearThreadBinding()
+{
+	FScopeLock ScopedLock(&Lock);
+	if (TlsSlot == 0xFFFFFFFFu) return;
+	FString* Prev = static_cast<FString*>(FPlatformTLS::GetTlsValue(TlsSlot));
+	if (Prev) { delete Prev; FPlatformTLS::SetTlsValue(TlsSlot, nullptr); }
+}
+
+FString FECAProgressRegistry::GetCurrentToken() const
+{
+	if (TlsSlot == 0xFFFFFFFFu)
+	{
+		return FString();
+	}
+	FString* Heap = static_cast<FString*>(FPlatformTLS::GetTlsValue(TlsSlot));
+	return Heap ? *Heap : FString();
+}
+
+void FECAProgressRegistry::SetListener(FListener Callback)
+{
+	FScopeLock ScopedLock(&Lock);
+	ListenerFn = MoveTemp(Callback);
+}
+
+void FECAProgressRegistry::Report(double Progress, double Total, const FString& Message)
+{
+	const FString Token = GetCurrentToken();
+	if (Token.IsEmpty())
+	{
+		return;
+	}
+	FListener Copy;
+	{
+		FScopeLock ScopedLock(&Lock);
+		Copy = ListenerFn;
+	}
+	if (Copy)
+	{
+		Copy(Token, Progress, Total, Message);
+	}
+}
+
+//------------------------------------------------------------------------------
 // FECACancellationRegistry
 //------------------------------------------------------------------------------
 
