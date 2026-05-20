@@ -649,6 +649,63 @@ public:
 };
 
 /**
+ * Set the X/Y position of one or more existing nodes in a Blueprint graph.
+ * Safer than poking NodePosX/NodePosY via Python reflection (which can crash UE
+ * in 5.7/5.8). Routes through the BP editor utils so the editor refreshes.
+ */
+class FECACommand_SetBlueprintNodePosition : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("set_blueprint_node_position"); }
+	virtual FString GetDescription() const override { return TEXT("Set the position of one or more nodes in a Blueprint graph. Use single (node_id + x + y) or batch (positions array) form. Marks the BP structurally modified so the editor refreshes."); }
+	virtual FString GetCategory() const override { return TEXT("Blueprint Node"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Path to the Blueprint asset"), true },
+			{ TEXT("graph_name"), TEXT("string"), TEXT("Name of the graph"), false, TEXT("EventGraph") },
+			{ TEXT("node_id"), TEXT("string"), TEXT("GUID of a single node to reposition (use with x + y; or use 'positions' for batch)"), false },
+			{ TEXT("x"), TEXT("number"), TEXT("X position for single-node form"), false },
+			{ TEXT("y"), TEXT("number"), TEXT("Y position for single-node form"), false },
+			{ TEXT("positions"), TEXT("array"), TEXT("Batch form: array of {node_id, x, y} objects"), false }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
+ * Add a comment box (K2 comment node) wrapping a region of the graph.
+ * Workaround for UE Python not exposing UEdGraphNode_Comment.
+ */
+class FECACommand_AddBlueprintCommentNode : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("add_blueprint_comment_node"); }
+	virtual FString GetDescription() const override { return TEXT("Add a comment box to a Blueprint graph. Use to label sections for clarity in slides and code review. Pass wrap_node_ids to auto-size around existing nodes."); }
+	virtual FString GetCategory() const override { return TEXT("Blueprint Node"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Path to the Blueprint asset"), true },
+			{ TEXT("comment"), TEXT("string"), TEXT("Comment text shown at the top of the box"), true },
+			{ TEXT("graph_name"), TEXT("string"), TEXT("Name of the graph"), false, TEXT("EventGraph") },
+			{ TEXT("x"), TEXT("number"), TEXT("X position (ignored if wrap_node_ids is provided)"), false, TEXT("0") },
+			{ TEXT("y"), TEXT("number"), TEXT("Y position (ignored if wrap_node_ids is provided)"), false, TEXT("0") },
+			{ TEXT("width"), TEXT("number"), TEXT("Box width (default 400, ignored if wrap_node_ids)"), false, TEXT("400") },
+			{ TEXT("height"), TEXT("number"), TEXT("Box height (default 200, ignored if wrap_node_ids)"), false, TEXT("200") },
+			{ TEXT("color"), TEXT("string"), TEXT("Hex like '#FFCC00' or 'r,g,b' 0-255 (optional)"), false },
+			{ TEXT("wrap_node_ids"), TEXT("array"), TEXT("Array of node GUIDs — comment auto-sizes to enclose them with margin"), false },
+			{ TEXT("margin"), TEXT("number"), TEXT("Margin around wrapped nodes (default 40)"), false, TEXT("40") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+/**
  * Search across multiple Blueprints for nodes matching a search term
  */
 class FECACommand_SearchBlueprintUsage : public IECACommand

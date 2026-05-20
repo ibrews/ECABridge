@@ -426,7 +426,7 @@ void FBlueprintAutoLayout::PositionExecSubtree(FLayoutNodeInfo* Node, int32 X, i
 void FBlueprintAutoLayout::PositionPureNodesForConsumer(FLayoutNodeInfo* Consumer)
 {
 	if (!Consumer || Consumer->DataProviders.Num() == 0) return;
-	
+
 	// Position pure nodes in a column to the left of consumer
 	// Use the widest pure node's width for column spacing
 	int32 MaxPureWidth = Config.DefaultNodeWidth;
@@ -437,41 +437,50 @@ void FBlueprintAutoLayout::PositionPureNodesForConsumer(FLayoutNodeInfo* Consume
 			MaxPureWidth = FMath::Max(MaxPureWidth, Pure->NodeWidth);
 		}
 	}
-	
+
 	// Start positioning to the left of consumer
 	int32 CurrentX = Consumer->LayoutX - MaxPureWidth - Config.NodePaddingX;
-	int32 CurrentY = Consumer->LayoutY;
-	
+	int32 ColumnStartY = Consumer->LayoutY;
+
+	// Track Y per column so each pure node uses its ACTUAL height — not a
+	// fixed DefaultNodeHeight constant. This is the fix for the slide-killing
+	// overlap bug where tall pure nodes (e.g. variable_set with many pins,
+	// or a function call with default-expanded struct pins) would stack on
+	// top of each other.
 	int32 Column = 0;
+	int32 ColumnAccumulatedY = ColumnStartY;
 	int32 RowInColumn = 0;
-	int32 ColumnStartY = CurrentY;
-	
+
 	for (FLayoutNodeInfo* Pure : Consumer->DataProviders)
 	{
 		if (!Pure) continue;
-		
+
 		// Skip if already positioned by another consumer
 		if (PositionedPureNodes.Contains(Pure))
 		{
 			continue;
 		}
-		
+
 		// Mark as positioned
 		PositionedPureNodes.Add(Pure);
 		Pure->bPositioned = true;
-		
-		// Calculate position - use actual heights for Y spacing
+
+		// Place using cumulative Y based on actual node heights
 		Pure->LayoutX = CurrentX - (Column * (MaxPureWidth + Config.NodePaddingX));
-		Pure->LayoutY = ColumnStartY + (RowInColumn * (Config.DefaultNodeHeight + Config.NodePaddingY));
-		
-		// Move to next slot
+		Pure->LayoutY = ColumnAccumulatedY;
+
+		const int32 PureHeight = (Pure->NodeHeight > 0) ? Pure->NodeHeight : Config.DefaultNodeHeight;
+		ColumnAccumulatedY += PureHeight + Config.PureNodePaddingY;
+
+		// Move to next column when this one fills up
 		RowInColumn++;
 		if (RowInColumn >= Config.MaxPureNodesPerColumn)
 		{
 			RowInColumn = 0;
 			Column++;
+			ColumnAccumulatedY = ColumnStartY;
 		}
-		
+
 		// Recursively position this pure node's pure inputs (they go further left)
 		PositionPureNodesForConsumer(Pure);
 	}

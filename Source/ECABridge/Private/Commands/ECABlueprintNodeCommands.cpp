@@ -51,6 +51,7 @@
 #include "GameFramework/Character.h"
 #include "Engine/Engine.h"
 #include "BlueprintAutoLayout.h"
+#include "EdGraphNode_Comment.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "UObject/UObjectIterator.h"
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -82,6 +83,8 @@ REGISTER_ECA_COMMAND(FECACommand_AddBlueprintCastNode)
 REGISTER_ECA_COMMAND(FECACommand_DeleteBlueprintComponent)
 REGISTER_ECA_COMMAND(FECACommand_AddBlueprintFlowControlNode)
 REGISTER_ECA_COMMAND(FECACommand_AutoLayoutBlueprintGraph)
+REGISTER_ECA_COMMAND(FECACommand_SetBlueprintNodePosition)
+REGISTER_ECA_COMMAND(FECACommand_AddBlueprintCommentNode)
 REGISTER_ECA_COMMAND(FECACommand_SearchBlueprintUsage)
 
 //------------------------------------------------------------------------------
@@ -4586,6 +4589,339 @@ FECACommandResult FECACommand_SearchBlueprintUsage::Execute(const TSharedPtr<FJs
 	Result->SetArrayField(TEXT("matches"), MatchesArray);
 	Result->SetNumberField(TEXT("total_matches"), TotalMatches);
 	Result->SetNumberField(TEXT("blueprints_scanned"), AssetDataList.Num());
+
+	return FECACommandResult::Success(Result);
+}
+
+//------------------------------------------------------------------------------
+// SetBlueprintNodePosition - Reposition existing nodes safely
+//
+// Why this exists: Python callers can technically poke NodePosX/NodePosY via
+// reflection, but doing that on K2 nodes in UE 5.7/5.8 has crashed the editor
+// hard in field testing (Slate UI thread hangs, "Initializing Python" wedge on
+// restart). Going through MCP + MarkBlueprintAsStructurallyModified routes the
+// change through the editor's notification path so the graph view refreshes
+// cleanly.
+//------------------------------------------------------------------------------
+
+FECACommandResult FECACommand_SetBlueprintNodePosition::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString BlueprintPath;
+	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
+	}
+
+	FString GraphName = TEXT("EventGraph");
+	GetStringParam(Params, TEXT("graph_name"), GraphName, false);
+
+	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
+	if (!Blueprint)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintPath));
+	}
+
+	UEdGraph* Graph = FindGraphByName(Blueprint, GraphName);
+	if (!Graph)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Graph not found: %s"), *GraphName));
+	}
+
+	// Build a list of (guid, x, y) entries from either single-node form or batch
+	struct FPosEntry
+	{
+		FString NodeId;
+		int32 X = 0;
+		int32 Y = 0;
+	};
+	TArray<FPosEntry> Entries;
+
+	const TArray<TSharedPtr<FJsonValue>>* PositionsArray = nullptr;
+	if (GetArrayParam(Params, TEXT("positions"), PositionsArray, false) && PositionsArray)
+	{
+		for (const TSharedPtr<FJsonValue>& Val : *PositionsArray)
+		{
+			const TSharedPtr<FJsonObject>* Obj = nullptr;
+			if (Val.IsValid() && Val->TryGetObject(Obj) && Obj && Obj->IsValid())
+			{
+				FPosEntry Entry;
+				if (!(*Obj)->TryGetStringField(TEXT("node_id"), Entry.NodeId))
+				{
+					continue;
+				}
+				double Xd = 0.0;
+				double Yd = 0.0;
+				(*Obj)->TryGetNumberField(TEXT("x"), Xd);
+				(*Obj)->TryGetNumberField(TEXT("y"), Yd);
+				Entry.X = FMath::RoundToInt(Xd);
+				Entry.Y = FMath::RoundToInt(Yd);
+				Entries.Add(Entry);
+			}
+		}
+	}
+	else
+	{
+		// Single-node form
+		FPosEntry Entry;
+		if (!GetStringParam(Params, TEXT("node_id"), Entry.NodeId))
+		{
+			return FECACommandResult::ValidationError(this, TEXT("Provide either 'positions' array or single 'node_id' + 'x' + 'y'"));
+		}
+		GetIntParam(Params, TEXT("x"), Entry.X, false);
+		GetIntParam(Params, TEXT("y"), Entry.Y, false);
+		Entries.Add(Entry);
+	}
+
+	if (Entries.Num() == 0)
+	{
+		return FECACommandResult::Error(TEXT("No positions to set"));
+	}
+
+	// Apply each
+	TArray<TSharedPtr<FJsonValue>> AppliedArray;
+	TArray<FString> NotFound;
+
+	for (const FPosEntry& Entry : Entries)
+	{
+		FGuid Target;
+		if (!FGuid::Parse(Entry.NodeId, Target))
+		{
+			NotFound.Add(FString::Printf(TEXT("%s (invalid GUID)"), *Entry.NodeId));
+			continue;
+		}
+
+		UEdGraphNode* Found = nullptr;
+		for (UEdGraphNode* Node : Graph->Nodes)
+		{
+			if (Node && Node->NodeGuid == Target)
+			{
+				Found = Node;
+				break;
+			}
+		}
+
+		if (!Found)
+		{
+			NotFound.Add(Entry.NodeId);
+			continue;
+		}
+
+		// Modify() ensures undo support; the editor notification happens via
+		// MarkBlueprintAsStructurallyModified below.
+		Found->Modify();
+		Found->NodePosX = Entry.X;
+		Found->NodePosY = Entry.Y;
+
+		TSharedPtr<FJsonObject> Applied = MakeShared<FJsonObject>();
+		Applied->SetStringField(TEXT("node_id"), Found->NodeGuid.ToString());
+		Applied->SetStringField(TEXT("node_title"), Found->GetNodeTitle(ENodeTitleType::FullTitle).ToString());
+		Applied->SetNumberField(TEXT("x"), Entry.X);
+		Applied->SetNumberField(TEXT("y"), Entry.Y);
+		AppliedArray.Add(MakeShared<FJsonValueObject>(Applied));
+	}
+
+	if (AppliedArray.Num() > 0)
+	{
+		FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetArrayField(TEXT("applied"), AppliedArray);
+	Result->SetNumberField(TEXT("applied_count"), AppliedArray.Num());
+
+	if (NotFound.Num() > 0)
+	{
+		TArray<TSharedPtr<FJsonValue>> NotFoundArray;
+		for (const FString& Id : NotFound)
+		{
+			NotFoundArray.Add(MakeShared<FJsonValueString>(Id));
+		}
+		Result->SetArrayField(TEXT("not_found"), NotFoundArray);
+	}
+
+	return FECACommandResult::Success(Result);
+}
+
+//------------------------------------------------------------------------------
+// AddBlueprintCommentNode - Drop a comment box in the graph
+//
+// Comment nodes are not exposed via UE Python (no unreal.K2Node_Comment), so
+// this MCP command is the canonical path for AI-driven Blueprint annotation.
+// Pass wrap_node_ids to auto-size around an existing set of nodes — perfect
+// for labelling "Setup", "Spawn Loop", etc. when generating BPs for slides.
+//------------------------------------------------------------------------------
+
+static bool TryParseColorString(const FString& Input, FLinearColor& OutColor)
+{
+	FString Trimmed = Input.TrimStartAndEnd();
+	if (Trimmed.IsEmpty())
+	{
+		return false;
+	}
+
+	// Hex form: "#RRGGBB" or "#RRGGBBAA"
+	if (Trimmed.StartsWith(TEXT("#")))
+	{
+		FColor Color = FColor::FromHex(Trimmed);
+		OutColor = FLinearColor(Color);
+		return true;
+	}
+
+	// Comma form: "r,g,b" or "r,g,b,a" with 0-255 ints OR 0.0-1.0 floats
+	TArray<FString> Parts;
+	Trimmed.ParseIntoArray(Parts, TEXT(","), true);
+	if (Parts.Num() < 3)
+	{
+		return false;
+	}
+
+	float Vals[4] = { 0.f, 0.f, 0.f, 1.f };
+	for (int32 i = 0; i < FMath::Min(Parts.Num(), 4); i++)
+	{
+		float V = FCString::Atof(*Parts[i].TrimStartAndEnd());
+		// Heuristic: if any value > 1.5 we assume 0-255 ints
+		Vals[i] = V;
+	}
+
+	const bool bAssume255 = (Vals[0] > 1.5f) || (Vals[1] > 1.5f) || (Vals[2] > 1.5f);
+	const float Scale = bAssume255 ? (1.0f / 255.0f) : 1.0f;
+	OutColor = FLinearColor(Vals[0] * Scale, Vals[1] * Scale, Vals[2] * Scale, Parts.Num() >= 4 ? Vals[3] * (bAssume255 ? Scale : 1.0f) : 1.0f);
+	return true;
+}
+
+FECACommandResult FECACommand_AddBlueprintCommentNode::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString BlueprintPath;
+	if (!GetStringParam(Params, TEXT("blueprint_path"), BlueprintPath))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
+	}
+
+	FString CommentText;
+	if (!GetStringParam(Params, TEXT("comment"), CommentText))
+	{
+		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: comment"));
+	}
+
+	FString GraphName = TEXT("EventGraph");
+	GetStringParam(Params, TEXT("graph_name"), GraphName, false);
+
+	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
+	if (!Blueprint)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintPath));
+	}
+
+	UEdGraph* Graph = FindGraphByName(Blueprint, GraphName);
+	if (!Graph)
+	{
+		return FECACommandResult::Error(FString::Printf(TEXT("Graph not found: %s"), *GraphName));
+	}
+
+	int32 X = 0;
+	int32 Y = 0;
+	int32 Width = 400;
+	int32 Height = 200;
+	int32 Margin = 40;
+	GetIntParam(Params, TEXT("x"), X, false);
+	GetIntParam(Params, TEXT("y"), Y, false);
+	GetIntParam(Params, TEXT("width"), Width, false);
+	GetIntParam(Params, TEXT("height"), Height, false);
+	GetIntParam(Params, TEXT("margin"), Margin, false);
+
+	// If wrap_node_ids was passed, override x/y/width/height with the bounding box
+	const TArray<TSharedPtr<FJsonValue>>* WrapArray = nullptr;
+	TArray<UEdGraphNode*> WrappedNodes;
+	if (GetArrayParam(Params, TEXT("wrap_node_ids"), WrapArray, false) && WrapArray && WrapArray->Num() > 0)
+	{
+		for (const TSharedPtr<FJsonValue>& Val : *WrapArray)
+		{
+			FString IdStr;
+			if (Val.IsValid() && Val->TryGetString(IdStr))
+			{
+				FGuid Target;
+				if (FGuid::Parse(IdStr, Target))
+				{
+					for (UEdGraphNode* Node : Graph->Nodes)
+					{
+						if (Node && Node->NodeGuid == Target)
+						{
+							WrappedNodes.Add(Node);
+							break;
+						}
+					}
+				}
+			}
+		}
+
+		if (WrappedNodes.Num() > 0)
+		{
+			int32 MinX = MAX_int32;
+			int32 MinY = MAX_int32;
+			int32 MaxX = MIN_int32;
+			int32 MaxY = MIN_int32;
+
+			for (UEdGraphNode* Node : WrappedNodes)
+			{
+				const int32 NW = (Node->NodeWidth > 0) ? Node->NodeWidth : 240;
+				const int32 NH = (Node->NodeHeight > 0) ? Node->NodeHeight : 100;
+				MinX = FMath::Min(MinX, Node->NodePosX);
+				MinY = FMath::Min(MinY, Node->NodePosY);
+				MaxX = FMath::Max(MaxX, Node->NodePosX + NW);
+				MaxY = FMath::Max(MaxY, Node->NodePosY + NH);
+			}
+
+			// Title bar height roughly 32; expand upward so wrapped nodes sit inside the body.
+			const int32 TitleHeight = 32;
+			X = MinX - Margin;
+			Y = MinY - Margin - TitleHeight;
+			Width = (MaxX - MinX) + (Margin * 2);
+			Height = (MaxY - MinY) + (Margin * 2) + TitleHeight;
+		}
+	}
+
+	UEdGraphNode_Comment* CommentNode = NewObject<UEdGraphNode_Comment>(Graph);
+	if (!CommentNode)
+	{
+		return FECACommandResult::Error(TEXT("Failed to create UEdGraphNode_Comment"));
+	}
+
+	CommentNode->NodePosX = X;
+	CommentNode->NodePosY = Y;
+	CommentNode->NodeWidth = Width;
+	CommentNode->NodeHeight = Height;
+	CommentNode->NodeComment = CommentText;
+	// MoveMode=GroupMovement so dragging the comment moves its contents with it,
+	// which is the slide-friendly default for labelled regions.
+	CommentNode->MoveMode = ECommentBoxMode::GroupMovement;
+
+	FString ColorStr;
+	if (GetStringParam(Params, TEXT("color"), ColorStr, false))
+	{
+		FLinearColor Parsed;
+		if (TryParseColorString(ColorStr, Parsed))
+		{
+			CommentNode->CommentColor = Parsed;
+			// Boost contrast a bit so the slide screenshots pop.
+			CommentNode->bColorCommentBubble = true;
+		}
+	}
+
+	Graph->AddNode(CommentNode, false, false);
+	CommentNode->AllocateDefaultPins();
+	EnsureBPNodeHasValidGuid(CommentNode);
+	CommentNode->ReconstructNode();
+
+	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+
+	TSharedPtr<FJsonObject> Result = MakeResult();
+	Result->SetStringField(TEXT("node_id"), CommentNode->NodeGuid.ToString());
+	Result->SetStringField(TEXT("comment"), CommentText);
+	Result->SetNumberField(TEXT("x"), X);
+	Result->SetNumberField(TEXT("y"), Y);
+	Result->SetNumberField(TEXT("width"), Width);
+	Result->SetNumberField(TEXT("height"), Height);
+	Result->SetNumberField(TEXT("wrapped_node_count"), WrappedNodes.Num());
 
 	return FECACommandResult::Success(Result);
 }
