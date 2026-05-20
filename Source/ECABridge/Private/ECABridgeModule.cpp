@@ -39,7 +39,7 @@ void FECABridgeModule::StartupModule()
 	// drives a non-zero editor exit code that UAT reports as "Cook failed."
 	if (IsRunningCommandlet() || IsRunningCookCommandlet() || IsRunningDedicatedServer())
 	{
-		UE_LOG(LogTemp, Log, TEXT("[ECABridge] Commandlet/cook/server detected — skipping server startup"));
+		UE_LOG(LogTemp, Log, TEXT("[ECABridge] Commandlet/cook/server detected ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â skipping server startup"));
 		return;
 	}
 
@@ -70,6 +70,7 @@ void FECABridgeModule::StartupModule()
 		{ TEXT("DisplayCluster"),         TEXT("NDisplay"),    TEXT("nDisplay") },
 		{ TEXT("DMXRuntime"),             TEXT("DMX"),         TEXT("DMXEngine") },
 		{ TEXT("USDStageImporter"),       TEXT("USD"),         TEXT("USDImporter") },
+		{ TEXT("StateTreeModule"),        TEXT("StateTree"),   TEXT("StateTree") },
 	};
 	for (const FOptionalSubsystem& Subsystem : OptionalSubsystems)
 	{
@@ -85,7 +86,7 @@ void FECABridgeModule::StartupModule()
 	// (Meta category) by default. Clients call load_category to surface other
 	// categories. Cuts the baseline tools/list payload from ~330KB to ~5KB.
 	FECACommandRegistry::Get().SetLazyMode(true);
-	UE_LOG(LogTemp, Log, TEXT("[ECABridge] Lazy tool registration enabled — tools/list will return Meta tools only until load_category is called"));
+	UE_LOG(LogTemp, Log, TEXT("[ECABridge] Lazy tool registration enabled ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â tools/list will return Meta tools only until load_category is called"));
 
 	// Load per-command example payloads from Resources/command-examples.json.
 	// Examples are attached to tool descriptors in tools/list responses (and
@@ -158,7 +159,7 @@ void FECABridgeModule::RegisterConsoleCommands()
 	// ECA.GenerateClientConfig <ClaudeCode|Cursor|VSCode|Gemini|Codex|All>
 	// Writes (or upserts into) the named client's MCP config file so it
 	// auto-connects to this ECABridge server. Clean-room reimplementation of
-	// Epic's ModelContextProtocol.GenerateClientConfig — see
+	// Epic's ModelContextProtocol.GenerateClientConfig ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â see
 	// ECAClientConfigWriter.h for the design contract.
 	IConsoleManager::Get().RegisterConsoleCommand(
 		TEXT("ECABridge.GenerateClientConfig"),

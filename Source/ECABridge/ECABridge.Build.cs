@@ -12,7 +12,7 @@ public class ECABridge : ModuleRules
 	// Note: this answers "is the plugin present in the engine on disk", which is the right
 	// question for distinguishing a stock UE install from a custom engine fork that compiled
 	// out a plugin. It does NOT answer "did the user enable this plugin in their .uproject"
-	// — Target.Plugins isn't exposed on ReadOnlyTargetRules in 5.8, and reading the .uproject
+	// â€” Target.Plugins isn't exposed on ReadOnlyTargetRules in 5.8, and reading the .uproject
 	// from Build.cs is too fragile. Users who want to opt out of a subsystem despite the
 	// engine having it can either disable the plugin in their .uproject (the .uplugin
 	// references are "Optional": true so UE won't error) OR force-override the WITH_ECA_*
@@ -25,7 +25,7 @@ public class ECABridge : ModuleRules
 	}
 
 	// Adds a delay-load DLL entry on Windows only. PublicDelayLoadDLLs is a
-	// Windows-specific mechanism — on Mac/Linux the module linker resolves
+	// Windows-specific mechanism â€” on Mac/Linux the module linker resolves
 	// optional plugin dylibs through PrivateDependencyModuleNames automatically.
 	// Adding .dll names on Mac causes the linker to search for them as libraries,
 	// producing "library not found" errors with wrong Engine/Source/ paths.
@@ -58,6 +58,11 @@ public class ECABridge : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 		CppStandard = CppStandardVersion.Cpp23;
+
+		// Force Latest include-order so transitive StateTreeEditorModule headers don't
+		// trigger C4668 warning-as-error storms on 5.7 (where their include chain
+		// doesn't carry the UE_ENABLE_INCLUDE_ORDER_DEPRECATED_IN_5_x defines).
+		IncludeOrderVersion = EngineIncludeOrderVersion.Latest;
 
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
@@ -128,7 +133,7 @@ public class ECABridge : ModuleRules
 			// Source Control (always available in editor)
 			"SourceControl",
 
-			// Derived Data Cache (engine-internal, always available) — powers
+			// Derived Data Cache (engine-internal, always available) â€” powers
 			// get_ddc_stats / purge_ddc / warm_ddc.
 			"DerivedDataCache",
 
@@ -170,18 +175,18 @@ public class ECABridge : ModuleRules
 		string MVVMBlueprintPath = System.IO.Path.Combine(EngineDirectory, "Plugins", "Runtime", "ModelViewViewModel", "Source", "ModelViewViewModelBlueprint", "Public");
 		PrivateIncludePaths.Add(MVVMBlueprintPath);
 
-		// ── Optional engine-plugin feature subsystems ──────────────────────
+		// â”€â”€ Optional engine-plugin feature subsystems â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		// Each block conditionally links its DLLs only if the engine ships the plugin,
 		// and exposes a WITH_ECA_<FEATURE> preprocessor symbol the source files use to
 		// #if-gate the corresponding commands. A project that doesn't want these
-		// subsystems just doesn't enable the upstream engine plugin — ECABridge will
+		// subsystems just doesn't enable the upstream engine plugin â€” ECABridge will
 		// load fine without them, with the relevant commands simply absent.
 
 		// Each block below: gates compile-time deps + WITH_ECA_<FEATURE>, AND adds
 		// PublicDelayLoadDLLs so the resulting binary loads even when the optional
 		// plugin is disabled in the consumer's .uproject. ECABridgeModule::StartupModule
 		// then probes each subsystem's primary module via FModuleManager::IsModuleLoaded
-		// and unregisters that category's commands when missing — so the lazily-resolved
+		// and unregisters that category's commands when missing â€” so the lazily-resolved
 		// imports are never touched.
 
 		// Mutable / Customizable Object (character customization, 13 commands)
@@ -225,7 +230,7 @@ public class ECABridge : ModuleRules
 		}
 
 		// Niagara VFX (25 emitter/system/module commands + 2 NiagaraDataChannel commands).
-		// NOTE: Niagara is NOT delay-loaded — its DLLs export data symbols like
+		// NOTE: Niagara is NOT delay-loaded â€” its DLLs export data symbols like
 		// FNiagaraTypeDefinition::FloatDef which the MSVC linker refuses to delay
 		// (LNK1194). The IsModuleLoaded gate in StartupModule still drops Niagara
 		// commands if the module happens to be missing, but a project that fully
@@ -244,7 +249,7 @@ public class ECABridge : ModuleRules
 		// MetaSound procedural audio (16 commands). MetasoundFrontend cannot be
 		// delay-loaded (exports static data symbol Metasound::FrontendInvalidID,
 		// LNK1194). MetasoundEngine is the module we gate on at runtime, so if
-		// either is absent the binary fails to load — the optionality story is
+		// either is absent the binary fails to load â€” the optionality story is
 		// best-effort for this subsystem (the runtime registry gate still works
 		// for "module unloaded after init").
 		if (EngineHasPlugin("Metasound"))
@@ -305,7 +310,7 @@ public class ECABridge : ModuleRules
 		}
 
 		// nDisplay (multi-display rendering / virtual production).
-		// Uses EngineHasPluginWithBinaries — on Mac, nDisplay ships as engine source
+		// Uses EngineHasPluginWithBinaries â€” on Mac, nDisplay ships as engine source
 		// but without compiled binaries in standard launcher installs.
 		if (EngineHasPluginWithBinaries("nDisplay"))
 		{
@@ -345,10 +350,25 @@ public class ECABridge : ModuleRules
 			PublicDefinitions.Add("WITH_ECA_DATAVALIDATION=0");
 		}
 
+		// StateTree (state machine authoring + introspection). Editor module is
+		// required for the editor-data subobject (UStateTreeEditorData) that owns
+		// the SubTrees/GlobalTasks/Evaluators trees. Both modules ship with the
+		// launcher engine, so the EngineHasPlugin probe succeeds on standard
+		// installs.
+		if (EngineHasPlugin("StateTree"))
+		{
+			PrivateDependencyModuleNames.AddRange(new string[] { "StateTreeModule", "StateTreeEditorModule" });
+			PublicDefinitions.Add("WITH_ECA_STATETREE=1");
+		}
+		else
+		{
+			PublicDefinitions.Add("WITH_ECA_STATETREE=0");
+		}
+
 		// Native MCP coexistence bridge (Batch K). Compiled only when Epic's
 		// ModelContextProtocol plugin ships with the engine (5.8+ Experimental).
 		// We deliberately do NOT add a PrivateDependencyModuleNames entry for
-		// "ModelContextProtocol" — it's NoRedist and we want zero link-time
+		// "ModelContextProtocol" â€” it's NoRedist and we want zero link-time
 		// coupling. Runtime detection uses FModuleManager::IsModuleLoaded.
 		if (EngineHasPlugin("ModelContextProtocol"))
 		{
