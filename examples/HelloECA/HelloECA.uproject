@@ -1,0 +1,24 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "5.8",
+	"Category": "Examples",
+	"Description": "Minimal demo project for ECABridge — drop the plugin into Plugins/ and the MCP server boots on :3000 the first time the editor opens.",
+	"Plugins": [
+		{
+			"Name": "ECABridge",
+			"Enabled": true
+		},
+		{
+			"Name": "PythonScriptPlugin",
+			"Enabled": true
+		},
+		{
+			"Name": "EditorScriptingUtilities",
+			"Enabled": true
+		},
+		{
+			"Name": "ModelViewViewModel",
+			"Enabled": true
+		}
+	]
+}

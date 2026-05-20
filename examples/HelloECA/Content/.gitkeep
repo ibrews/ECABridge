@@ -1,0 +1,2 @@
+# Keep the Content/ directory in git so the UE editor finds it on first launch.
+# Add your own assets here.
