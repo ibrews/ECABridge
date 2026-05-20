@@ -1329,35 +1329,64 @@ FECACommandResult FECACommand_FindBlueprintNodes::Execute(const TSharedPtr<FJson
 	}
 	
 	TArray<TSharedPtr<FJsonValue>> NodesArray;
-	
+	int32 SkippedNodes = 0;
+	const int32 TotalNodes = Graph->Nodes.Num();
+
 	for (UEdGraphNode* Node : Graph->Nodes)
 	{
+		if (!Node)
+		{
+			++SkippedNodes;
+			continue;
+		}
+
 		bool bMatch = true;
-		
+
 		// Filter by class
 		if (!NodeClass.IsEmpty() && bMatch)
 		{
 			FString ClassName = Node->GetClass()->GetName();
 			bMatch = ClassName.Contains(NodeClass);
 		}
-		
+
 		// Filter by title
 		if (!NodeTitle.IsEmpty() && bMatch)
 		{
 			FString Title = Node->GetNodeTitle(ENodeTitleType::FullTitle).ToString();
 			bMatch = Title.Contains(NodeTitle);
 		}
-		
+
 		if (bMatch)
 		{
 			NodesArray.Add(MakeShared<FJsonValueObject>(NodeToJson(Node)));
 		}
 	}
-	
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetArrayField(TEXT("nodes"), NodesArray);
 	Result->SetNumberField(TEXT("count"), NodesArray.Num());
-	
+
+	// --- _meta (confidence header) ---
+	// Coverage here describes "how much of the graph we successfully scanned",
+	// not "how many matched the filter" — the agent shouldn't conflate them.
+	TArray<FString> Notes;
+	FString Confidence = TEXT("HIGH");
+	if (SkippedNodes > 0)
+	{
+		Notes.Add(FString::Printf(TEXT("Skipped %d null node entr%s in graph"),
+			SkippedNodes, SkippedNodes == 1 ? TEXT("y") : TEXT("ies")));
+		Confidence = TEXT("MEDIUM");
+	}
+	const int32 Scanned = TotalNodes - SkippedNodes;
+	FString Coverage;
+	if (TotalNodes > 0)
+	{
+		const int32 Pct = FMath::RoundToInt(100.0 * Scanned / TotalNodes);
+		Coverage = FString::Printf(TEXT("%d/%d nodes scanned (%d%%)"), Scanned, TotalNodes, Pct);
+	}
+	Result->SetObjectField(TEXT("_meta"),
+		MakeECADumpMeta(TEXT("Linear graph scan with class/title filter"), Coverage, Confidence, Notes));
+
 	return FECACommandResult::Success(Result);
 }
 
@@ -4388,7 +4417,7 @@ FECACommandResult FECACommand_AutoLayoutBlueprintGraph_Legacy(const TSharedPtr<F
 
 REGISTER_ECA_COMMAND(FECACommand_DumpBlueprintGraph)
 
-static TSharedPtr<FJsonObject> DumpGraphToJson(UEdGraph* Graph, bool bIncludePositions)
+static TSharedPtr<FJsonObject> DumpGraphToJson(UEdGraph* Graph, bool bIncludePositions, int32* OutTotalNodes = nullptr, int32* OutParsedNodes = nullptr, int32* OutSkippedNodes = nullptr)
 {
 	TSharedPtr<FJsonObject> GraphObj = MakeShared<FJsonObject>();
 	GraphObj->SetStringField(TEXT("name"), Graph->GetName());
@@ -4404,10 +4433,15 @@ static TSharedPtr<FJsonObject> DumpGraphToJson(UEdGraph* Graph, bool bIncludePos
 
 	// Serialize all nodes
 	TArray<TSharedPtr<FJsonValue>> NodesArray;
+	int32 SkippedNodes = 0;
 	for (UEdGraphNode* Node : Graph->Nodes)
 	{
 		if (!Node)
 		{
+			// Null entry in Graph->Nodes — usually a stale ref left over from a
+			// deleted node that wasn't compacted out. Count it so the _meta
+			// block can flag the dump as MEDIUM confidence.
+			++SkippedNodes;
 			continue;
 		}
 
@@ -4430,6 +4464,9 @@ static TSharedPtr<FJsonObject> DumpGraphToJson(UEdGraph* Graph, bool bIncludePos
 	}
 	GraphObj->SetArrayField(TEXT("nodes"), NodesArray);
 	GraphObj->SetNumberField(TEXT("node_count"), NodesArray.Num());
+	if (OutTotalNodes)   { *OutTotalNodes   += Graph->Nodes.Num(); }
+	if (OutParsedNodes)  { *OutParsedNodes  += NodesArray.Num(); }
+	if (OutSkippedNodes) { *OutSkippedNodes += SkippedNodes; }
 
 	// Build a flat connections list for easier consumption
 	TArray<TSharedPtr<FJsonValue>> ConnectionsArray;
@@ -4551,14 +4588,20 @@ FECACommandResult FECACommand_DumpBlueprintGraph::Execute(const TSharedPtr<FJson
 	Result->SetArrayField(TEXT("variables"), VarsArray);
 
 	// --- Components (from SimpleConstructionScript) ---
+	int32 SkippedComponents = 0;
+	int32 TotalComponents = 0;
 	if (Blueprint->SimpleConstructionScript)
 	{
 		TArray<TSharedPtr<FJsonValue>> ComponentsArray;
 		const TArray<USCS_Node*>& SCSNodes = Blueprint->SimpleConstructionScript->GetAllNodes();
+		TotalComponents = SCSNodes.Num();
 		for (USCS_Node* SCSNode : SCSNodes)
 		{
 			if (!SCSNode || !SCSNode->ComponentTemplate)
 			{
+				// Null SCS node or missing ComponentTemplate — typically the
+				// underlying component class was deleted or renamed.
+				++SkippedComponents;
 				continue;
 			}
 			TSharedPtr<FJsonObject> CompObj = MakeShared<FJsonObject>();
@@ -4575,12 +4618,16 @@ FECACommandResult FECACommand_DumpBlueprintGraph::Execute(const TSharedPtr<FJson
 
 	// --- Graphs ---
 	TArray<TSharedPtr<FJsonValue>> GraphsArray;
+	int32 TotalNodes = 0;
+	int32 ParsedNodes = 0;
+	int32 SkippedNodes = 0;
 
 	auto DumpGraphIfMatch = [&](UEdGraph* Graph)
 	{
 		if (!Graph) return;
 		if (!SpecificGraph.IsEmpty() && Graph->GetName() != SpecificGraph) return;
-		GraphsArray.Add(MakeShared<FJsonValueObject>(DumpGraphToJson(Graph, bIncludePositions)));
+		GraphsArray.Add(MakeShared<FJsonValueObject>(
+			DumpGraphToJson(Graph, bIncludePositions, &TotalNodes, &ParsedNodes, &SkippedNodes)));
 	};
 
 	// Event graphs (UbergraphPages)
@@ -4613,6 +4660,30 @@ FECACommandResult FECACommand_DumpBlueprintGraph::Execute(const TSharedPtr<FJson
 		}
 	}
 	Result->SetArrayField(TEXT("interfaces"), InterfacesArray);
+
+	// --- _meta (confidence header) ---
+	TArray<FString> Notes;
+	FString Confidence = TEXT("HIGH");
+	if (SkippedNodes > 0)
+	{
+		Notes.Add(FString::Printf(TEXT("Skipped %d null node entr%s across graphs"),
+			SkippedNodes, SkippedNodes == 1 ? TEXT("y") : TEXT("ies")));
+		Confidence = TEXT("MEDIUM");
+	}
+	if (SkippedComponents > 0)
+	{
+		Notes.Add(FString::Printf(TEXT("Skipped %d SCS component%s with null template"),
+			SkippedComponents, SkippedComponents == 1 ? TEXT("") : TEXT("s")));
+		Confidence = TEXT("MEDIUM");
+	}
+	FString Coverage;
+	if (TotalNodes > 0)
+	{
+		const int32 Pct = FMath::RoundToInt(100.0 * ParsedNodes / TotalNodes);
+		Coverage = FString::Printf(TEXT("%d/%d nodes (%d%%)"), ParsedNodes, TotalNodes, Pct);
+	}
+	Result->SetObjectField(TEXT("_meta"),
+		MakeECADumpMeta(TEXT("K2 schema walk + pin reflection"), Coverage, Confidence, Notes));
 
 	return FECACommandResult::Success(Result);
 }
@@ -4650,6 +4721,10 @@ FECACommandResult FECACommand_SearchBlueprintUsage::Execute(const TSharedPtr<FJs
 
 	TArray<TSharedPtr<FJsonValue>> MatchesArray;
 	int32 TotalMatches = 0;
+	int32 BlueprintsScanned = 0;
+	int32 BlueprintsFailedToLoad = 0;
+	int32 NullGraphsSkipped = 0;
+	int32 NullNodesSkipped = 0;
 
 	for (const FAssetData& AssetData : AssetDataList)
 	{
@@ -4662,8 +4737,10 @@ FECACommandResult FECACommand_SearchBlueprintUsage::Execute(const TSharedPtr<FJs
 		UBlueprint* Blueprint = LoadObject<UBlueprint>(nullptr, *AssetPath);
 		if (!Blueprint)
 		{
+			++BlueprintsFailedToLoad;
 			continue;
 		}
+		++BlueprintsScanned;
 
 		// Collect all graphs: UbergraphPages + FunctionGraphs
 		TArray<UEdGraph*> AllGraphs;
@@ -4674,6 +4751,7 @@ FECACommandResult FECACommand_SearchBlueprintUsage::Execute(const TSharedPtr<FJs
 		{
 			if (!Graph)
 			{
+				++NullGraphsSkipped;
 				continue;
 			}
 
@@ -4684,6 +4762,7 @@ FECACommandResult FECACommand_SearchBlueprintUsage::Execute(const TSharedPtr<FJs
 			{
 				if (!Node)
 				{
+					++NullNodesSkipped;
 					continue;
 				}
 
@@ -4720,6 +4799,38 @@ FECACommandResult FECACommand_SearchBlueprintUsage::Execute(const TSharedPtr<FJs
 	Result->SetArrayField(TEXT("matches"), MatchesArray);
 	Result->SetNumberField(TEXT("total_matches"), TotalMatches);
 	Result->SetNumberField(TEXT("blueprints_scanned"), AssetDataList.Num());
+
+	// --- _meta (confidence header) ---
+	TArray<FString> Notes;
+	FString Confidence = TEXT("HIGH");
+	if (BlueprintsFailedToLoad > 0)
+	{
+		Notes.Add(FString::Printf(TEXT("%d Blueprint%s failed to load (missing/stale references)"),
+			BlueprintsFailedToLoad, BlueprintsFailedToLoad == 1 ? TEXT("") : TEXT("s")));
+		Confidence = TEXT("MEDIUM");
+	}
+	if (NullGraphsSkipped > 0)
+	{
+		Notes.Add(FString::Printf(TEXT("Skipped %d null graph entr%s"),
+			NullGraphsSkipped, NullGraphsSkipped == 1 ? TEXT("y") : TEXT("ies")));
+		Confidence = TEXT("MEDIUM");
+	}
+	if (NullNodesSkipped > 0)
+	{
+		Notes.Add(FString::Printf(TEXT("Skipped %d null node entr%s"),
+			NullNodesSkipped, NullNodesSkipped == 1 ? TEXT("y") : TEXT("ies")));
+		Confidence = TEXT("MEDIUM");
+	}
+	if (MatchesArray.Num() >= MaxResults && AssetDataList.Num() > MaxResults)
+	{
+		Notes.Add(FString::Printf(TEXT("Result capped at max_results=%d; %d candidate Blueprints not scanned"),
+			MaxResults, AssetDataList.Num() - BlueprintsScanned));
+	}
+	const FString Coverage = FString::Printf(TEXT("%d/%d Blueprints scanned"),
+		BlueprintsScanned, AssetDataList.Num());
+	Result->SetObjectField(TEXT("_meta"),
+		MakeECADumpMeta(TEXT("AssetRegistry Blueprint enumeration + per-node title/class scan"),
+			Coverage, Confidence, Notes));
 
 	return FECACommandResult::Success(Result);
 }

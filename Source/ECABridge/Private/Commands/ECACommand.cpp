@@ -8,6 +8,7 @@
 #include "GameFramework/Actor.h"
 #include "JsonObjectConverter.h"
 #include "Misc/Base64.h"
+#include "Misc/EngineVersion.h"
 #include "ScopedTransaction.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
@@ -211,6 +212,39 @@ TSharedPtr<FJsonObject> MakeECAAssetPathSchema(const FString& Description)
 		Schema->SetStringField(TEXT("description"), Description);
 	}
 	return Schema;
+}
+
+TSharedPtr<FJsonObject> MakeECADumpMeta(
+	const FString& Method,
+	const FString& Coverage,
+	const FString& Confidence,
+	const TArray<FString>& Notes)
+{
+	TSharedPtr<FJsonObject> Meta = MakeShared<FJsonObject>();
+	Meta->SetStringField(TEXT("method"), Method);
+	// Coverage is omitted when the producer can't compute a meaningful
+	// fraction — agents should treat absence as "unknown denominator", not
+	// "complete". The confidence field is still mandatory and authoritative.
+	if (!Coverage.IsEmpty())
+	{
+		Meta->SetStringField(TEXT("coverage"), Coverage);
+	}
+	Meta->SetStringField(TEXT("confidence"), Confidence);
+	// ENGINE_MAJOR_VERSION + ENGINE_MINOR_VERSION come from
+	// Runtime/Launch/Resources/Version.h, which CoreMinimal pulls in transitively.
+	Meta->SetStringField(TEXT("ue_version"),
+		FString::Printf(TEXT("%d.%d"), ENGINE_MAJOR_VERSION, ENGINE_MINOR_VERSION));
+	if (Notes.Num() > 0)
+	{
+		TArray<TSharedPtr<FJsonValue>> NotesArr;
+		NotesArr.Reserve(Notes.Num());
+		for (const FString& Note : Notes)
+		{
+			NotesArr.Add(MakeShared<FJsonValueString>(Note));
+		}
+		Meta->SetArrayField(TEXT("notes"), NotesArr);
+	}
+	return Meta;
 }
 
 // Title-case helper: "actor_name" -> "Actor Name". Used to surface a human

@@ -2264,6 +2264,16 @@ FECACommandResult FECACommand_DumpMetasoundGraph::Execute(const TSharedPtr<FJson
 	Result->SetArrayField(TEXT("source_outputs"), SourceOutputsArray);
 	Result->SetNumberField(TEXT("source_output_count"), SourceOutputsArray.Num());
 
+	// --- _meta (confidence header) ---
+	// The Frontend document builder iterates every node by predicate; we
+	// accept all of them. No silent drops here, so HIGH unless the builder
+	// itself returns a partial document (we already early-out on that).
+	const FString Coverage = FString::Printf(TEXT("%d nodes, %d edges"),
+		NodesArray.Num(), ConnectionsArray.Num());
+	Result->SetObjectField(TEXT("_meta"),
+		MakeECADumpMeta(TEXT("MetaSound Frontend document builder walk"),
+			Coverage, TEXT("HIGH"), {}));
+
 	return FECACommandResult::Success(Result);
 }
 

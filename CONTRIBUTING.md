@@ -66,6 +66,39 @@ Checklist:
 - [ ] Run `scripts/lint-skill-tools.py --list` and confirm your command
       appears in the diff vs. the previous output.
 
+## Confidence metadata on read-side commands
+
+Read-side commands (`dump_*`, `find_*`, `list_*`, `search_*`) that might
+return partial results — i.e. anything that iterates over a collection and
+could silently skip an entry — must attach a `_meta` block to the result
+JSON via `MakeECADumpMeta()` (declared in `Public/Commands/ECACommand.h`).
+
+```cpp
+Result->SetObjectField(TEXT("_meta"),
+    MakeECADumpMeta(TEXT("K2 schema walk + pin reflection"),
+        FString::Printf(TEXT("%d/%d nodes (%d%%)"), Parsed, Total, Pct),
+        TEXT("HIGH"),
+        Notes /* optional TArray<FString> */));
+```
+
+Confidence levels:
+
+- **HIGH** — everything iterated was parsed cleanly; no items skipped.
+- **MEDIUM** — some items were skipped (null entries, unresolvable types,
+  load failures). Add a string to `Notes` describing what was dropped and
+  how many. Caller-requested truncation (e.g. `max_results` cap) is *not*
+  a parse failure and should not demote confidence on its own — but do
+  add a note so the agent knows hits were dropped.
+- **LOW** — the dump failed on fundamentals but returned a partial header
+  (e.g. a graph couldn't be opened). Rare; prefer returning `Error` when
+  possible.
+
+Coverage format: `"<N>/<M> items (<pct>%)"` when the denominator is known.
+Pass an empty string when the total is unbounded — the field is omitted
+from the output. Trivially-complete commands (e.g. `get_editor_world_name`)
+don't need `_meta`. Don't change the existing dump shape beyond adding
+the `_meta` key — agents may already depend on the rest of the response.
+
 ## Testing locally
 
 We don't ship a CI runner with UE installed yet (see

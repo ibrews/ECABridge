@@ -4417,6 +4417,7 @@ FECACommandResult FECACommand_DumpNiagaraSystem::Execute(const TSharedPtr<FJsonO
 	// Emitters
 	TArray<TSharedPtr<FJsonValue>> EmittersArray;
 	const TArray<FNiagaraEmitterHandle>& Handles = NiagaraSystem->GetEmitterHandles();
+	int32 EmittersWithoutData = 0;
 
 	for (int32 EmitterIdx = 0; EmitterIdx < Handles.Num(); EmitterIdx++)
 	{
@@ -4431,6 +4432,8 @@ FECACommandResult FECACommand_DumpNiagaraSystem::Execute(const TSharedPtr<FJsonO
 		FVersionedNiagaraEmitterData* EmitterData = Handle.GetInstance().GetEmitterData();
 		if (!EmitterData)
 		{
+			// No versioned data — emitter row is reduced to the header.
+			++EmittersWithoutData;
 			EmittersArray.Add(MakeShared<FJsonValueObject>(EmitterObj));
 			continue;
 		}
@@ -4548,6 +4551,28 @@ FECACommandResult FECACommand_DumpNiagaraSystem::Execute(const TSharedPtr<FJsonO
 
 	Result->SetArrayField(TEXT("emitters"), EmittersArray);
 	Result->SetNumberField(TEXT("emitter_count"), EmittersArray.Num());
+
+	// --- _meta (confidence header) ---
+	TArray<FString> Notes;
+	FString Confidence = TEXT("HIGH");
+	if (EmittersWithoutData > 0)
+	{
+		Notes.Add(FString::Printf(
+			TEXT("%d emitter%s had no FVersionedNiagaraEmitterData — header-only entry returned"),
+			EmittersWithoutData, EmittersWithoutData == 1 ? TEXT("") : TEXT("s")));
+		Confidence = TEXT("MEDIUM");
+	}
+	const int32 EmittersWithData = Handles.Num() - EmittersWithoutData;
+	FString Coverage;
+	if (Handles.Num() > 0)
+	{
+		const int32 Pct = FMath::RoundToInt(100.0 * EmittersWithData / Handles.Num());
+		Coverage = FString::Printf(TEXT("%d/%d emitters fully parsed (%d%%)"),
+			EmittersWithData, Handles.Num(), Pct);
+	}
+	Result->SetObjectField(TEXT("_meta"),
+		MakeECADumpMeta(TEXT("Niagara emitter handle walk + module stack scan"),
+			Coverage, Confidence, Notes));
 
 	return FECACommandResult::Success(Result);
 }
