@@ -6,7 +6,7 @@ ECABridge is the **+features layer on top of Epic's native `ModelContextProtocol
 
 On top of that, we own the surfaces Epic doesn't ship: **MetaHuman, Mutable, MetaSound, Movie Render Queue, the `dump_*` Rosetta Stone serializers, refactoring safety nets, DMX/nDisplay/XR mutation, Movie Render Graph, World Partition mutation.** Those aren't going to land in Epic's core toolsets soon — they're too domain-specific. So we maintain them.
 
-**500+ MCP tools**, **one branch supports UE 5.7 and 5.8**, embedded **Python sandbox** for server-side multi-tool chaining, **MCP 2025-03-26 protocol completeness** (sessions, cancellation, SSE progress, `resources/`, `notifications/tools/list_changed`), and **inline base64 PNG screenshots**.
+**570+ MCP tools**, **one branch supports UE 5.7 and 5.8**, embedded **Python sandbox** for server-side multi-tool chaining, **MCP 2025-03-26 protocol completeness** (sessions, cancellation, SSE progress, `resources/`, `notifications/tools/list_changed`), and **inline base64 PNG screenshots**.
 
 > **Using this with an AI agent?** Pair it with **[ue5-mcp](https://github.com/ibrews/ue5-mcp)** — a Claude Code / Cowork skill that loads the hard-won knowledge your agent needs to use these tools without crashing the editor. ECABridge is the plugin (what tools exist); ue5-mcp is the field manual (which calls actually work, which crash, and the workarounds). Install both.
 
@@ -68,7 +68,7 @@ These are the things we maintain ourselves because Epic's core toolsets don't co
 - **15 MetaSound commands** — graph authoring, node introspection, parameter routing
 - **Movie Render Queue / Graph** (MRG 5.8-gated) — deployment-grade rendering
 - **14 Sequencer commands** — cinematic creation, keyframes, camera control, dumps
-- **27 UMG / Widget Tree / MVVM commands** — widget authoring, hierarchy dumps, ViewModel binding
+- **36 UMG / Widget Tree / MVVM commands** — widget authoring (type-specific + polymorphic `add_widget`), hierarchy dumps, named-slot ops, tree mutation (move/rename/reparent), ViewModel binding, compile
 - **Source control (13 commands)** — pre-submit validation, dry-run reverts, landscape locking
 - **Performance / diagnostics (19 commands)** — Insights traces, stat groups, CVar profiles, memory snapshots, frame captures, diagnostic bundles
 - **PCG (10 commands)** — authoring, runtime, data inspection, settings asset, full graph dump
@@ -83,6 +83,9 @@ These are features Epic shipped to `ue5-main` that we've ported under MIT so lau
 
 - **MCP 2025-03-26 protocol completeness** — per-session state via `Mcp-Session-Id`, request cancellation, streaming `notifications/progress` SSE events, `resources/list` + `resources/read`, `notifications/tools/list_changed` (Batch E, 2026-05-20)
 - **Auto-config writer** for 5 MCP clients via `ECABridge.GenerateClientConfig <client|All>` (Batch T, 2026-05-20)
+- **Physics asset (PhAT-style) authoring (17 commands)** — `create_physics_asset_from_mesh`, body/shape/constraint CRUD with upsert semantics (sphere/capsule/box), `set_body_physics_mode`, `set_body_mass_scale`, constraint limits via swing1/swing2/twist motions (Batch X, 2026-05-20)
+- **UMG verb convergence (9 commands)** — polymorphic `add_widget` complementing our type-specific add verbs, named-slot ops, tree mutation (move/rename/reparent), `set_widget_as_variable`, `compile_widget_blueprint` with FCompilerResultsLog capture (Batch W, 2026-05-20)
+- **Niagara API convergence (23 commands)** — schemas (system/emitter/renderer/data-interface/module-from-asset), topology getters (system/script-stack/emitter/module/stack-input), partial-update setters, user variable CRUD, compile-state + stack-issues diagnostics. `apply_niagara_stack_issue_fix` is scaffold-only (needs `NiagaraStackEditor` UI module for full impl) — flagged for follow-up (Batch V, 2026-05-20)
 - **Schema-in-error responses** — every validation failure returns the full input JSON Schema inline so LLMs can self-correct
 - **Inline base64 PNG screenshots** — no file I/O required
 - **Lazy registration** (`load_category`, `list_categories`, `describe_category`) with payload caps and continuation tokens
