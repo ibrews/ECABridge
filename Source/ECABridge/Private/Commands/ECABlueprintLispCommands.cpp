@@ -4214,8 +4214,37 @@ static UEdGraphNode* ConvertLispFormToNode(const FLispNodePtr& Form, FLispToBPCo
 					}
 				}
 				
-				// Store the element variable reference for the loop body
+				// Push a symbol-table frame for the loop variable: save any prior
+				// binding, install the ForEach.ArrayElement binding for the duration
+				// of the body, and restore the prior binding after the body completes.
+				//
+				// Without this scoping, the loop-var binding leaks past the foreach
+				// (and a stale prior binding from a sibling event chain can survive
+				// into the body if the Element pin lookup below silently no-ops).
+				// That's the failure mode documented in ecabridge-mcp-gotchas #5:
+				// the loop var resolved to an unrelated Variable Set node's
+				// Output_Get pin instead of ForEach.ArrayElement.
 				FString ItemVarName = Form->Get(1)->IsSymbol() ? Form->Get(1)->StringValue : TEXT("item");
+
+				const bool bHadPriorBinding = Ctx.VariableToNodeId.Contains(ItemVarName);
+				FString PriorNodeId, PriorPinName;
+				if (bHadPriorBinding)
+				{
+					PriorNodeId = Ctx.VariableToNodeId[ItemVarName];
+					if (Ctx.VariableToPin.Contains(ItemVarName))
+					{
+						PriorPinName = Ctx.VariableToPin[ItemVarName];
+					}
+				}
+
+				// Clear any stale outer binding before attempting to install the new
+				// one. If the Element-pin lookup fails (changed macro shape, etc.),
+				// the body must NOT silently resolve the loop var to whatever stale
+				// thing was already in the map.
+				Ctx.VariableToNodeId.Remove(ItemVarName);
+				Ctx.VariableToPin.Remove(ItemVarName);
+
+				bool bElementPinBound = false;
 				for (UEdGraphPin* Pin : ForEachNode->Pins)
 				{
 					if (Pin->PinName.ToString().Contains(TEXT("Element")) && Pin->Direction == EGPD_Output &&
@@ -4223,10 +4252,22 @@ static UEdGraphNode* ConvertLispFormToNode(const FLispNodePtr& Form, FLispToBPCo
 					{
 						Ctx.VariableToNodeId.Add(ItemVarName, ForEachNode->NodeGuid.ToString());
 						Ctx.VariableToPin.Add(ItemVarName, Pin->PinName.ToString());
+						// Register the ForEach node itself so downstream lookups by NodeId resolve to it.
+						if (!Ctx.TempIdToNode.Contains(ForEachNode->NodeGuid.ToString()))
+						{
+							Ctx.TempIdToNode.Add(ForEachNode->NodeGuid.ToString(), ForEachNode);
+						}
+						bElementPinBound = true;
 						break;
 					}
 				}
-				
+				if (!bElementPinBound)
+				{
+					Ctx.Warnings.Add(FString::Printf(
+						TEXT("foreach: could not find Array Element output pin on ForEachLoop macro; loop variable '%s' will resolve to nothing in the body."),
+						*ItemVarName));
+				}
+
 				// Find loop body exec pin and convert body
 				UEdGraphPin* LoopBodyPin = nullptr;
 				for (UEdGraphPin* Pin : ForEachNode->Pins)
@@ -4238,10 +4279,23 @@ static UEdGraphNode* ConvertLispFormToNode(const FLispNodePtr& Form, FLispToBPCo
 						break;
 					}
 				}
-				
+
 				if (LoopBodyPin && Form->Num() > 3)
 				{
 					ConvertExecBody(Form->Get(3), Ctx, LoopBodyPin);
+				}
+
+				// Pop the symbol-table frame: restore the prior binding (or remove
+				// the foreach binding entirely if there was none). Without this the
+				// loop var name continues to resolve to the ForEach.ArrayElement
+				// pin in subsequent sibling code, which is precisely the
+				// cross-event-chain mis-binding documented in gotcha #5.
+				Ctx.VariableToNodeId.Remove(ItemVarName);
+				Ctx.VariableToPin.Remove(ItemVarName);
+				if (bHadPriorBinding)
+				{
+					Ctx.VariableToNodeId.Add(ItemVarName, PriorNodeId);
+					Ctx.VariableToPin.Add(ItemVarName, PriorPinName);
 				}
 				
 				// Return the "Completed" exec pin
