@@ -1256,4 +1256,231 @@ FECACommandResult FECACommand_RemoveNiagaraUserVariables::Execute(const TSharedP
 	return FECACommandResult::Success(Root);
 }
 
+// ============================================================================
+// Task 5 — Diagnostics
+// ============================================================================
+
+REGISTER_ECA_COMMAND(FECACommand_GetNiagaraSystemCompileState)
+REGISTER_ECA_COMMAND(FECACommand_GetNiagaraStackIssues)
+REGISTER_ECA_COMMAND(FECACommand_ApplyNiagaraStackIssueFix)
+
+namespace ECANiagaraConvergence
+{
+	static FString CompileStatusToString(ENiagaraScriptCompileStatus S)
+	{
+		switch (S)
+		{
+			case ENiagaraScriptCompileStatus::NCS_Unknown: return TEXT("unknown");
+			case ENiagaraScriptCompileStatus::NCS_Dirty:   return TEXT("dirty");
+			case ENiagaraScriptCompileStatus::NCS_Error:   return TEXT("failure");
+			case ENiagaraScriptCompileStatus::NCS_UpToDate: return TEXT("success");
+			case ENiagaraScriptCompileStatus::NCS_BeingCreated: return TEXT("compiling");
+			case ENiagaraScriptCompileStatus::NCS_UpToDateWithWarnings: return TEXT("success");
+			// NCS_ComputeUpToDate / _ComputeUpToDateWithWarnings are 5.8-only; fall
+			// through to default ("unknown") on 5.7. Default would treat them as
+			// "unknown" anyway, so listing them adds no clarity vs. portability.
+			default: return TEXT("unknown");
+		}
+	}
+
+	// Append per-script compile messages to OutEvents. Each event:
+	// { script, severity, message }.
+	static void AppendScriptCompileEvents(UNiagaraScript* Script, const FString& ScriptLabel, TArray<TSharedPtr<FJsonValue>>& OutEvents)
+	{
+		if (!Script) return;
+		const TArray<FNiagaraCompileEvent>& Events = Script->GetVMExecutableData().LastCompileEvents;
+		for (const FNiagaraCompileEvent& E : Events)
+		{
+			TSharedPtr<FJsonObject> O = MakeShared<FJsonObject>();
+			O->SetStringField(TEXT("script"), ScriptLabel);
+			O->SetStringField(TEXT("severity"),
+				E.Severity == FNiagaraCompileEventSeverity::Error ? TEXT("error") :
+				E.Severity == FNiagaraCompileEventSeverity::Warning ? TEXT("warning") :
+				E.Severity == FNiagaraCompileEventSeverity::Display ? TEXT("info") : TEXT("log"));
+			O->SetStringField(TEXT("message"), E.Message);
+			OutEvents.Add(MakeShared<FJsonValueObject>(O));
+		}
+	}
+}
+
+FECACommandResult FECACommand_GetNiagaraSystemCompileState::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SystemPath;
+	if (!GetStringParam(Params, TEXT("system_path"), SystemPath)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
+	double TimeoutSec = 30.0;
+	GetFloatParam(Params, TEXT("timeout_seconds"), TimeoutSec, false);
+
+	UNiagaraSystem* System = ResolveSystem(SystemPath);
+	if (!System) return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Niagara system: %s"), *SystemPath));
+
+	// Synchronously wait for in-flight compile to settle. The two-arg form
+	// (bIncludingGPUShaders, bShowProgress) is the documented signature on 5.7/5.8.
+	const double Deadline = FPlatformTime::Seconds() + FMath::Max(1.0, TimeoutSec);
+	while (FPlatformTime::Seconds() < Deadline)
+	{
+		System->WaitForCompilationComplete(/*bIncludingGPUShaders*/ false, /*bShowProgress*/ false);
+		// If WaitForCompilationComplete returned and the system isn't dirtying itself
+		// further, we're done.
+		break;
+	}
+
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetStringField(TEXT("system_path"), SystemPath);
+
+	TArray<TSharedPtr<FJsonValue>> PerScript;
+	TArray<TSharedPtr<FJsonValue>> AllEvents;
+	bool bAnyFailure = false;
+	bool bAnyCompiling = false;
+
+	// System spawn/update scripts live on the system itself.
+	for (UNiagaraScript* S : { System->GetSystemSpawnScript(), System->GetSystemUpdateScript() })
+	{
+		if (!S) continue;
+		const FString Label = S->GetName();
+		const ENiagaraScriptCompileStatus Status = S->GetVMExecutableData().LastCompileStatus;
+		TSharedPtr<FJsonObject> O = MakeShared<FJsonObject>();
+		O->SetStringField(TEXT("script"), Label);
+		O->SetStringField(TEXT("status"), CompileStatusToString(Status));
+		PerScript.Add(MakeShared<FJsonValueObject>(O));
+		if (Status == ENiagaraScriptCompileStatus::NCS_Error) bAnyFailure = true;
+		if (Status == ENiagaraScriptCompileStatus::NCS_BeingCreated || Status == ENiagaraScriptCompileStatus::NCS_Dirty) bAnyCompiling = true;
+		AppendScriptCompileEvents(S, Label, AllEvents);
+	}
+
+	// Per-emitter scripts.
+	for (const FNiagaraEmitterHandle& Handle : System->GetEmitterHandles())
+	{
+		FVersionedNiagaraEmitterData* Data = Handle.GetEmitterData();
+		if (!Data) continue;
+		TArray<UNiagaraScript*> Scripts;
+		Data->GetScripts(Scripts, /*bCompilableOnly*/ false);
+		for (UNiagaraScript* S : Scripts)
+		{
+			if (!S) continue;
+			const FString Label = FString::Printf(TEXT("%s/%s"), *Handle.GetName().ToString(), *S->GetName());
+			const ENiagaraScriptCompileStatus Status = S->GetVMExecutableData().LastCompileStatus;
+			TSharedPtr<FJsonObject> O = MakeShared<FJsonObject>();
+			O->SetStringField(TEXT("script"), Label);
+			O->SetStringField(TEXT("status"), CompileStatusToString(Status));
+			PerScript.Add(MakeShared<FJsonValueObject>(O));
+			if (Status == ENiagaraScriptCompileStatus::NCS_Error) bAnyFailure = true;
+			if (Status == ENiagaraScriptCompileStatus::NCS_BeingCreated || Status == ENiagaraScriptCompileStatus::NCS_Dirty) bAnyCompiling = true;
+			AppendScriptCompileEvents(S, Label, AllEvents);
+		}
+	}
+
+	FString Overall = TEXT("success");
+	if (bAnyFailure) Overall = TEXT("failure");
+	else if (bAnyCompiling) Overall = TEXT("compiling");
+
+	Root->SetStringField(TEXT("status"), Overall);
+	Root->SetArrayField(TEXT("per_script"), PerScript);
+	Root->SetArrayField(TEXT("events"), AllEvents);
+	return FECACommandResult::Success(Root);
+}
+
+FECACommandResult FECACommand_GetNiagaraStackIssues::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SystemPath;
+	if (!GetStringParam(Params, TEXT("system_path"), SystemPath)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
+	double TimeoutSec = 30.0;
+	GetFloatParam(Params, TEXT("timeout_seconds"), TimeoutSec, false);
+
+	UNiagaraSystem* System = ResolveSystem(SystemPath);
+	if (!System) return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Niagara system: %s"), *SystemPath));
+
+	System->WaitForCompilationComplete(false, false);
+
+	// Stack-issue authoring API lives in NiagaraStackEditor (UI-side). Without
+	// linking that module we report the compile-event view of "things wrong with
+	// the system" — which covers stack-error feedback for the common case
+	// (broken module bindings, dangling pins, missing scripts).
+	TArray<TSharedPtr<FJsonValue>> Issues;
+	int32 IdxCounter = 0;
+
+	auto EmitIssue = [&](const FString& Severity, const FString& Message, const FString& Location)
+	{
+		TSharedPtr<FJsonObject> O = MakeShared<FJsonObject>();
+		O->SetStringField(TEXT("id"), FString::Printf(TEXT("compile-event-%d"), IdxCounter++));
+		O->SetStringField(TEXT("severity"), Severity);
+		O->SetStringField(TEXT("message"), Message);
+		TSharedPtr<FJsonObject> Loc = MakeShared<FJsonObject>();
+		Loc->SetStringField(TEXT("path"), Location);
+		O->SetObjectField(TEXT("location"), Loc);
+		// No auto-fixes available via compile-event path. Empty array honors schema.
+		TArray<TSharedPtr<FJsonValue>> Fixes;
+		O->SetArrayField(TEXT("fixes"), Fixes);
+		Issues.Add(MakeShared<FJsonValueObject>(O));
+	};
+
+	auto WalkScript = [&](UNiagaraScript* S, const FString& Label)
+	{
+		if (!S) return;
+		const TArray<FNiagaraCompileEvent>& Events = S->GetVMExecutableData().LastCompileEvents;
+		for (const FNiagaraCompileEvent& E : Events)
+		{
+			const FString Sev =
+				E.Severity == FNiagaraCompileEventSeverity::Error ? TEXT("error") :
+				E.Severity == FNiagaraCompileEventSeverity::Warning ? TEXT("warning") :
+				E.Severity == FNiagaraCompileEventSeverity::Display ? TEXT("info") : TEXT("log");
+			EmitIssue(Sev, E.Message, Label);
+		}
+	};
+
+	WalkScript(System->GetSystemSpawnScript(), TEXT("SystemSpawn"));
+	WalkScript(System->GetSystemUpdateScript(), TEXT("SystemUpdate"));
+	for (const FNiagaraEmitterHandle& Handle : System->GetEmitterHandles())
+	{
+		FVersionedNiagaraEmitterData* Data = Handle.GetEmitterData();
+		if (!Data) continue;
+		TArray<UNiagaraScript*> Scripts;
+		Data->GetScripts(Scripts, false);
+		for (UNiagaraScript* S : Scripts)
+		{
+			WalkScript(S, FString::Printf(TEXT("%s/%s"), *Handle.GetName().ToString(), S ? *S->GetName() : TEXT("?")));
+		}
+	}
+
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetStringField(TEXT("system_path"), SystemPath);
+	Root->SetArrayField(TEXT("issues"), Issues);
+	Root->SetNumberField(TEXT("count"), Issues.Num());
+	Root->SetStringField(TEXT("source"), TEXT("compile_events"));
+	// Document the convergence gap so callers know to expect Link-kind fixes
+	// from the UI side later if/when NiagaraStackEditor is linked.
+	Root->SetStringField(TEXT("notes"), TEXT("Issues are derived from the per-script compile-event list. Stack-view auto-fixes (NiagaraStackEditor) are not wired up in this batch; apply_niagara_stack_issue_fix will return notice."));
+	return FECACommandResult::Success(Root);
+}
+
+FECACommandResult FECACommand_ApplyNiagaraStackIssueFix::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString SystemPath, IssueId, FixId;
+	if (!GetStringParam(Params, TEXT("system_path"), SystemPath)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: system_path"));
+	if (!GetStringParam(Params, TEXT("issue_id"), IssueId)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: issue_id"));
+	if (!GetStringParam(Params, TEXT("fix_id"), FixId)) return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: fix_id"));
+
+	UNiagaraSystem* System = ResolveSystem(SystemPath);
+	if (!System) return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Niagara system: %s"), *SystemPath));
+
+	// Convergence gap: applying a stack-issue fix requires the Niagara stack
+	// view model from NiagaraStackEditor, which is not linked in this batch
+	// to keep the convergence file decoupled from the editor UI module.
+	// Surface the gap clearly so callers can fall back to manual auto-fix
+	// in the editor UI.
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetStringField(TEXT("system_path"), SystemPath);
+	Root->SetStringField(TEXT("issue_id"), IssueId);
+	Root->SetStringField(TEXT("fix_id"), FixId);
+	Root->SetBoolField(TEXT("applied"), false);
+	Root->SetStringField(TEXT("applied_fix_description"), FString());
+	Root->SetStringField(TEXT("reason"),
+		TEXT("Stack-issue auto-fix requires the NiagaraStackEditor module's UNiagaraStackViewModel. "
+		"This convergence batch keeps the file decoupled from editor UI modules, so Fix-kind auto-fixes "
+		"are not applied. Open the system in the Niagara editor and click the auto-fix link in the stack "
+		"item view to apply it manually."));
+	TArray<TSharedPtr<FJsonValue>> PostFix;
+	Root->SetArrayField(TEXT("post_fix_issues"), PostFix);
+	return FECACommandResult::Success(Root);
+}
+
 #endif // WITH_ECA_NIAGARA
