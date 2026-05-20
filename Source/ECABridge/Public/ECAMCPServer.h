@@ -154,6 +154,14 @@ private:
 	/** Handle tools/call request */
 	TSharedPtr<FJsonObject> HandleToolsCall(const TSharedPtr<FJsonObject>& Params);
 
+	/** Handle resources/list request (MCP 2025-03-26).
+	 *  Exposes UE assets as MCP resources under the `ecabridge://asset/<path>` URI
+	 *  scheme. Supports cursor-based pagination and an optional `path_prefix` filter. */
+	TSharedPtr<FJsonObject> HandleResourcesList(const TSharedPtr<FJsonObject>& Params);
+
+	/** Handle resources/read request — fetches asset metadata JSON for the given URI. */
+	TSharedPtr<FJsonObject> HandleResourcesRead(const TSharedPtr<FJsonObject>& Params);
+
 	/** Build MCP tool definitions from registered commands. When CategoryFilter is
 	 *  non-empty, only commands in that category are emitted (bypasses lazy mode). */
 	TArray<TSharedPtr<FJsonValue>> BuildToolDefinitions(const FString& CategoryFilter = FString());

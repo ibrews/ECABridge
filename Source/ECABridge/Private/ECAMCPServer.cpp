@@ -13,6 +13,9 @@
 #include "Serialization/JsonSerializer.h"
 #include "Misc/Guid.h"
 #include "Misc/Compression.h"
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "AssetRegistry/IAssetRegistry.h"
+#include "AssetRegistry/AssetData.h"
 
 namespace ECABridgeCompress
 {
@@ -484,6 +487,14 @@ TSharedPtr<FJsonObject> FECAMCPServer::ProcessJsonRpcRequest(const TSharedPtr<FJ
 		ProgReg.ClearThreadBinding();
 		CancelReg.UnregisterRequest(RequestIdString);
 	}
+	else if (Method == TEXT("resources/list"))
+	{
+		Result = HandleResourcesList(Params);
+	}
+	else if (Method == TEXT("resources/read"))
+	{
+		Result = HandleResourcesRead(Params);
+	}
 	else if (Method == TEXT("notifications/initialized"))
 	{
 		// Client notification - no response needed
@@ -588,6 +599,13 @@ TSharedPtr<FJsonObject> FECAMCPServer::HandleInitialize(const TSharedPtr<FJsonOb
 	TSharedPtr<FJsonObject> ToolsCap = MakeShared<FJsonObject>();
 	ToolsCap->SetBoolField(TEXT("listChanged"), true);
 	Capabilities->SetObjectField(TEXT("tools"), ToolsCap);
+
+	// Resources capability — UE assets surfaced under ecabridge://asset/<path>.
+	// listChanged + subscribe not implemented yet; advertise the basic surface.
+	TSharedPtr<FJsonObject> ResourcesCap = MakeShared<FJsonObject>();
+	ResourcesCap->SetBoolField(TEXT("listChanged"), false);
+	ResourcesCap->SetBoolField(TEXT("subscribe"), false);
+	Capabilities->SetObjectField(TEXT("resources"), ResourcesCap);
 
 	Result->SetObjectField(TEXT("capabilities"), Capabilities);
 
@@ -915,6 +933,146 @@ void FECAMCPServer::BroadcastToolsListChanged()
 	// No params per spec — clients re-issue tools/list to discover the new set.
 	EnqueueNotification(Notification);
 	UE_LOG(LogTemp, Log, TEXT("[ECABridge] Enqueued notifications/tools/list_changed"));
+}
+
+namespace ECABridgeResources
+{
+	// URI scheme used to expose UE assets as MCP resources.
+	static const FString UriPrefix = TEXT("ecabridge://asset/");
+
+	// Convert "/Game/Foo/Bar" -> "ecabridge://asset/Game/Foo/Bar".
+	static FString PackageToUri(const FString& PackageName)
+	{
+		FString Path = PackageName;
+		while (Path.StartsWith(TEXT("/")))
+		{
+			Path = Path.RightChop(1);
+		}
+		return UriPrefix + Path;
+	}
+
+	// Inverse of PackageToUri. Returns empty on mismatch.
+	static FString UriToPackage(const FString& Uri)
+	{
+		if (!Uri.StartsWith(UriPrefix))
+		{
+			return FString();
+		}
+		return TEXT("/") + Uri.RightChop(UriPrefix.Len());
+	}
+}
+
+TSharedPtr<FJsonObject> FECAMCPServer::HandleResourcesList(const TSharedPtr<FJsonObject>& Params)
+{
+	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+	IAssetRegistry& Registry = AssetRegistryModule.Get();
+
+	// Optional cursor — encodes the AssetData index to resume from (simple int).
+	int32 StartIndex = 0;
+	FString PathPrefix;
+	if (Params.IsValid())
+	{
+		FString Cursor;
+		if (Params->TryGetStringField(TEXT("cursor"), Cursor))
+		{
+			StartIndex = FCString::Atoi(*Cursor);
+		}
+		Params->TryGetStringField(TEXT("path_prefix"), PathPrefix);
+	}
+
+	TArray<FAssetData> AllAssets;
+	if (!PathPrefix.IsEmpty())
+	{
+		Registry.GetAssetsByPath(FName(*PathPrefix), AllAssets, /*bRecursive=*/true);
+	}
+	else
+	{
+		Registry.GetAssetsByPath(FName(TEXT("/Game")), AllAssets, /*bRecursive=*/true);
+	}
+
+	const int32 PageSize = 100;
+	const int32 EndIndex = FMath::Min(StartIndex + PageSize, AllAssets.Num());
+
+	TArray<TSharedPtr<FJsonValue>> ResourceArray;
+	for (int32 i = StartIndex; i < EndIndex; ++i)
+	{
+		const FAssetData& Asset = AllAssets[i];
+		TSharedPtr<FJsonObject> R = MakeShared<FJsonObject>();
+		R->SetStringField(TEXT("uri"), ECABridgeResources::PackageToUri(Asset.PackageName.ToString()));
+		R->SetStringField(TEXT("name"), Asset.AssetName.ToString());
+		R->SetStringField(TEXT("mimeType"), TEXT("application/json"));
+		R->SetStringField(TEXT("description"),
+			FString::Printf(TEXT("%s asset at %s"),
+				*Asset.AssetClassPath.GetAssetName().ToString(),
+				*Asset.PackageName.ToString()));
+		ResourceArray.Add(MakeShared<FJsonValueObject>(R));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetArrayField(TEXT("resources"), ResourceArray);
+	if (EndIndex < AllAssets.Num())
+	{
+		Result->SetStringField(TEXT("nextCursor"), FString::FromInt(EndIndex));
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[ECABridge] resources/list start=%d end=%d total=%d prefix='%s'"),
+		StartIndex, EndIndex, AllAssets.Num(), *PathPrefix);
+	return Result;
+}
+
+TSharedPtr<FJsonObject> FECAMCPServer::HandleResourcesRead(const TSharedPtr<FJsonObject>& Params)
+{
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	TArray<TSharedPtr<FJsonValue>> Contents;
+
+	if (!Params.IsValid())
+	{
+		Result->SetArrayField(TEXT("contents"), Contents);
+		return Result;
+	}
+
+	FString Uri;
+	Params->TryGetStringField(TEXT("uri"), Uri);
+	const FString PackageName = ECABridgeResources::UriToPackage(Uri);
+
+	if (PackageName.IsEmpty())
+	{
+		Result->SetArrayField(TEXT("contents"), Contents);
+		return Result;
+	}
+
+	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+	IAssetRegistry& Registry = AssetRegistryModule.Get();
+
+	TArray<FAssetData> Found;
+	Registry.GetAssetsByPackageName(FName(*PackageName), Found);
+
+	TSharedPtr<FJsonObject> ContentBlock = MakeShared<FJsonObject>();
+	ContentBlock->SetStringField(TEXT("uri"), Uri);
+	ContentBlock->SetStringField(TEXT("mimeType"), TEXT("application/json"));
+
+	TSharedPtr<FJsonObject> Body = MakeShared<FJsonObject>();
+	Body->SetStringField(TEXT("package"), PackageName);
+	if (Found.Num() > 0)
+	{
+		const FAssetData& A = Found[0];
+		Body->SetStringField(TEXT("name"), A.AssetName.ToString());
+		Body->SetStringField(TEXT("class"), A.AssetClassPath.ToString());
+		Body->SetStringField(TEXT("object_path"), A.GetObjectPathString());
+		Body->SetNumberField(TEXT("tag_count"), A.TagsAndValues.Num());
+	}
+	else
+	{
+		Body->SetBoolField(TEXT("not_found"), true);
+	}
+
+	FString BodyJson = SerializeJson(Body);
+	ContentBlock->SetStringField(TEXT("text"), BodyJson);
+	Contents.Add(MakeShared<FJsonValueObject>(ContentBlock));
+
+	Result->SetArrayField(TEXT("contents"), Contents);
+	UE_LOG(LogTemp, Log, TEXT("[ECABridge] resources/read uri=%s found=%d"), *Uri, Found.Num());
+	return Result;
 }
 
 FString FECAMCPServer::ReadSessionHeader(const FHttpServerRequest& Request)
