@@ -31,9 +31,12 @@ from typing import Any
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+PLUGIN_ROOT = SCRIPT_DIR.parent
 SMOKE_TEST = SCRIPT_DIR / "smoke-test.py"
 EXTRA_DIR = SCRIPT_DIR / "example-sources"
-DEFAULT_OUTPUT = SCRIPT_DIR / "command-examples.json"
+# Default to the plugin's Resources/ folder so the runtime example-injection
+# code (FECAMCPServer) can find a tracked, repo-committed copy at startup.
+DEFAULT_OUTPUT = PLUGIN_ROOT / "Resources" / "command-examples.json"
 
 
 def _literal(node: ast.AST) -> Any:

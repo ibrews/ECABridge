@@ -24,6 +24,7 @@
 #include "UnrealClient.h"  // For ELevelViewportType
 #include "Commands/ECACommand.h"
 #include "Dom/JsonObject.h"
+#include "ECAMCPServer.h"
 
 #define LOCTEXT_NAMESPACE "FECABridgeModule"
 
@@ -83,6 +84,12 @@ void FECABridgeModule::StartupModule()
 	// categories. Cuts the baseline tools/list payload from ~330KB to ~5KB.
 	FECACommandRegistry::Get().SetLazyMode(true);
 	UE_LOG(LogTemp, Log, TEXT("[ECABridge] Lazy tool registration enabled — tools/list will return Meta tools only until load_category is called"));
+
+	// Load per-command example payloads from Resources/command-examples.json.
+	// Examples are attached to tool descriptors in tools/list responses (and
+	// remain attached when lazy load_category surfaces a new category, because
+	// the injection lives in BuildToolDefinitions).
+	FECAMCPServer::LoadExamples();
 
 	// Register console commands
 	RegisterConsoleCommands();

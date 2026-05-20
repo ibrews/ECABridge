@@ -68,9 +68,15 @@ public:
 
 	/** Start the HTTP server */
 	bool Start(int32 Port = 3000);
-	
+
 	/** Stop the HTTP server */
 	void Stop();
+
+	/** Load per-command example payloads from <PluginRoot>/Resources/command-examples.json.
+	 *  Called once from FECABridgeModule::StartupModule. Subsequent tools/list
+	 *  responses attach the matching `example` field to each tool descriptor.
+	 *  Safe to call multiple times — reloads in place. */
+	static void LoadExamples();
 	
 	/** Check if server is running */
 	bool IsRunning() const { return bIsRunning; }

@@ -1,0 +1,96 @@
+{
+  "dump_asset": {
+    "arguments": {
+      "asset_path": "<placeholder>"
+    },
+    "source": "smoke-test"
+  },
+  "dump_blueprint_graph": {
+    "arguments": {
+      "blueprint_path": "<placeholder>"
+    },
+    "source": "smoke-test"
+  },
+  "execute_script": {
+    "arguments": {
+      "script": "import json\nactors = execute_tool('actor', 'get_actors_in_level', {})\nprint(json.dumps({'mode': 'print_legacy', 'count': actors['result']['count']}))\n"
+    },
+    "source": "smoke-test"
+  },
+  "find_actors": {
+    "arguments": {
+      "name_pattern": "*"
+    },
+    "source": "smoke-test"
+  },
+  "find_assets": {
+    "arguments": {
+      "class_filter": "LevelSequence",
+      "max_results": 5
+    },
+    "source": "smoke-test"
+  },
+  "get_actors_in_level": {
+    "arguments": {},
+    "source": "smoke-test"
+  },
+  "get_asset_references": {
+    "arguments": {
+      "asset_path": "<placeholder>"
+    },
+    "source": "smoke-test"
+  },
+  "get_blueprint_components": {
+    "arguments": {
+      "blueprint_path": "<placeholder>"
+    },
+    "source": "smoke-test"
+  },
+  "get_blueprint_info": {
+    "arguments": {
+      "blueprint_path": "<placeholder>"
+    },
+    "source": "smoke-test"
+  },
+  "get_execution_environment": {
+    "arguments": {},
+    "source": "smoke-test"
+  },
+  "get_level_info": {
+    "arguments": {},
+    "source": "smoke-test"
+  },
+  "get_niagara_systems": {
+    "arguments": {},
+    "source": "smoke-test"
+  },
+  "get_selected_actors": {
+    "arguments": {},
+    "source": "smoke-test"
+  },
+  "list_blueprints": {
+    "arguments": {
+      "path": "/Game/FirstPerson"
+    },
+    "source": "smoke-test"
+  },
+  "list_co_node_types": {
+    "arguments": {},
+    "source": "smoke-test"
+  },
+  "list_materials": {
+    "arguments": {
+      "path": "/Game",
+      "recursive": true
+    },
+    "source": "smoke-test"
+  },
+  "list_metahuman_presets": {
+    "arguments": {},
+    "source": "smoke-test"
+  },
+  "take_gameplay_screenshot": {
+    "arguments": {},
+    "source": "smoke-test"
+  }
+}
