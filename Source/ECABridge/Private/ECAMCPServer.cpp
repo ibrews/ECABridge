@@ -11,6 +11,67 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonWriter.h"
 #include "Serialization/JsonSerializer.h"
+#include "Misc/Guid.h"
+
+FECAResponseChunkCache& FECAResponseChunkCache::Get()
+{
+	static FECAResponseChunkCache Instance;
+	return Instance;
+}
+
+FString FECAResponseChunkCache::StoreRemainder(const FString& RemainingText)
+{
+	FScopeLock ScopedLock(&Lock);
+	const FString Token = FString::Printf(TEXT("eca-ct-%d-%s"), NextId++, *FGuid::NewGuid().ToString(EGuidFormats::Short));
+	FEntry Entry;
+	Entry.Remaining = RemainingText;
+	Entry.StoredAt = FPlatformTime::Seconds();
+	Entries.Add(Token, MoveTemp(Entry));
+	return Token;
+}
+
+FString FECAResponseChunkCache::FetchNext(const FString& Token, int32 MaxBytes, bool& bOutFinal)
+{
+	FScopeLock ScopedLock(&Lock);
+	FEntry* Entry = Entries.Find(Token);
+	if (!Entry)
+	{
+		bOutFinal = true;
+		return FString();
+	}
+
+	if (MaxBytes <= 0 || Entry->Remaining.Len() <= MaxBytes)
+	{
+		FString Chunk = Entry->Remaining;
+		Entries.Remove(Token);
+		bOutFinal = true;
+		return Chunk;
+	}
+
+	FString Chunk = Entry->Remaining.Left(MaxBytes);
+	Entry->Remaining = Entry->Remaining.RightChop(MaxBytes);
+	Entry->StoredAt = FPlatformTime::Seconds();
+	bOutFinal = false;
+	return Chunk;
+}
+
+void FECAResponseChunkCache::Purge(double MaxAgeSeconds)
+{
+	FScopeLock ScopedLock(&Lock);
+	const double Now = FPlatformTime::Seconds();
+	TArray<FString> Expired;
+	for (const auto& Pair : Entries)
+	{
+		if (Now - Pair.Value.StoredAt > MaxAgeSeconds)
+		{
+			Expired.Add(Pair.Key);
+		}
+	}
+	for (const FString& Key : Expired)
+	{
+		Entries.Remove(Key);
+	}
+}
 
 FECAMCPServer::FECAMCPServer(UECABridge* InBridge)
 	: Bridge(InBridge)
@@ -439,7 +500,31 @@ TSharedPtr<FJsonObject> FECAMCPServer::HandleToolsCall(const TSharedPtr<FJsonObj
 			{
 				ResultText = TEXT("{\"success\": true}");
 			}
-			TextContent->SetStringField(TEXT("text"), ResultText);
+
+			// Response-size cap: if the serialized result exceeds the configured
+			// budget, return the first chunk and stash the remainder under a
+			// continuation token. Client retrieves the rest via continue_response.
+			const int32 Cap = MaxResponseBytes;
+			if (Cap > 0 && ResultText.Len() > Cap)
+			{
+				const int32 TotalLen = ResultText.Len();
+				FString FirstChunk = ResultText.Left(Cap);
+				FString Remainder = ResultText.RightChop(Cap);
+				const FString Token = FECAResponseChunkCache::Get().StoreRemainder(Remainder);
+
+				TextContent->SetStringField(TEXT("text"), FirstChunk);
+				Result->SetStringField(TEXT("_continuation_token"), Token);
+				Result->SetNumberField(TEXT("_chunk_chars"), FirstChunk.Len());
+				Result->SetNumberField(TEXT("_remaining_chars"), Remainder.Len());
+				Result->SetNumberField(TEXT("_total_chars"), TotalLen);
+
+				UE_LOG(LogTemp, Log, TEXT("[ECABridge] Response chunked: tool=%s total=%d cap=%d token=%s"),
+					*ToolName, TotalLen, Cap, *Token);
+			}
+			else
+			{
+				TextContent->SetStringField(TEXT("text"), ResultText);
+			}
 		}
 		else
 		{
@@ -451,6 +536,9 @@ TSharedPtr<FJsonObject> FECAMCPServer::HandleToolsCall(const TSharedPtr<FJsonObj
 	}
 
 	Result->SetArrayField(TEXT("content"), Content);
+
+	// Opportunistic GC.
+	FECAResponseChunkCache::Get().Purge();
 
 	return Result;
 }

@@ -14,6 +14,42 @@
 class UECABridge;
 
 /**
+ * Singleton cache for oversize tool-call response chunks. When a single
+ * tools/call result exceeds the configured size cap, the server stores the
+ * remainder here under an opaque token; the client retrieves subsequent
+ * chunks by invoking the `continue_response` meta-command with that token.
+ *
+ * Entries auto-expire after 5 minutes to bound memory.
+ */
+class ECABRIDGE_API FECAResponseChunkCache
+{
+public:
+	static FECAResponseChunkCache& Get();
+
+	/** Store text under a fresh token and return the token. */
+	FString StoreRemainder(const FString& RemainingText);
+
+	/** Fetch the next chunk for a token. Returns the next slice (up to MaxBytes
+	 *  characters) and sets bOutFinal=true when no bytes remain after this fetch.
+	 *  Unknown token -> empty string, bOutFinal=true. */
+	FString FetchNext(const FString& Token, int32 MaxBytes, bool& bOutFinal);
+
+	/** Drop entries older than MaxAgeSeconds. Called opportunistically. */
+	void Purge(double MaxAgeSeconds = 300.0);
+
+private:
+	struct FEntry
+	{
+		FString Remaining;
+		double StoredAt = 0.0;
+	};
+
+	TMap<FString, FEntry> Entries;
+	FCriticalSection Lock;
+	int32 NextId = 1;
+};
+
+/**
  * MCP Streamable HTTP Server
  * 
  * Implements the MCP Streamable HTTP transport (2025-03-26 spec).
@@ -92,6 +128,10 @@ private:
 	/** Server state */
 	bool bIsRunning = false;
 	int32 ServerPort = 3000;
+
+	/** Per-response size cap. Results larger than this are split and the
+	 *  remainder is stashed in FECAResponseChunkCache. Default 64 KB. */
+	int32 MaxResponseBytes = 65536;
 	
 	/** MCP protocol info */
 	const FString ServerName = TEXT("eca-unreal-editor");

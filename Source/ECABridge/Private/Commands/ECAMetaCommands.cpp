@@ -6,6 +6,7 @@
 // cutting the baseline payload from ~330KB to ~5KB.
 
 #include "Commands/ECACommand.h"
+#include "ECAMCPServer.h"
 
 class FECACommand_ListCategories : public IECACommand
 {
@@ -176,6 +177,60 @@ public:
 	}
 };
 
+class FECACommand_ContinueResponse : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("continue_response"); }
+	virtual FString GetDescription() const override
+	{
+		return TEXT("Fetch the next chunk of a previously truncated tool-call response. "
+			"Pass the `_continuation_token` from a tool result whose `_remaining_chars` is "
+			"non-zero. Result text concatenates onto the previous chunk to reconstruct the "
+			"full JSON. Optional max_bytes overrides the server cap for this call.");
+	}
+	virtual FString GetCategory() const override { return FECACommandRegistry::MetaCategory; }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("token"),     TEXT("string"),  TEXT("Continuation token returned by a chunked tool-call response."), true },
+			{ TEXT("max_bytes"), TEXT("integer"), TEXT("Optional chunk-size cap for this fetch (default 65536)."), false, TEXT("65536") }
+		};
+	}
+
+	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
+	{
+		return MakeECAObjectSchema({
+			{ TEXT("chunk"),     TEXT("string"),  TEXT("Next slice of the original result text") },
+			{ TEXT("chars"),     TEXT("integer"), TEXT("Length of this chunk in characters") },
+			{ TEXT("final"),     TEXT("boolean"), TEXT("True when this chunk drained the remainder") }
+		});
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override
+	{
+		FString Token;
+		if (!GetStringParam(Params, TEXT("token"), Token, true) || Token.IsEmpty())
+		{
+			return FECACommandResult::ValidationError(this, TEXT("Missing required 'token' parameter"));
+		}
+
+		int32 MaxBytes = 65536;
+		GetIntParam(Params, TEXT("max_bytes"), MaxBytes, false);
+		if (MaxBytes <= 0) MaxBytes = 65536;
+
+		bool bFinal = false;
+		const FString Chunk = FECAResponseChunkCache::Get().FetchNext(Token, MaxBytes, bFinal);
+
+		TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+		Result->SetStringField(TEXT("chunk"), Chunk);
+		Result->SetNumberField(TEXT("chars"), Chunk.Len());
+		Result->SetBoolField(TEXT("final"), bFinal);
+		return FECACommandResult::Success(Result);
+	}
+};
+
 REGISTER_ECA_COMMAND(FECACommand_ListCategories)
 REGISTER_ECA_COMMAND(FECACommand_DescribeCategory)
 REGISTER_ECA_COMMAND(FECACommand_LoadCategory)
+REGISTER_ECA_COMMAND(FECACommand_ContinueResponse)
