@@ -455,4 +455,86 @@ FECACommandResult FECACommand_ListStateTreeEvaluators::Execute(const TSharedPtr<
 
 REGISTER_ECA_COMMAND(FECACommand_ListStateTreeEvaluators);
 
+// â”€â”€ Task 3: node describer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+FECACommandResult FECACommand_DescribeStateTreeNode::Execute(const TSharedPtr<FJsonObject>& Params)
+{
+	FString TreePath, NodeKind, StatePath;
+	int32 Index = 0;
+	if (!GetStringParam(Params, TEXT("state_tree_path"), TreePath, true)) return FECACommandResult::ValidationError(this, TEXT("state_tree_path is required"));
+	if (!GetStringParam(Params, TEXT("node_kind"), NodeKind, true))       return FECACommandResult::ValidationError(this, TEXT("node_kind is required"));
+	GetStringParam(Params, TEXT("state_path"), StatePath, false);
+	if (!GetIntParam(Params, TEXT("index"), Index, true))                 return FECACommandResult::ValidationError(this, TEXT("index is required"));
+	if (Index < 0)                                                        return FECACommandResult::ValidationError(this, TEXT("index must be non-negative"));
+
+	FString Error;
+	UStateTreeEditorData* EditorData = ECAStateTreeInternal::ResolveEditorData(TreePath, Error);
+	if (!EditorData) return FECACommandResult::Error(Error);
+
+	const FStateTreeEditorNode* FoundNode = nullptr;
+	FString TransitionDescription;
+	const bool bWantsState = !(NodeKind.Equals(TEXT("evaluator"), ESearchCase::IgnoreCase) || NodeKind.Equals(TEXT("global_task"), ESearchCase::IgnoreCase));
+
+	UStateTreeState* State = nullptr;
+	if (bWantsState)
+	{
+		if (StatePath.IsEmpty())
+		{
+			return FECACommandResult::ValidationError(this, FString::Printf(TEXT("state_path is required for node_kind '%s'."), *NodeKind));
+		}
+		State = ECAStateTreeInternal::ResolveStatePath(*EditorData, StatePath, Error);
+		if (!State) return FECACommandResult::Error(Error);
+	}
+
+	if (NodeKind.Equals(TEXT("task"), ESearchCase::IgnoreCase))
+	{
+		if (!State->Tasks.IsValidIndex(Index)) return FECACommandResult::Error(FString::Printf(TEXT("index %d out of range (tasks: %d)"), Index, State->Tasks.Num()));
+		FoundNode = &State->Tasks[Index];
+	}
+	else if (NodeKind.Equals(TEXT("condition"), ESearchCase::IgnoreCase))
+	{
+		if (!State->EnterConditions.IsValidIndex(Index)) return FECACommandResult::Error(FString::Printf(TEXT("index %d out of range (enter_conditions: %d)"), Index, State->EnterConditions.Num()));
+		FoundNode = &State->EnterConditions[Index];
+	}
+	else if (NodeKind.Equals(TEXT("transition"), ESearchCase::IgnoreCase))
+	{
+		if (!State->Transitions.IsValidIndex(Index)) return FECACommandResult::Error(FString::Printf(TEXT("index %d out of range (transitions: %d)"), Index, State->Transitions.Num()));
+		const FStateTreeTransition& T = State->Transitions[Index];
+		// Transitions don't have an FStateTreeEditorNode wrapper; synthesize a description.
+		TransitionDescription = FString::Printf(TEXT("%s -> %s (conditions: %d, enabled: %s)"),
+			*ECAStateTreeInternal::TransitionTriggerToString(T.Trigger),
+			*ECAStateTreeInternal::TransitionTargetString(T.State),
+			T.Conditions.Num(),
+			T.bTransitionEnabled ? TEXT("true") : TEXT("false"));
+	}
+	else if (NodeKind.Equals(TEXT("evaluator"), ESearchCase::IgnoreCase))
+	{
+		if (!EditorData->Evaluators.IsValidIndex(Index)) return FECACommandResult::Error(FString::Printf(TEXT("index %d out of range (evaluators: %d)"), Index, EditorData->Evaluators.Num()));
+		FoundNode = &EditorData->Evaluators[Index];
+	}
+	else if (NodeKind.Equals(TEXT("global_task"), ESearchCase::IgnoreCase))
+	{
+		if (!EditorData->GlobalTasks.IsValidIndex(Index)) return FECACommandResult::Error(FString::Printf(TEXT("index %d out of range (global_tasks: %d)"), Index, EditorData->GlobalTasks.Num()));
+		FoundNode = &EditorData->GlobalTasks[Index];
+	}
+	else
+	{
+		return FECACommandResult::ValidationError(this, FString::Printf(TEXT("Unknown node_kind '%s'. Valid: task, condition, transition, evaluator, global_task."), *NodeKind));
+	}
+
+	FString Description = !TransitionDescription.IsEmpty()
+		? TransitionDescription
+		: ECAStateTreeInternal::GetEditorNodeDescription(*EditorData, *FoundNode);
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("state_tree_path"), TreePath);
+	Result->SetStringField(TEXT("node_kind"), NodeKind);
+	if (!StatePath.IsEmpty()) Result->SetStringField(TEXT("state_path"), StatePath);
+	Result->SetNumberField(TEXT("index"), Index);
+	Result->SetStringField(TEXT("description"), Description);
+	return FECACommandResult::Success(Result);
+}
+
+REGISTER_ECA_COMMAND(FECACommand_DescribeStateTreeNode);
+
 #endif // WITH_ECA_STATETREE

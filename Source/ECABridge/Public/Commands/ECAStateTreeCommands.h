@@ -165,3 +165,25 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+// â”€â”€ Task 3: node describer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+class FECACommand_DescribeStateTreeNode : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("describe_state_tree_node"); }
+	virtual FString GetDescription() const override { return TEXT("Return the editor's human-readable description of a specific StateTree node (task/condition/transition/evaluator). state_path is required for state-scoped kinds; omit for global (global_task/evaluator)."); }
+	virtual FString GetCategory() const override { return TEXT("StateTree"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("state_tree_path"), TEXT("string"),  TEXT("Asset path to a UStateTree"), true, TEXT("") },
+			{ TEXT("node_kind"),       TEXT("string"),  TEXT("One of: task, condition, transition, evaluator, global_task"), true, TEXT("") },
+			{ TEXT("state_path"),      TEXT("string"),  TEXT("Dot-joined state path; required for state-scoped kinds (task, condition, transition). Omit/empty to address global tasks or evaluators."), false, TEXT("") },
+			{ TEXT("index"),           TEXT("integer"), TEXT("Zero-based index into the matching container."), true, TEXT("") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
