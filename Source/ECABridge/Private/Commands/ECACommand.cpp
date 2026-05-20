@@ -110,10 +110,49 @@ TSharedPtr<FJsonObject> MakeECAObjectSchema(const TArray<FECASchemaField>& Field
 	return Schema;
 }
 
+// Title-case helper: "actor_name" -> "Actor Name". Used to surface a human
+// label on each schema property so clients (Claude Code's tools panel, EDA,
+// Inspector tools) can render a nicer label than the raw snake-case key.
+// This mirrors what Python MCP servers get for free via Pydantic field titles.
+static FString ECASchemaTitleFromSnake(const FString& Snake)
+{
+	FString Out;
+	Out.Reserve(Snake.Len());
+	bool bCapNext = true;
+	for (TCHAR C : Snake)
+	{
+		if (C == TEXT('_') || C == TEXT('-'))
+		{
+			Out.AppendChar(TEXT(' '));
+			bCapNext = true;
+		}
+		else if (bCapNext)
+		{
+			Out.AppendChar(FChar::ToUpper(C));
+			bCapNext = false;
+		}
+		else
+		{
+			Out.AppendChar(C);
+		}
+	}
+	return Out;
+}
+
 TSharedPtr<FJsonObject> IECACommand::GetInputSchemaJson() const
 {
 	TSharedPtr<FJsonObject> InputSchema = MakeShared<FJsonObject>();
+	// Native MCP servers (Epic's `ModelContextProtocol` plugin + most reference
+	// SDKs) advertise JSON Schema draft-07 with `additionalProperties:false` so
+	// clients reject typos in argument names instead of silently dropping them.
+	// We match that shape here.
+	InputSchema->SetStringField(TEXT("$schema"), TEXT("http://json-schema.org/draft-07/schema#"));
 	InputSchema->SetStringField(TEXT("type"), TEXT("object"));
+	InputSchema->SetStringField(TEXT("title"), ECASchemaTitleFromSnake(GetName()));
+	if (!GetDescription().IsEmpty())
+	{
+		InputSchema->SetStringField(TEXT("description"), GetDescription());
+	}
 
 	TSharedPtr<FJsonObject> Properties = MakeShared<FJsonObject>();
 	TArray<TSharedPtr<FJsonValue>> Required;
@@ -121,6 +160,7 @@ TSharedPtr<FJsonObject> IECACommand::GetInputSchemaJson() const
 	for (const FECACommandParam& Param : GetParameters())
 	{
 		TSharedPtr<FJsonObject> PropDef = MakeShared<FJsonObject>();
+		PropDef->SetStringField(TEXT("title"), ECASchemaTitleFromSnake(Param.Name));
 
 		FString JsonSchemaType = Param.Type;
 		if (Param.Type == TEXT("any"))
@@ -166,6 +206,9 @@ TSharedPtr<FJsonObject> IECACommand::GetInputSchemaJson() const
 	{
 		InputSchema->SetArrayField(TEXT("required"), Required);
 	}
+	// Strict mode: unknown keys fail validation. Matches native plugin behavior
+	// and protects LLM clients from silently-dropped typos.
+	InputSchema->SetBoolField(TEXT("additionalProperties"), false);
 
 	return InputSchema;
 }

@@ -865,72 +865,12 @@ TArray<TSharedPtr<FJsonValue>> FECAMCPServer::BuildToolDefinitions(const FString
 		ToolDef->SetStringField(TEXT("name"), Command->GetName());
 		ToolDef->SetStringField(TEXT("description"), Command->GetDescription());
 
-		// Build input schema
-		TSharedPtr<FJsonObject> InputSchema = MakeShared<FJsonObject>();
-		InputSchema->SetStringField(TEXT("type"), TEXT("object"));
-
-		TSharedPtr<FJsonObject> Properties = MakeShared<FJsonObject>();
-		TArray<TSharedPtr<FJsonValue>> Required;
-
-		for (const FECACommandParam& Param : Command->GetParameters())
-		{
-			TSharedPtr<FJsonObject> PropDef = MakeShared<FJsonObject>();
-			
-			// Map parameter types to valid JSON Schema types
-			// Valid types: string, number, integer, boolean, object, array, null
-			FString JsonSchemaType = Param.Type;
-			if (Param.Type == TEXT("any"))
-			{
-				// "any" is not valid in JSON Schema - use a union or just string
-				// We'll accept any JSON value by not specifying type constraints
-				PropDef->SetStringField(TEXT("description"), Param.Description + TEXT(" (accepts any JSON value)"));
-			}
-			else if (Param.Type == TEXT("vector") || Param.Type == TEXT("rotator") || Param.Type == TEXT("transform"))
-			{
-				// These are objects with specific structure
-				JsonSchemaType = TEXT("object");
-				PropDef->SetStringField(TEXT("type"), JsonSchemaType);
-				PropDef->SetStringField(TEXT("description"), Param.Description);
-			}
-			else if (Param.Type == TEXT("float") || Param.Type == TEXT("double"))
-			{
-				JsonSchemaType = TEXT("number");
-				PropDef->SetStringField(TEXT("type"), JsonSchemaType);
-				PropDef->SetStringField(TEXT("description"), Param.Description);
-			}
-			else if (Param.Type == TEXT("int") || Param.Type == TEXT("int32") || Param.Type == TEXT("int64"))
-			{
-				JsonSchemaType = TEXT("integer");
-				PropDef->SetStringField(TEXT("type"), JsonSchemaType);
-				PropDef->SetStringField(TEXT("description"), Param.Description);
-			}
-			else
-			{
-				// Standard JSON Schema types: string, number, integer, boolean, object, array
-				PropDef->SetStringField(TEXT("type"), JsonSchemaType);
-				PropDef->SetStringField(TEXT("description"), Param.Description);
-			}
-			
-			if (!Param.DefaultValue.IsEmpty())
-			{
-				PropDef->SetStringField(TEXT("default"), Param.DefaultValue);
-			}
-
-			Properties->SetObjectField(Param.Name, PropDef);
-
-			if (Param.bRequired)
-			{
-				Required.Add(MakeShared<FJsonValueString>(Param.Name));
-			}
-		}
-
-		InputSchema->SetObjectField(TEXT("properties"), Properties);
-		if (Required.Num() > 0)
-		{
-			InputSchema->SetArrayField(TEXT("required"), Required);
-		}
-
-		ToolDef->SetObjectField(TEXT("inputSchema"), InputSchema);
+		// Single source of truth: GetInputSchemaJson() produces the same shape
+		// ValidationError embeds, so clients see a consistent schema whether they
+		// fetch via tools/list or recover via an error message. The schema is
+		// shaped to match native MCP's draft-07 + additionalProperties:false + per-property
+		// title convention (see ECACommand.cpp::GetInputSchemaJson).
+		ToolDef->SetObjectField(TEXT("inputSchema"), Command->GetInputSchemaJson());
 
 		// Surface optional output schema if the command provides one.
 		TSharedPtr<FJsonObject> OutputSchema = Command->GetOutputSchema();
