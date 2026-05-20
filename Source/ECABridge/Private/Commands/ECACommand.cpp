@@ -534,15 +534,129 @@ TArray<FString> FECACommandRegistry::GetCategories() const
 	return Categories.Array();
 }
 
+namespace
+{
+	/** Compute Levenshtein distance between two case-folded strings. Capped at MaxDist
+	 *  for early-out cheapness — anything > cap returns cap+1. */
+	int32 LevenshteinCapped(const FString& A, const FString& B, int32 MaxDist)
+	{
+		const int32 LenA = A.Len();
+		const int32 LenB = B.Len();
+		if (FMath::Abs(LenA - LenB) > MaxDist)
+		{
+			return MaxDist + 1;
+		}
+		if (LenA == 0) { return LenB; }
+		if (LenB == 0) { return LenA; }
+
+		TArray<int32> Prev; Prev.SetNumUninitialized(LenB + 1);
+		TArray<int32> Curr; Curr.SetNumUninitialized(LenB + 1);
+		for (int32 j = 0; j <= LenB; ++j) { Prev[j] = j; }
+
+		for (int32 i = 1; i <= LenA; ++i)
+		{
+			Curr[0] = i;
+			int32 RowMin = Curr[0];
+			for (int32 j = 1; j <= LenB; ++j)
+			{
+				const int32 Cost = (A[i - 1] == B[j - 1]) ? 0 : 1;
+				Curr[j] = FMath::Min3(Prev[j] + 1, Curr[j - 1] + 1, Prev[j - 1] + Cost);
+				RowMin = FMath::Min(RowMin, Curr[j]);
+			}
+			if (RowMin > MaxDist)
+			{
+				return MaxDist + 1;
+			}
+			Swap(Prev, Curr);
+		}
+		return Prev[LenB];
+	}
+}
+
+TArray<FString> FECACommandRegistry::SuggestSimilarCommands(const FString& Input, int32 MaxResults) const
+{
+	TArray<FString> Suggestions;
+	if (Input.IsEmpty() || MaxResults <= 0)
+	{
+		return Suggestions;
+	}
+
+	const FString InputLower = Input.ToLower();
+
+	struct FCandidate
+	{
+		FString Name;
+		int32 Tier = 3;     // 0=exact-prefix, 1=substring, 2=fuzzy
+		int32 Distance = 0; // tie-breaker within tier (lower = better)
+	};
+	TArray<FCandidate> Candidates;
+
+	const int32 MaxDist = FMath::Max(2, InputLower.Len() / 3);
+
+	{
+		FScopeLock Lock(&CommandsLock);
+		Candidates.Reserve(Commands.Num());
+		for (const auto& Pair : Commands)
+		{
+			const FString& Name = Pair.Key;
+			const FString NameLower = Name.ToLower();
+			FCandidate C; C.Name = Name;
+
+			if (NameLower.StartsWith(InputLower))
+			{
+				C.Tier = 0;
+				C.Distance = Name.Len() - InputLower.Len();
+				Candidates.Add(C);
+				continue;
+			}
+			if (NameLower.Contains(InputLower))
+			{
+				C.Tier = 1;
+				C.Distance = Name.Len() - InputLower.Len();
+				Candidates.Add(C);
+				continue;
+			}
+			const int32 D = LevenshteinCapped(InputLower, NameLower, MaxDist);
+			if (D <= MaxDist)
+			{
+				C.Tier = 2;
+				C.Distance = D;
+				Candidates.Add(C);
+			}
+		}
+	}
+
+	Candidates.Sort([](const FCandidate& X, const FCandidate& Y)
+	{
+		if (X.Tier != Y.Tier) { return X.Tier < Y.Tier; }
+		if (X.Distance != Y.Distance) { return X.Distance < Y.Distance; }
+		return X.Name < Y.Name;
+	});
+
+	const int32 N = FMath::Min(MaxResults, Candidates.Num());
+	for (int32 i = 0; i < N; ++i)
+	{
+		Suggestions.Add(Candidates[i].Name);
+	}
+	return Suggestions;
+}
+
 FECACommandResult FECACommandRegistry::ExecuteCommand(const FString& Name, const TSharedPtr<FJsonObject>& Params)
 {
 	TSharedPtr<IECACommand> Command = GetCommand(Name);
-	
+
 	if (!Command.IsValid())
 	{
+		const TArray<FString> Suggestions = SuggestSimilarCommands(Name, 3);
+		if (Suggestions.Num() > 0)
+		{
+			return FECACommandResult::Error(FString::Printf(
+				TEXT("Unknown command: %s. Did you mean: %s?"),
+				*Name, *FString::Join(Suggestions, TEXT(", "))));
+		}
 		return FECACommandResult::Error(FString::Printf(TEXT("Unknown command: %s"), *Name));
 	}
-	
+
 	return Command->Execute(Params);
 }
 

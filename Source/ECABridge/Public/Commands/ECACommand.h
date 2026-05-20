@@ -179,7 +179,13 @@ public:
 	
 	/** Get all category names */
 	TArray<FString> GetCategories() const;
-	
+
+	/** Return up to MaxResults registered command names that are similar to the
+	 *  given (typically unknown) input. Useful for "did you mean" hints on errors.
+	 *  Ranks by: exact prefix > substring match > Levenshtein distance. Returns an
+	 *  empty array if no reasonable matches exist. Case-insensitive. */
+	TArray<FString> SuggestSimilarCommands(const FString& Input, int32 MaxResults = 3) const;
+
 	/** Execute a command by name */
 	FECACommandResult ExecuteCommand(const FString& Name, const TSharedPtr<FJsonObject>& Params);
 	

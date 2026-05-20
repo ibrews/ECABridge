@@ -4,6 +4,11 @@ DerivedDataCache/
 Saved/
 scripts/*
 !scripts/smoke-test.py
+!scripts/gen-examples.py
+!scripts/gen-docs.py
+!scripts/eca_client.py
+!scripts/eca-describe.py
+!scripts/example-sources/
 *.pdb
 *.lib
 *.dll
