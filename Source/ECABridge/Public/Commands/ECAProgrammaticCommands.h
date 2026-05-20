@@ -90,6 +90,7 @@ public:
 		return TEXT("Describe the Python execution environment for execute_script: injected helpers, available modules, and the full list of ECABridge tool names invocable via execute_tool(). Call this first before writing a script.");
 	}
 	virtual FString GetCategory() const override { return TEXT("Programmatic"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
 	{

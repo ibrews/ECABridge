@@ -48,6 +48,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_cvar_profiles"); }
 	virtual FString GetDescription() const override { return TEXT("List the CVar profiles available under Saved/CVarProfiles/."); }
 	virtual FString GetCategory() const override { return TEXT("EditorUX"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };

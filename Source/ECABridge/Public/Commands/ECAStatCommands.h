@@ -36,6 +36,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_stat_values"); }
 	virtual FString GetDescription() const override { return TEXT("Report the current frame-time / FPS averages plus engine memory headline numbers. Detailed per-group stat values must be read from the editor log after enabling the group."); }
 	virtual FString GetCategory() const override { return TEXT("Observability"); }
+	virtual bool IsMutating() const override { return false; }
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override;
 };

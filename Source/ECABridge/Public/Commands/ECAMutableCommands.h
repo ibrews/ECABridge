@@ -15,6 +15,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_co_info"); }
 	virtual FString GetDescription() const override { return TEXT("Get info about a Customizable Object: nodes, parameters, components, compile state"); }
 	virtual FString GetCategory() const override { return TEXT("Mutable"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -34,6 +35,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_co_node_pins"); }
 	virtual FString GetDescription() const override { return TEXT("List all pins on a Customizable Object graph node (names, types, directions, connections)"); }
 	virtual FString GetCategory() const override { return TEXT("Mutable"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -96,6 +98,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_co_node_types"); }
 	virtual FString GetDescription() const override { return TEXT("List all available Customizable Object node types that can be added to a CO graph"); }
 	virtual FString GetCategory() const override { return TEXT("Mutable"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override { return {}; }
 
@@ -218,6 +221,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_co_instance_params"); }
 	virtual FString GetDescription() const override { return TEXT("Get the runtime parameter values of a Customizable Object Instance (for character customization)"); }
 	virtual FString GetCategory() const override { return TEXT("Mutable"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

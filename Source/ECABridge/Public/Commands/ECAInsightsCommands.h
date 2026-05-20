@@ -35,6 +35,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_insights_summary"); }
 	virtual FString GetDescription() const override { return TEXT("Summarize an Unreal Insights .utrace file (size, mtime, channels). Returns a small JSON description, not the full trace contents."); }
 	virtual FString GetCategory() const override { return TEXT("Observability"); }
+	virtual bool IsMutating() const override { return false; }
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {

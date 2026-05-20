@@ -47,6 +47,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_workspace_layouts"); }
 	virtual FString GetDescription() const override { return TEXT("List the workspace layout snapshots available under Saved/WorkspaceLayouts/."); }
 	virtual FString GetCategory() const override { return TEXT("EditorUX"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };

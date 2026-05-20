@@ -15,6 +15,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_niagara_systems"); }
 	virtual FString GetDescription() const override { return TEXT("Get all available Niagara systems in the project"); }
 	virtual FString GetCategory() const override { return TEXT("Niagara"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -91,6 +92,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_niagara_actors"); }
 	virtual FString GetDescription() const override { return TEXT("Get all Niagara effect actors in the current level"); }
 	virtual FString GetCategory() const override { return TEXT("Niagara"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -163,6 +165,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_niagara_parameters"); }
 	virtual FString GetDescription() const override { return TEXT("Get user-exposed parameters of a Niagara system"); }
 	virtual FString GetCategory() const override { return TEXT("Niagara"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -288,6 +291,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_niagara_emitters"); }
 	virtual FString GetDescription() const override { return TEXT("Get all emitters in a Niagara system"); }
 	virtual FString GetCategory() const override { return TEXT("Niagara"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -308,6 +312,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_niagara_modules"); }
 	virtual FString GetDescription() const override { return TEXT("Get all modules in a Niagara emitter's script stack"); }
 	virtual FString GetCategory() const override { return TEXT("Niagara"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -330,6 +335,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_niagara_modules"); }
 	virtual FString GetDescription() const override { return TEXT("List available built-in Niagara modules by category"); }
 	virtual FString GetCategory() const override { return TEXT("Niagara"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -418,6 +424,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_niagara_emitter_templates"); }
 	virtual FString GetDescription() const override { return TEXT("List available Niagara emitter templates that can be used with add_niagara_emitter"); }
 	virtual FString GetCategory() const override { return TEXT("Niagara"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -566,6 +573,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_niagara_system"); }
 	virtual FString GetDescription() const override { return TEXT("Serialize a complete Niagara system to JSON: all emitters with their module stacks (per stage), renderers, parameters, and settings. Makes any Niagara system fully legible in one call."); }
 	virtual FString GetCategory() const override { return TEXT("Niagara"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -601,6 +609,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_module_inputs"); }
 	virtual FString GetDescription() const override { return TEXT("List the user-facing module inputs for a Niagara module — what you see in the stack panel of the Niagara editor (SpawnRate, Loop Duration, Gravity, sprite size, etc.). Returns each input's name, type, hidden flag, and whether an override is currently set. Use the names returned here as 'input_name' for set_niagara_module_input."); }
 	virtual FString GetCategory() const override { return TEXT("Niagara"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

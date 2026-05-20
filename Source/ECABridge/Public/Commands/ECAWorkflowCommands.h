@@ -34,6 +34,7 @@ public:
 	virtual FString GetName() const override { return TEXT("diff_asset"); }
 	virtual FString GetDescription() const override { return TEXT("Compare an asset against a snapshot (from snapshot_asset) or compare two different assets of the same class. Returns only the properties that differ."); }
 	virtual FString GetCategory() const override { return TEXT("Workflow"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

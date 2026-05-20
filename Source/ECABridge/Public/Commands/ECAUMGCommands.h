@@ -153,6 +153,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_widget_classes"); }
 	virtual FString GetDescription() const override { return TEXT("List available UMG widget classes (UWidget subclasses) — what you can pass as 'widget_type' to add_widget_element. Returns name, full class path, and is_panel flag (panels can host children). Optional name_filter for substring matching."); }
 	virtual FString GetCategory() const override { return TEXT("UMG"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -233,6 +234,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_widget_tree"); }
 	virtual FString GetDescription() const override { return TEXT("Serialize a Widget Blueprint's full widget tree to JSON: hierarchical parent-child structure, widget classes, slot properties (padding, alignment, anchors), visibility, and is_variable status. Makes any UMG widget fully legible."); }
 	virtual FString GetCategory() const override { return TEXT("UMG"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -260,6 +262,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_widget_info"); }
 	virtual FString GetDescription() const override { return TEXT("Get information about a Widget Blueprint"); }
 	virtual FString GetCategory() const override { return TEXT("UMG"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

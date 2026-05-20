@@ -18,6 +18,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_validation_rules"); }
 	virtual FString GetDescription() const override { return TEXT("List all UEditorValidatorBase validators currently registered with the editor's UEditorValidatorSubsystem. Returns class name, package path, and enabled state for each."); }
 	virtual FString GetCategory() const override { return TEXT("SourceControlValidation"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override { return {}; }
 
@@ -60,6 +61,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_validation_report"); }
 	virtual FString GetDescription() const override { return TEXT("Walk a content-folder path, validate every asset under it via UEditorValidatorSubsystem, and return a compact per-asset pass/fail summary (no per-error detail). Use run_asset_validator for full error text."); }
 	virtual FString GetCategory() const override { return TEXT("SourceControlValidation"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

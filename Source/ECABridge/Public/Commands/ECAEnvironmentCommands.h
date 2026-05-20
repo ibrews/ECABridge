@@ -120,6 +120,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_scene_stats"); }
 	virtual FString GetDescription() const override { return TEXT("Return scene statistics: actor count by type, light count, and general scene info"); }
 	virtual FString GetCategory() const override { return TEXT("Environment"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -430,6 +431,7 @@ public:
 	virtual FString GetName() const override { return TEXT("describe_actor"); }
 	virtual FString GetDescription() const override { return TEXT("Give a comprehensive description of any actor: class, all components with their types and key properties, materials, meshes, lights, etc."); }
 	virtual FString GetCategory() const override { return TEXT("Environment"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -598,6 +600,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_scene_snapshots"); }
 	virtual FString GetDescription() const override { return TEXT("List all available scene snapshots with actor counts and timestamps"); }
 	virtual FString GetCategory() const override { return TEXT("Environment"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -634,6 +637,7 @@ public:
 	virtual FString GetName() const override { return TEXT("measure_distance"); }
 	virtual FString GetDescription() const override { return TEXT("Measure the distance between two actors or two points"); }
 	virtual FString GetCategory() const override { return TEXT("Environment"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -681,6 +685,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_world_info"); }
 	virtual FString GetDescription() const override { return TEXT("Get comprehensive world/level information: level name, path, bounds, actor count, gravity, time dilation, game mode, player start"); }
 	virtual FString GetCategory() const override { return TEXT("Environment"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -839,6 +844,7 @@ public:
 	virtual FString GetName() const override { return TEXT("search_assets"); }
 	virtual FString GetDescription() const override { return TEXT("Search the asset registry for assets matching a query by name, class, or path"); }
 	virtual FString GetCategory() const override { return TEXT("Environment"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -861,6 +867,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_actor_count_by_class"); }
 	virtual FString GetDescription() const override { return TEXT("Count actors of each class in the level — useful for understanding scene composition"); }
 	virtual FString GetCategory() const override { return TEXT("Environment"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -960,6 +967,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_material_slots"); }
 	virtual FString GetDescription() const override { return TEXT("Get all material slots on an actor with their current material assignments"); }
 	virtual FString GetCategory() const override { return TEXT("Environment"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -1151,6 +1159,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_actor_children"); }
 	virtual FString GetDescription() const override { return TEXT("List all actors attached to a given actor as children"); }
 	virtual FString GetCategory() const override { return TEXT("Environment"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -1216,6 +1225,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_all_asset_paths"); }
 	virtual FString GetDescription() const override { return TEXT("List all asset paths in a specific directory — content browser equivalent"); }
 	virtual FString GetCategory() const override { return TEXT("Environment"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -1258,6 +1268,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_performance_stats"); }
 	virtual FString GetDescription() const override { return TEXT("Get detailed performance statistics: FPS, frame time, draw calls, triangle count, texture memory, and mesh count"); }
 	virtual FString GetCategory() const override { return TEXT("Environment"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -1322,6 +1333,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_heavy_actors"); }
 	virtual FString GetDescription() const override { return TEXT("Find actors that are likely causing performance issues — sorted by triangle count and material count"); }
 	virtual FString GetCategory() const override { return TEXT("Environment"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

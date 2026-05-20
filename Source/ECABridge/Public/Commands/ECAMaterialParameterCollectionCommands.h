@@ -104,6 +104,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_mpc"); }
 	virtual FString GetDescription() const override { return TEXT("Inspect a UMaterialParameterCollection: list scalar and vector parameter definitions."); }
 	virtual FString GetCategory() const override { return TEXT("MaterialParameterCollection"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

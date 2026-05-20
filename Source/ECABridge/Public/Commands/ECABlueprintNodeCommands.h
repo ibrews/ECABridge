@@ -207,6 +207,7 @@ public:
 	virtual FString GetName() const override { return TEXT("find_blueprint_nodes"); }
 	virtual FString GetDescription() const override { return TEXT("Find nodes in a Blueprint graph by type or name"); }
 	virtual FString GetCategory() const override { return TEXT("Blueprint Node"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -318,6 +319,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_blueprint_node_pins"); }
 	virtual FString GetDescription() const override { return TEXT("Get detailed pin information for a node by its GUID. Use this to discover pin names for connections."); }
 	virtual FString GetCategory() const override { return TEXT("Blueprint Node"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -456,6 +458,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_blueprint_variable_default"); }
 	virtual FString GetDescription() const override { return TEXT("Get the default value of a Blueprint variable"); }
 	virtual FString GetCategory() const override { return TEXT("Blueprint"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -599,6 +602,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_blueprint_graph"); }
 	virtual FString GetDescription() const override { return TEXT("Serialize an entire Blueprint to JSON: all graphs (event, function, macro), all nodes with pins and connections, all variables with types and defaults, compilation status. Makes any Blueprint fully readable in one call."); }
 	virtual FString GetCategory() const override { return TEXT("Blueprint Node"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -657,6 +661,7 @@ public:
 	virtual FString GetName() const override { return TEXT("search_blueprint_usage"); }
 	virtual FString GetDescription() const override { return TEXT("Search across multiple Blueprints for nodes matching a search term. Scans all graphs (UbergraphPages + FunctionGraphs) in each Blueprint."); }
 	virtual FString GetCategory() const override { return TEXT("Blueprint Node"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

@@ -54,6 +54,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_actor_animations"); }
 	virtual FString GetDescription() const override { return TEXT("List all animation assets compatible with an actor's skeleton"); }
 	virtual FString GetCategory() const override { return TEXT("Animation"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -93,6 +94,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_skeleton_info"); }
 	virtual FString GetDescription() const override { return TEXT("Get skeleton info: bone names, bone count, morph targets for a skeletal mesh"); }
 	virtual FString GetCategory() const override { return TEXT("Animation"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -135,6 +137,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_animation_blueprint"); }
 	virtual FString GetDescription() const override { return TEXT("Serialize an Animation Blueprint to JSON: state machines with states and transitions, blend spaces, variables, and the AnimGraph structure. Makes any AnimBP fully legible."); }
 	virtual FString GetCategory() const override { return TEXT("Animation"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

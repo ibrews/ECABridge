@@ -99,6 +99,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_texture_info"); }
 	virtual FString GetDescription() const override { return TEXT("Get technical info about a texture (resolution, format, mips). NOTE: For visual description of what a texture looks like, use get_asset_thumbnail + analyze_image instead."); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -133,6 +134,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_material_info"); }
 	virtual FString GetDescription() const override { return TEXT("Get technical info about a material (nodes, parameters). NOTE: For visual description of what a material looks like, use get_asset_thumbnail + analyze_image instead."); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -165,6 +167,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_textures"); }
 	virtual FString GetDescription() const override { return TEXT("List all texture assets in a path. TIP: For visual descriptions, use get_asset_thumbnail + analyze_image to describe what textures look like."); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -194,6 +197,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_materials"); }
 	virtual FString GetDescription() const override { return TEXT("List all material assets in a path. TIP: For visual descriptions, use get_asset_thumbnail + analyze_image to describe what materials look like."); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -268,6 +272,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_actor_materials"); }
 	virtual FString GetDescription() const override { return TEXT("Get all materials currently assigned to an actor's mesh components"); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -498,6 +503,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_asset_property"); }
 	virtual FString GetDescription() const override { return TEXT("Get UPROPERTY values from any asset using reflection. Returns all editable properties if no specific property is requested."); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -528,6 +534,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_asset_properties"); }
 	virtual FString GetDescription() const override { return TEXT("List all editable UPROPERTY fields on an asset, organized by category. Useful for discovering what properties can be set."); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -680,6 +687,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_asset_thumbnail"); }
 	virtual FString GetDescription() const override { return TEXT("Get the thumbnail/icon image for any asset and save it to a PNG file. IMPORTANT: For generating visual asset descriptions, use this to get the thumbnail, then analyze_image() to describe it visually, then set_asset_association() to register the description for semantic search."); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -705,6 +713,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_asset_thumbnails"); }
 	virtual FString GetDescription() const override { return TEXT("Get thumbnails for multiple assets at once. IMPORTANT: For visual asset cataloging, get thumbnails, then analyze_image() each one to describe visually, then set_asset_association() to register descriptions for semantic search. Much more efficient than single-asset calls."); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -733,6 +742,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_asset"); }
 	virtual FString GetDescription() const override { return TEXT("Serialize a complete asset to JSON: all UPROPERTYs (with values), sub-objects, asset references, and metadata. Single-call alternative to list_asset_properties + get_asset_property."); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -771,6 +781,7 @@ public:
 	virtual FString GetName() const override { return TEXT("find_assets"); }
 	virtual FString GetDescription() const override { return TEXT("Search the asset registry by class, path, or name. Returns matching assets with optional metadata. Use to discover assets before introspecting with dump_asset."); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -805,6 +816,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_asset_references"); }
 	virtual FString GetDescription() const override { return TEXT("Get asset dependency graph: what this asset references (dependencies) and what references it (referencers). Essential for understanding 'what breaks if I change this?'"); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -836,6 +848,7 @@ public:
 	virtual FString GetName() const override { return TEXT("validate_asset"); }
 	virtual FString GetDescription() const override { return TEXT("Run UE's asset validation on any asset and return errors/warnings. Use after making changes to verify correctness."); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -856,6 +869,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_class_hierarchy"); }
 	virtual FString GetDescription() const override { return TEXT("Get class hierarchy for any UClass: parent chain, implemented interfaces, direct child classes, and key properties. Essential for understanding what you can cast to and what functions are available."); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

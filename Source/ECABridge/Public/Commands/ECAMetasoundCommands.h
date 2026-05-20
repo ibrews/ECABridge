@@ -15,6 +15,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_metasound_sources"); }
 	virtual FString GetDescription() const override { return TEXT("Get all available MetaSound source assets in the project"); }
 	virtual FString GetCategory() const override { return TEXT("Metasound"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -65,6 +66,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_metasound_nodes"); }
 	virtual FString GetDescription() const override { return TEXT("Get all nodes in a MetaSound source graph"); }
 	virtual FString GetCategory() const override { return TEXT("Metasound"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -255,6 +257,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_metasound_node_types"); }
 	virtual FString GetDescription() const override { return TEXT("Get all available MetaSound node types that can be added to a graph"); }
 	virtual FString GetCategory() const override { return TEXT("Metasound"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -297,6 +300,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_metasound_interface"); }
 	virtual FString GetDescription() const override { return TEXT("Get the inputs and outputs of a MetaSound source"); }
 	virtual FString GetCategory() const override { return TEXT("Metasound"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -356,6 +360,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_metasound_graph"); }
 	virtual FString GetDescription() const override { return TEXT("Serialize a complete MetaSound source to JSON: all nodes with pins and connections, source inputs/outputs, and graph structure. Combines get_metasound_nodes + get_metasound_interface in one call."); }
 	virtual FString GetCategory() const override { return TEXT("Metasound"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

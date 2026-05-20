@@ -23,6 +23,7 @@ public:
 	virtual FString GetName() const override { return TEXT("diff_memory_snapshots"); }
 	virtual FString GetDescription() const override { return TEXT("Diff two previously captured memory snapshots. Returns per-metric delta plus a small leak-suspect summary."); }
 	virtual FString GetCategory() const override { return TEXT("Observability"); }
+	virtual bool IsMutating() const override { return false; }
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {

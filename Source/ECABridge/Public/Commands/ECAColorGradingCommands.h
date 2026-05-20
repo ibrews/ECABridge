@@ -45,6 +45,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_color_grading"); }
 	virtual FString GetDescription() const override { return TEXT("Dump color-grading wheel parameters (Saturation/Contrast/Gamma/Gain/Offset for Global/Shadows/Midtones/Highlights) of a PostProcessVolume"); }
 	virtual FString GetCategory() const override { return TEXT("Rendering"); }
+	virtual bool IsMutating() const override { return false; }
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {
