@@ -26,6 +26,7 @@
 #include "Dom/JsonObject.h"
 #include "ECAMCPServer.h"
 #include "ECAClientConfigWriter.h"
+#include "ECAClientToolsetBridge.h"
 
 #define LOCTEXT_NAMESPACE "FECABridgeModule"
 
@@ -189,6 +190,12 @@ void FECABridgeModule::RegisterConsoleCommands()
 		}),
 		ECVF_Default
 	);
+
+	// Native MCP coexistence bridge (Batch K). Logs detection state and
+	// registers ECABridge.NativeMCPStatus. No-op when WITH_ECA_NATIVE_MCP_INTEGRATION=0
+	// (i.e. on 5.7 or engines without the experimental ModelContextProtocol plugin).
+	FECAClientToolsetBridge::LogStartupDetection();
+	FECAClientToolsetBridge::RegisterConsoleCommands();
 }
 
 void FECABridgeModule::RegisterEditorEventHandlers()

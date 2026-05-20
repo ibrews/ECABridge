@@ -316,5 +316,19 @@ public class ECABridge : ModuleRules
 		{
 			PublicDefinitions.Add("WITH_ECA_DATAVALIDATION=0");
 		}
+
+		// Native MCP coexistence bridge (Batch K). Compiled only when Epic's
+		// ModelContextProtocol plugin ships with the engine (5.8+ Experimental).
+		// We deliberately do NOT add a PrivateDependencyModuleNames entry for
+		// "ModelContextProtocol" — it's NoRedist and we want zero link-time
+		// coupling. Runtime detection uses FModuleManager::IsModuleLoaded.
+		if (EngineHasPlugin("ModelContextProtocol"))
+		{
+			PublicDefinitions.Add("WITH_ECA_NATIVE_MCP_INTEGRATION=1");
+		}
+		else
+		{
+			PublicDefinitions.Add("WITH_ECA_NATIVE_MCP_INTEGRATION=0");
+		}
 	}
 }
