@@ -258,14 +258,15 @@ public class ECABridge : ModuleRules
 			PublicDefinitions.Add("WITH_ECA_GAMEPLAY_ABILITIES=0");
 		}
 
-		// DMX (lighting protocol, 2 read-only commands). Gates against the DMXEngine
-		// plugin which bundles the DMXRuntime module that owns UDMXLibrary +
-		// UDMXEntityFixturePatch. DMXProtocol is a sibling plugin but DMXRuntime
-		// only depends on DMXProtocol abstractly so we don't need to link both.
+		// DMX (lighting protocol). DMXRuntime owns UDMXLibrary / UDMXEntityFixturePatch /
+		// UDMXEntityFixtureType; DMXProtocol owns FDMXOutputPort + Send APIs used by
+		// the runtime mutators (set_dmx_universe, send_dmx_values). Both link cleanly
+		// under the same DMXEngine plugin gate.
 		if (EngineHasPlugin("DMXEngine"))
 		{
-			PrivateDependencyModuleNames.Add("DMXRuntime");
+			PrivateDependencyModuleNames.AddRange(new string[] { "DMXRuntime", "DMXProtocol" });
 			PublicDelayLoadDLLs.Add("UnrealEditor-DMXRuntime.dll");
+			PublicDelayLoadDLLs.Add("UnrealEditor-DMXProtocol.dll");
 			PublicDefinitions.Add("WITH_ECA_DMX=1");
 		}
 		else
