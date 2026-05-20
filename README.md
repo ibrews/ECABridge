@@ -48,7 +48,9 @@ Full setup, Claude Desktop config, curl examples, and port-collision notes in **
 - **Source control** (13 commands across changelist, mutate, diff, reconcile, validate, landscape) — pre-submit validation, dry-run reverts, landscape locking
 - **Performance / diagnostics** (19 commands) — Insights traces, stat commands, CVar profiles, memory snapshots, frame captures, diagnostic bundles
 - **PCG** (10 commands) — authoring, runtime, data inspection, settings asset, full graph dump
-- **Virtual production** (11 commands) — DMX, LiveLink, NDisplay, XR, USD, Stage Actor
+- **Virtual production / Stage** (18 commands) — DMX library + patch authoring (`create_dmx_library`, `add_dmx_fixture`, `set_dmx_universe`, `send_dmx_values`), LiveLink, nDisplay with cluster lifecycle + ICVFX inner-frustum, OpenXR session lifecycle, USD, Stage Actor
+- **World Partition mutation** — `force_load_wp_region`, `pin_wp_actors`, `unpin_wp_actors` for runtime streaming control
+- **MCP 2025-03-26 protocol completeness** — per-session state via `Mcp-Session-Id`, request cancellation, streaming `notifications/progress` SSE events, `resources/list` + `resources/read` for UE assets, `notifications/tools/list_changed` when the lazy registry mutates
 - **Python sandbox** — `execute_script` chains N MCP calls in one round-trip; mirrors Epic's UE 5.8 `ProgrammaticToolset`
 - **5 screenshot commands** with inline base64 PNG response — no file I/O required
 - **Schema-in-error responses** — every validation failure returns the full input JSON Schema inline so LLMs can self-correct
@@ -61,6 +63,8 @@ Full setup, Claude Desktop config, curl examples, and port-collision notes in **
 Single branch supports UE 5.7 and 5.8. Two API divergences are handled with `ENGINE_MAJOR_VERSION` / `ENGINE_MINOR_VERSION` guards — see **[Engine Compatibility](https://github.com/ibrews/ECABridge/wiki/Engine-Compatibility)** for the details and the 5.9 deprecation list.
 
 **Verified on Fort 2026-05-19:** clean UAT `BuildPlugin`, loads in a 5.8 project, server starts on `:3000`, 500+ commands available with `Mutable`+`MovieRenderPipeline` enabled, build correctly omits the optional-dep commands when the upstream plugins aren't reachable, runs side-by-side with Epic's native `ModelContextProtocol` plugin on `:8000`.
+
+**Verified on Theseus 2026-05-20:** clean `Test57Editor` + `Test58Editor` builds against both engines from the same `main` branch, editor launches on UE 5.7 with `:3000` reporting `commands: 489, bridge_ready: true, sessions: 0`, `resources/list` returns a well-formed (empty for an empty test project) response.
 
 ## Coexistence with Epic's native MCP (UE 5.8)
 
