@@ -74,3 +74,94 @@ public:
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
+
+// â”€â”€ Task 2: state-level inspectors â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+class FECACommand_ListStateTreeStateChildren : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("list_state_tree_state_children"); }
+	virtual FString GetDescription() const override { return TEXT("List immediate children of a state in a StateTree. state_path is a dot-joined display-name path (e.g. Combat.Aggressive)."); }
+	virtual FString GetCategory() const override { return TEXT("StateTree"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("state_tree_path"), TEXT("string"), TEXT("Asset path to a UStateTree"), true, TEXT("") },
+			{ TEXT("state_path"),      TEXT("string"), TEXT("Dot-joined display-name path to a state (e.g. Combat.Aggressive)"), true, TEXT("") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+class FECACommand_ListStateTreeStateTasks : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("list_state_tree_state_tasks"); }
+	virtual FString GetDescription() const override { return TEXT("List tasks attached to a specific state in a StateTree."); }
+	virtual FString GetCategory() const override { return TEXT("StateTree"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("state_tree_path"), TEXT("string"), TEXT("Asset path to a UStateTree"), true, TEXT("") },
+			{ TEXT("state_path"),      TEXT("string"), TEXT("Dot-joined display-name path to a state"), true, TEXT("") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+class FECACommand_ListStateTreeStateEnterConditions : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("list_state_tree_state_enter_conditions"); }
+	virtual FString GetDescription() const override { return TEXT("List enter conditions attached to a specific state in a StateTree."); }
+	virtual FString GetCategory() const override { return TEXT("StateTree"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("state_tree_path"), TEXT("string"), TEXT("Asset path to a UStateTree"), true, TEXT("") },
+			{ TEXT("state_path"),      TEXT("string"), TEXT("Dot-joined display-name path to a state"), true, TEXT("") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+class FECACommand_ListStateTreeStateTransitions : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("list_state_tree_state_transitions"); }
+	virtual FString GetDescription() const override { return TEXT("List transitions attached to a specific state in a StateTree."); }
+	virtual FString GetCategory() const override { return TEXT("StateTree"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("state_tree_path"), TEXT("string"), TEXT("Asset path to a UStateTree"), true, TEXT("") },
+			{ TEXT("state_path"),      TEXT("string"), TEXT("Dot-joined display-name path to a state"), true, TEXT("") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
+
+class FECACommand_ListStateTreeEvaluators : public IECACommand
+{
+public:
+	virtual FString GetName() const override { return TEXT("list_state_tree_evaluators"); }
+	virtual FString GetDescription() const override { return TEXT("List evaluators on a StateTree asset (global, run for the whole tree)."); }
+	virtual FString GetCategory() const override { return TEXT("StateTree"); }
+
+	virtual TArray<FECACommandParam> GetParameters() const override
+	{
+		return {
+			{ TEXT("state_tree_path"), TEXT("string"), TEXT("Asset path to a UStateTree"), true, TEXT("") }
+		};
+	}
+
+	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
+};
