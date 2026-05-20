@@ -68,7 +68,10 @@ namespace ECABridgeExamples
 			{
 				continue;
 			}
-			ExamplesByTool.Add(Pair.Key, Pair.Value->AsObject());
+			// Cross-version: Pair.Key is FString on 5.7, UE::FSharedString on 5.8.
+			// Dereferencing either yields const TCHAR*, so an explicit FString
+			// construction unifies the two paths without a version guard.
+			ExamplesByTool.Add(FString(*Pair.Key), Pair.Value->AsObject());
 		}
 
 		UE_LOG(LogTemp, Log, TEXT("[ECABridge] LoadExamples: loaded %d example(s) from %s"),
