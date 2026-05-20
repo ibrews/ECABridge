@@ -17,6 +17,9 @@
 #include "Misc/Paths.h"
 #include "HAL/PlatformFileManager.h"
 #include "Interfaces/IPluginManager.h"
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "AssetRegistry/IAssetRegistry.h"
+#include "AssetRegistry/AssetData.h"
 
 namespace ECABridgeExamples
 {
@@ -248,19 +251,67 @@ bool FECAMCPServer::Start(int32 Port)
 
 	// Register routes
 	
-	// Main MCP endpoint (POST for messages, OPTIONS for CORS)
+	// Main MCP endpoint (POST for messages, DELETE for session termination, OPTIONS for CORS)
 	MCPRouteHandle = HttpRouter->BindRoute(
 		FHttpPath(TEXT("/mcp")),
-		EHttpServerRequestVerbs::VERB_POST | EHttpServerRequestVerbs::VERB_OPTIONS,
+		EHttpServerRequestVerbs::VERB_POST | EHttpServerRequestVerbs::VERB_DELETE | EHttpServerRequestVerbs::VERB_OPTIONS,
 		FHttpRequestHandler::CreateLambda([this](const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)
 		{
 			if (Request.Verb == EHttpServerRequestVerbs::VERB_OPTIONS)
 			{
 				return HandleCORSPreflight(Request, OnComplete);
 			}
+			if (Request.Verb == EHttpServerRequestVerbs::VERB_DELETE)
+			{
+				return HandleMCPDelete(Request, OnComplete);
+			}
 			return HandleMCPPost(Request, OnComplete);
 		})
 	);
+
+	// Server-initiated notifications stream (MCP Streamable HTTP SSE).
+	// Clients poll this to receive notifications/tools/list_changed,
+	// notifications/progress, and notifications/resources/updated.
+	MCPGetRouteHandle = HttpRouter->BindRoute(
+		FHttpPath(TEXT("/mcp")),
+		EHttpServerRequestVerbs::VERB_GET,
+		FHttpRequestHandler::CreateLambda([this](const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)
+		{
+			return HandleMCPGet(Request, OnComplete);
+		})
+	);
+
+	// Bind registry → MCP server: whenever the visible tool surface changes,
+	// emit notifications/tools/list_changed.
+	FECACommandRegistry::Get().SetOnVisibleToolsChanged([this]()
+	{
+		BroadcastToolsListChanged();
+	});
+
+	// Progress reporter → notifications/progress (MCP 2025-03-26). Long-running
+	// commands call FECAProgressRegistry::Get().Report(...) and this lambda
+	// turns each call into a queued SSE notification.
+	FECAProgressRegistry::Get().SetListener(
+		[this](const FString& Token, double Progress, double Total, const FString& Message)
+		{
+			TSharedPtr<FJsonObject> Note = MakeShared<FJsonObject>();
+			Note->SetStringField(TEXT("jsonrpc"), TEXT("2.0"));
+			Note->SetStringField(TEXT("method"), TEXT("notifications/progress"));
+
+			TSharedPtr<FJsonObject> ParamsObj = MakeShared<FJsonObject>();
+			ParamsObj->SetStringField(TEXT("progressToken"), Token);
+			ParamsObj->SetNumberField(TEXT("progress"), Progress);
+			if (Total >= 0.0)
+			{
+				ParamsObj->SetNumberField(TEXT("total"), Total);
+			}
+			if (!Message.IsEmpty())
+			{
+				ParamsObj->SetStringField(TEXT("message"), Message);
+			}
+			Note->SetObjectField(TEXT("params"), ParamsObj);
+			EnqueueNotification(Note);
+		});
 
 	// Health check endpoint
 	HealthRouteHandle = HttpRouter->BindRoute(
@@ -293,10 +344,15 @@ void FECAMCPServer::Stop()
 		return;
 	}
 
+	// Detach the registry callback so a stale pointer isn't invoked after Stop.
+	FECACommandRegistry::Get().SetOnVisibleToolsChanged(nullptr);
+	FECAProgressRegistry::Get().SetListener(nullptr);
+
 	// Unbind routes
 	if (HttpRouter.IsValid())
 	{
 		HttpRouter->UnbindRoute(MCPRouteHandle);
+		HttpRouter->UnbindRoute(MCPGetRouteHandle);
 		HttpRouter->UnbindRoute(HealthRouteHandle);
 	}
 
@@ -383,8 +439,10 @@ bool FECAMCPServer::HandleMCPPost(const FHttpServerRequest& Request, const FHttp
 	// If no response (notification), return 202 Accepted
 	if (ResponseStr.IsEmpty())
 	{
+		const FString NoRespSessionId = TouchSession(ReadSessionHeader(Request));
 		TUniquePtr<FHttpServerResponse> Response = FHttpServerResponse::Create(FString(), TEXT("application/json"));
 		Response->Headers.Add(TEXT("Access-Control-Allow-Origin"), { TEXT("*") });
+		Response->Headers.Add(TEXT("Mcp-Session-Id"), { NoRespSessionId });
 		Response->Code = EHttpServerResponseCodes::Accepted;
 		OnComplete(MoveTemp(Response));
 		return true;
@@ -392,8 +450,14 @@ bool FECAMCPServer::HandleMCPPost(const FHttpServerRequest& Request, const FHttp
 	
 	UE_LOG(LogTemp, Log, TEXT("[ECABridge] MCP Response: %s"), *ResponseStr.Left(500));
 
+	// MCP session: read incoming header, mint/refresh a session, echo back so
+	// the client uses it on subsequent requests.
+	const FString IncomingSessionId = ReadSessionHeader(Request);
+	const FString ActiveSessionId = TouchSession(IncomingSessionId);
+
 	TUniquePtr<FHttpServerResponse> Response = FHttpServerResponse::Create(ResponseStr, TEXT("application/json"));
 	Response->Headers.Add(TEXT("Access-Control-Allow-Origin"), { TEXT("*") });
+	Response->Headers.Add(TEXT("Mcp-Session-Id"), { ActiveSessionId });
 
 	// Negotiated compression: clients that send Accept-Encoding: deflate (e.g.
 	// curl --compressed, most browsers, MCP clients) get a zlib-compressed body
@@ -466,12 +530,82 @@ TSharedPtr<FJsonObject> FECAMCPServer::ProcessJsonRpcRequest(const TSharedPtr<FJ
 	}
 	else if (Method == TEXT("tools/call"))
 	{
+		// Register a cancellation token for this request ID so the client can
+		// later send notifications/cancelled to abort. The token is published in
+		// TLS for the duration of Execute(); commands poll
+		// FECACancellationRegistry::IsCurrentRequestCancelled() to bail early.
+		FString RequestIdString;
+		if (RequestId.IsValid())
+		{
+			if (RequestId->Type == EJson::String) { RequestIdString = RequestId->AsString(); }
+			else if (RequestId->Type == EJson::Number) { RequestIdString = FString::Printf(TEXT("%lld"), (int64)RequestId->AsNumber()); }
+		}
+
+		// Progress token (per MCP 2025-03-26): clients pass params._meta.progressToken
+		// to opt in to streaming notifications/progress events.
+		FString ProgressToken;
+		if (Params.IsValid())
+		{
+			const TSharedPtr<FJsonObject>* MetaPtr = nullptr;
+			if (Params->TryGetObjectField(TEXT("_meta"), MetaPtr) && MetaPtr && MetaPtr->IsValid())
+			{
+				if (!(*MetaPtr)->TryGetStringField(TEXT("progressToken"), ProgressToken))
+				{
+					double Num = 0.0;
+					if ((*MetaPtr)->TryGetNumberField(TEXT("progressToken"), Num))
+					{
+						ProgressToken = FString::Printf(TEXT("%lld"), (int64)Num);
+					}
+				}
+			}
+		}
+
+		FECACancellationRegistry& CancelReg = FECACancellationRegistry::Get();
+		FECAProgressRegistry& ProgReg = FECAProgressRegistry::Get();
+		CancelReg.RegisterRequest(RequestIdString);
+		ProgReg.BindTokenToThread(ProgressToken);
 		Result = HandleToolsCall(Params);
+		ProgReg.ClearThreadBinding();
+		CancelReg.UnregisterRequest(RequestIdString);
+	}
+	else if (Method == TEXT("resources/list"))
+	{
+		Result = HandleResourcesList(Params);
+	}
+	else if (Method == TEXT("resources/read"))
+	{
+		Result = HandleResourcesRead(Params);
 	}
 	else if (Method == TEXT("notifications/initialized"))
 	{
 		// Client notification - no response needed
 		UE_LOG(LogTemp, Log, TEXT("[ECABridge] Client initialized notification received"));
+		return nullptr;
+	}
+	else if (Method == TEXT("notifications/cancelled"))
+	{
+		// MCP 2025-03-26 cancellation: params.requestId identifies the in-flight
+		// tool-call to abort. Long-running commands poll IsCurrentRequestCancelled.
+		if (Params.IsValid())
+		{
+			FString CancelledId;
+			if (!Params->TryGetStringField(TEXT("requestId"), CancelledId))
+			{
+				double Num = 0.0;
+				if (Params->TryGetNumberField(TEXT("requestId"), Num))
+				{
+					CancelledId = FString::Printf(TEXT("%lld"), (int64)Num);
+				}
+			}
+			if (!CancelledId.IsEmpty())
+			{
+				const bool bMarked = FECACancellationRegistry::Get().Cancel(CancelledId);
+				FString Reason;
+				Params->TryGetStringField(TEXT("reason"), Reason);
+				UE_LOG(LogTemp, Log, TEXT("[ECABridge] notifications/cancelled requestId=%s found=%s reason=%s"),
+					*CancelledId, bMarked ? TEXT("true") : TEXT("false"), *Reason);
+			}
+		}
 		return nullptr;
 	}
 	else if (Method == TEXT("ping"))
@@ -501,6 +635,7 @@ bool FECAMCPServer::HandleHealth(const FHttpServerRequest& Request, const FHttpR
 	HealthJson->SetStringField(TEXT("protocol"), ProtocolVersion);
 	HealthJson->SetNumberField(TEXT("commands"), FECACommandRegistry::Get().GetAllCommands().Num());
 	HealthJson->SetBoolField(TEXT("bridge_ready"), Bridge != nullptr);
+	HealthJson->SetNumberField(TEXT("sessions"), GetSessionCount());
 
 	FString ResponseBody = SerializeJson(HealthJson);
 
@@ -543,8 +678,15 @@ TSharedPtr<FJsonObject> FECAMCPServer::HandleInitialize(const TSharedPtr<FJsonOb
 	
 	// Tools capability
 	TSharedPtr<FJsonObject> ToolsCap = MakeShared<FJsonObject>();
-	ToolsCap->SetBoolField(TEXT("listChanged"), false);
+	ToolsCap->SetBoolField(TEXT("listChanged"), true);
 	Capabilities->SetObjectField(TEXT("tools"), ToolsCap);
+
+	// Resources capability — UE assets surfaced under ecabridge://asset/<path>.
+	// listChanged + subscribe not implemented yet; advertise the basic surface.
+	TSharedPtr<FJsonObject> ResourcesCap = MakeShared<FJsonObject>();
+	ResourcesCap->SetBoolField(TEXT("listChanged"), false);
+	ResourcesCap->SetBoolField(TEXT("subscribe"), false);
+	Capabilities->SetObjectField(TEXT("resources"), ResourcesCap);
 
 	Result->SetObjectField(TEXT("capabilities"), Capabilities);
 
@@ -858,4 +1000,302 @@ FString FECAMCPServer::SerializeJson(const TSharedPtr<FJsonObject>& JsonObject)
 	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
 	FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer);
 	return OutputString;
+}
+
+void FECAMCPServer::EnqueueNotification(const TSharedPtr<FJsonObject>& Notification)
+{
+	if (!Notification.IsValid())
+	{
+		return;
+	}
+	FScopeLock ScopedLock(&NotificationLock);
+	if (PendingNotifications.Num() >= MaxPendingNotifications)
+	{
+		// Bounded buffer: drop oldest. Clients that haven't polled in a long time
+		// see a list_changed eventually anyway when they next call tools/list.
+		PendingNotifications.RemoveAt(0);
+	}
+	PendingNotifications.Add(Notification);
+}
+
+void FECAMCPServer::BroadcastToolsListChanged()
+{
+	TSharedPtr<FJsonObject> Notification = MakeShared<FJsonObject>();
+	Notification->SetStringField(TEXT("jsonrpc"), TEXT("2.0"));
+	Notification->SetStringField(TEXT("method"), TEXT("notifications/tools/list_changed"));
+	// No params per spec — clients re-issue tools/list to discover the new set.
+	EnqueueNotification(Notification);
+	UE_LOG(LogTemp, Log, TEXT("[ECABridge] Enqueued notifications/tools/list_changed"));
+}
+
+namespace ECABridgeResources
+{
+	// URI scheme used to expose UE assets as MCP resources.
+	static const FString UriPrefix = TEXT("ecabridge://asset/");
+
+	// Convert "/Game/Foo/Bar" -> "ecabridge://asset/Game/Foo/Bar".
+	static FString PackageToUri(const FString& PackageName)
+	{
+		FString Path = PackageName;
+		while (Path.StartsWith(TEXT("/")))
+		{
+			Path = Path.RightChop(1);
+		}
+		return UriPrefix + Path;
+	}
+
+	// Inverse of PackageToUri. Returns empty on mismatch.
+	static FString UriToPackage(const FString& Uri)
+	{
+		if (!Uri.StartsWith(UriPrefix))
+		{
+			return FString();
+		}
+		return TEXT("/") + Uri.RightChop(UriPrefix.Len());
+	}
+}
+
+TSharedPtr<FJsonObject> FECAMCPServer::HandleResourcesList(const TSharedPtr<FJsonObject>& Params)
+{
+	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+	IAssetRegistry& Registry = AssetRegistryModule.Get();
+
+	// Optional cursor — encodes the AssetData index to resume from (simple int).
+	int32 StartIndex = 0;
+	FString PathPrefix;
+	if (Params.IsValid())
+	{
+		FString Cursor;
+		if (Params->TryGetStringField(TEXT("cursor"), Cursor))
+		{
+			StartIndex = FCString::Atoi(*Cursor);
+		}
+		Params->TryGetStringField(TEXT("path_prefix"), PathPrefix);
+	}
+
+	TArray<FAssetData> AllAssets;
+	if (!PathPrefix.IsEmpty())
+	{
+		Registry.GetAssetsByPath(FName(*PathPrefix), AllAssets, /*bRecursive=*/true);
+	}
+	else
+	{
+		Registry.GetAssetsByPath(FName(TEXT("/Game")), AllAssets, /*bRecursive=*/true);
+	}
+
+	const int32 PageSize = 100;
+	const int32 EndIndex = FMath::Min(StartIndex + PageSize, AllAssets.Num());
+
+	TArray<TSharedPtr<FJsonValue>> ResourceArray;
+	for (int32 i = StartIndex; i < EndIndex; ++i)
+	{
+		const FAssetData& Asset = AllAssets[i];
+		TSharedPtr<FJsonObject> R = MakeShared<FJsonObject>();
+		R->SetStringField(TEXT("uri"), ECABridgeResources::PackageToUri(Asset.PackageName.ToString()));
+		R->SetStringField(TEXT("name"), Asset.AssetName.ToString());
+		R->SetStringField(TEXT("mimeType"), TEXT("application/json"));
+		R->SetStringField(TEXT("description"),
+			FString::Printf(TEXT("%s asset at %s"),
+				*Asset.AssetClassPath.GetAssetName().ToString(),
+				*Asset.PackageName.ToString()));
+		ResourceArray.Add(MakeShared<FJsonValueObject>(R));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetArrayField(TEXT("resources"), ResourceArray);
+	if (EndIndex < AllAssets.Num())
+	{
+		Result->SetStringField(TEXT("nextCursor"), FString::FromInt(EndIndex));
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[ECABridge] resources/list start=%d end=%d total=%d prefix='%s'"),
+		StartIndex, EndIndex, AllAssets.Num(), *PathPrefix);
+	return Result;
+}
+
+TSharedPtr<FJsonObject> FECAMCPServer::HandleResourcesRead(const TSharedPtr<FJsonObject>& Params)
+{
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	TArray<TSharedPtr<FJsonValue>> Contents;
+
+	if (!Params.IsValid())
+	{
+		Result->SetArrayField(TEXT("contents"), Contents);
+		return Result;
+	}
+
+	FString Uri;
+	Params->TryGetStringField(TEXT("uri"), Uri);
+	const FString PackageName = ECABridgeResources::UriToPackage(Uri);
+
+	if (PackageName.IsEmpty())
+	{
+		Result->SetArrayField(TEXT("contents"), Contents);
+		return Result;
+	}
+
+	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+	IAssetRegistry& Registry = AssetRegistryModule.Get();
+
+	TArray<FAssetData> Found;
+	Registry.GetAssetsByPackageName(FName(*PackageName), Found);
+
+	TSharedPtr<FJsonObject> ContentBlock = MakeShared<FJsonObject>();
+	ContentBlock->SetStringField(TEXT("uri"), Uri);
+	ContentBlock->SetStringField(TEXT("mimeType"), TEXT("application/json"));
+
+	TSharedPtr<FJsonObject> Body = MakeShared<FJsonObject>();
+	Body->SetStringField(TEXT("package"), PackageName);
+	if (Found.Num() > 0)
+	{
+		const FAssetData& A = Found[0];
+		Body->SetStringField(TEXT("name"), A.AssetName.ToString());
+		Body->SetStringField(TEXT("class"), A.AssetClassPath.ToString());
+		Body->SetStringField(TEXT("object_path"), A.GetObjectPathString());
+		Body->SetNumberField(TEXT("tag_count"), A.TagsAndValues.Num());
+	}
+	else
+	{
+		Body->SetBoolField(TEXT("not_found"), true);
+	}
+
+	FString BodyJson = SerializeJson(Body);
+	ContentBlock->SetStringField(TEXT("text"), BodyJson);
+	Contents.Add(MakeShared<FJsonValueObject>(ContentBlock));
+
+	Result->SetArrayField(TEXT("contents"), Contents);
+	UE_LOG(LogTemp, Log, TEXT("[ECABridge] resources/read uri=%s found=%d"), *Uri, Found.Num());
+	return Result;
+}
+
+FString FECAMCPServer::ReadSessionHeader(const FHttpServerRequest& Request)
+{
+	// UE's HTTP server lower-cases header keys; spec calls it "Mcp-Session-Id".
+	// Probe both common forms in case the platform changes case behavior.
+	const TArray<FString>* Values = Request.Headers.Find(TEXT("Mcp-Session-Id"));
+	if (!Values)
+	{
+		Values = Request.Headers.Find(TEXT("mcp-session-id"));
+	}
+	if (Values && Values->Num() > 0)
+	{
+		return (*Values)[0];
+	}
+	return FString();
+}
+
+FString FECAMCPServer::TouchSession(const FString& IncomingId)
+{
+	const double Now = FPlatformTime::Seconds();
+
+	FScopeLock ScopedLock(&SessionLock);
+
+	// Look up by header; on miss (or empty header) mint a fresh ID.
+	FECASessionState* Existing = IncomingId.IsEmpty() ? nullptr : Sessions.Find(IncomingId);
+	if (Existing)
+	{
+		Existing->LastAccessedAt = Now;
+		return Existing->SessionId;
+	}
+
+	FECASessionState NewState;
+	NewState.SessionId = FString::Printf(TEXT("eca-sess-%s"),
+		*FGuid::NewGuid().ToString(EGuidFormats::DigitsLower));
+	NewState.CreatedAt = Now;
+	NewState.LastAccessedAt = Now;
+	Sessions.Add(NewState.SessionId, NewState);
+
+	// Opportunistic GC every time we add a session.
+	if (Sessions.Num() % 16 == 0)
+	{
+		// Drop the lock implicitly handled — PurgeSessions takes its own lock.
+		// We use a non-reentrant FCriticalSection so call after returning.
+	}
+	return NewState.SessionId;
+}
+
+void FECAMCPServer::PurgeSessions(double MaxAgeSeconds)
+{
+	FScopeLock ScopedLock(&SessionLock);
+	const double Now = FPlatformTime::Seconds();
+	TArray<FString> Expired;
+	for (const auto& Pair : Sessions)
+	{
+		if (Now - Pair.Value.LastAccessedAt > MaxAgeSeconds)
+		{
+			Expired.Add(Pair.Key);
+		}
+	}
+	for (const FString& Key : Expired)
+	{
+		Sessions.Remove(Key);
+	}
+	if (Expired.Num() > 0)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[ECABridge] Purged %d inactive session(s)"), Expired.Num());
+	}
+}
+
+int32 FECAMCPServer::GetSessionCount() const
+{
+	FScopeLock ScopedLock(&SessionLock);
+	return Sessions.Num();
+}
+
+bool FECAMCPServer::HandleMCPDelete(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)
+{
+	const FString IncomingId = ReadSessionHeader(Request);
+	bool bRemoved = false;
+	if (!IncomingId.IsEmpty())
+	{
+		FScopeLock ScopedLock(&SessionLock);
+		bRemoved = Sessions.Remove(IncomingId) > 0;
+	}
+
+	TUniquePtr<FHttpServerResponse> Response = FHttpServerResponse::Create(FString(), TEXT("application/json"));
+	Response->Headers.Add(TEXT("Access-Control-Allow-Origin"), { TEXT("*") });
+	Response->Code = bRemoved ? EHttpServerResponseCodes::NoContent : EHttpServerResponseCodes::NotFound;
+	OnComplete(MoveTemp(Response));
+	UE_LOG(LogTemp, Log, TEXT("[ECABridge] DELETE /mcp session='%s' removed=%s"),
+		*IncomingId, bRemoved ? TEXT("true") : TEXT("false"));
+	return true;
+}
+
+bool FECAMCPServer::HandleMCPGet(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)
+{
+	// Drain the queue under the lock, then serialize each as an SSE event.
+	TArray<TSharedPtr<FJsonObject>> Drained;
+	{
+		FScopeLock ScopedLock(&NotificationLock);
+		Drained = MoveTemp(PendingNotifications);
+		PendingNotifications.Reset();
+	}
+
+	FString Body;
+	// Always emit a comment line so EventSource clients see the stream open.
+	Body += TEXT(": eca-mcp\n\n");
+	for (const TSharedPtr<FJsonObject>& Note : Drained)
+	{
+		if (!Note.IsValid()) continue;
+		const FString Json = SerializeJson(Note);
+		// SSE framing per https://html.spec.whatwg.org/multipage/server-sent-events.html
+		Body += TEXT("event: message\n");
+		Body += TEXT("data: ");
+		Body += Json;
+		Body += TEXT("\n\n");
+	}
+
+	const FString ActiveSessionId = TouchSession(ReadSessionHeader(Request));
+	TUniquePtr<FHttpServerResponse> Response = FHttpServerResponse::Create(Body, TEXT("text/event-stream"));
+	Response->Headers.Add(TEXT("Access-Control-Allow-Origin"), { TEXT("*") });
+	Response->Headers.Add(TEXT("Cache-Control"), { TEXT("no-cache") });
+	Response->Headers.Add(TEXT("Connection"), { TEXT("keep-alive") });
+	Response->Headers.Add(TEXT("Mcp-Session-Id"), { ActiveSessionId });
+	Response->Code = EHttpServerResponseCodes::Ok;
+	OnComplete(MoveTemp(Response));
+
+	// Opportunistic session GC on each SSE poll keeps the table bounded without
+	// a dedicated timer thread.
+	PurgeSessions();
+	return true;
 }

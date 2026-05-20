@@ -83,6 +83,84 @@ struct FECASchemaField
 ECABRIDGE_API TSharedPtr<FJsonObject> MakeECAObjectSchema(const TArray<FECASchemaField>& Fields);
 
 /**
+ * Cancellation token tied to a single tool-call request. The MCP server stamps
+ * the request ID into TLS for the duration of Execute(); long-running commands
+ * can poll FECACancellationRegistry::IsCurrentRequestCancelled() and bail early.
+ * Triggered by `notifications/cancelled` from the client.
+ */
+class ECABRIDGE_API FECACancellationToken
+{
+public:
+	bool IsCancelled() const { return Cancelled.GetValue() != 0; }
+	void Cancel() { Cancelled.Set(1); }
+private:
+	FThreadSafeCounter Cancelled;
+};
+
+/**
+ * Per-request progress reporter (MCP 2025-03-26 `notifications/progress`).
+ * Clients opt in by passing `params._meta.progressToken`; the MCP server stamps
+ * the token into TLS for the duration of Execute(). Commands call
+ * FECAProgressRegistry::Get().Report(...) to emit a progress notification.
+ */
+class ECABRIDGE_API FECAProgressRegistry
+{
+public:
+	static FECAProgressRegistry& Get();
+
+	/** Bind a progress token to the calling thread. Empty token disables reporting. */
+	void BindTokenToThread(const FString& Token);
+	void ClearThreadBinding();
+
+	/** Current token (empty when no client requested progress for the in-flight call). */
+	FString GetCurrentToken() const;
+
+	/** Emit a progress event. No-op if no token is bound or no listener is registered.
+	 *  `Total` < 0 means "indeterminate"; clients render a spinner instead of a bar. */
+	void Report(double Progress, double Total = -1.0, const FString& Message = FString());
+
+	/** Listener that converts Report() events to MCP notifications. Set by the server. */
+	using FListener = TFunction<void(const FString& Token, double Progress, double Total, const FString& Message)>;
+	void SetListener(FListener Callback);
+
+private:
+	FECAProgressRegistry() = default;
+	mutable FCriticalSection Lock;
+	FListener ListenerFn;
+	uint32 TlsSlot = 0xFFFFFFFFu;
+	void EnsureTlsSlot();
+};
+
+class ECABRIDGE_API FECACancellationRegistry
+{
+public:
+	static FECACancellationRegistry& Get();
+
+	/** Register a fresh cancellation token under the given request ID and bind it
+	 *  to the calling thread (TLS). Pair with Unregister at the end of the call. */
+	TSharedRef<FECACancellationToken> RegisterRequest(const FString& RequestId);
+
+	/** Clear the TLS binding + drop the token. */
+	void UnregisterRequest(const FString& RequestId);
+
+	/** Mark the request as cancelled. No-op if the request ID is unknown. */
+	bool Cancel(const FString& RequestId);
+
+	/** Check whether the currently-executing request (TLS-bound) has been cancelled. */
+	bool IsCurrentRequestCancelled() const;
+
+	/** Current request ID bound to this thread (empty when no tool-call is running). */
+	FString GetCurrentRequestId() const;
+
+private:
+	FECACancellationRegistry() = default;
+	TMap<FString, TSharedRef<FECACancellationToken>> Tokens;
+	mutable FCriticalSection Lock;
+	uint32 TlsSlot = 0xFFFFFFFFu;
+	void EnsureTlsSlot();
+};
+
+/**
  * Base class for all ECA commands
  * 
  * Subclass this to create new commands. Commands are automatically registered
@@ -202,6 +280,12 @@ public:
 	/** Get the set of currently loaded categories (visible via tools/list). */
 	TArray<FString> GetLoadedCategories() const;
 
+	/** Set a callback the registry invokes whenever the visible tool surface changes
+	 *  (lazy load/unload, optional-subsystem prune). The MCP server uses this to
+	 *  emit `notifications/tools/list_changed` per the MCP 2025-03-26 spec.
+	 *  Pass nullptr to clear. Replaces any prior callback. */
+	void SetOnVisibleToolsChanged(TFunction<void()> Callback);
+
 	/** Return the commands that should appear in tools/list right now, honoring
 	 *  lazy mode and an optional category filter (case-sensitive). When
 	 *  CategoryFilter is non-empty, ONLY commands in that category are returned
@@ -232,6 +316,8 @@ private:
 
 	bool bLazyMode = false;
 	TSet<FString> LoadedCategories;
+
+	TFunction<void()> OnVisibleToolsChanged;
 };
 
 /**

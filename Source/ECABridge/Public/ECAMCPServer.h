@@ -50,15 +50,35 @@ private:
 };
 
 /**
+ * Per-session state carried by the `Mcp-Session-Id` header (MCP 2025-03-26
+ * session management). The server stamps a fresh ID on initialize; clients
+ * echo it back on subsequent requests so concurrent agents don't trip over
+ * each other's category-load / chunked-response state.
+ */
+struct ECABRIDGE_API FECASessionState
+{
+	FString SessionId;
+	double CreatedAt = 0.0;
+	double LastAccessedAt = 0.0;
+	/** Categories the client has explicitly opted into for tools/list. Layered on
+	 *  top of the global lazy-mode set; ALL categories in either set become visible. */
+	TSet<FString> LoadedCategories;
+	/** Opaque key/value scratch space agents can use to stash per-session context
+	 *  (e.g. last-used asset paths). Reserved keys may be added later. */
+	TMap<FString, FString> Metadata;
+};
+
+/**
  * MCP Streamable HTTP Server
- * 
+ *
  * Implements the MCP Streamable HTTP transport (2025-03-26 spec).
  * This is a simpler transport that uses standard HTTP request/response patterns.
- * 
+ *
  * Endpoints:
- *   POST /mcp    - Main MCP endpoint for all JSON-RPC messages
- *   GET  /mcp    - Optional SSE endpoint for server-initiated messages (not implemented)
- *   GET  /health - Health check
+ *   POST   /mcp    - Main MCP endpoint for all JSON-RPC messages
+ *   GET    /mcp    - SSE endpoint for server-initiated messages (list_changed, progress)
+ *   DELETE /mcp    - Terminate the session identified by Mcp-Session-Id
+ *   GET    /health - Health check
  */
 class ECABRIDGE_API FECAMCPServer
 {
@@ -94,6 +114,38 @@ private:
 	/** Handle CORS preflight (OPTIONS) requests */
 	bool HandleCORSPreflight(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete);
 
+	/** Handle GET /mcp — drains queued server-initiated notifications as a
+	 *  text/event-stream response (MCP Streamable HTTP, 2025-03-26 spec).
+	 *  Clients poll this to discover notifications/tools/list_changed and
+	 *  notifications/progress events. */
+	bool HandleMCPGet(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete);
+
+	/** Handle DELETE /mcp — terminate the session identified by Mcp-Session-Id. */
+	bool HandleMCPDelete(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete);
+
+	/** Look up the Mcp-Session-Id request header. Returns empty if absent. */
+	static FString ReadSessionHeader(const FHttpServerRequest& Request);
+
+	/** Ensure a session exists for the request, generating a fresh ID when the
+	 *  header is absent (e.g. on initialize). Returns the active session ID and
+	 *  bumps LastAccessedAt. The caller writes this back as a response header. */
+	FString TouchSession(const FString& IncomingId);
+
+	/** Prune sessions inactive longer than MaxAgeSeconds. */
+	void PurgeSessions(double MaxAgeSeconds = 3600.0);
+
+public:
+	/** Enqueue a JSON-RPC notification for delivery via GET /mcp SSE. */
+	void EnqueueNotification(const TSharedPtr<FJsonObject>& Notification);
+
+	/** Build + enqueue a `notifications/tools/list_changed` notification. */
+	void BroadcastToolsListChanged();
+
+	/** Number of currently tracked sessions. Surfaced on /health. */
+	int32 GetSessionCount() const;
+
+private:
+
 	/** Process a single JSON-RPC request and return the response */
 	TSharedPtr<FJsonObject> ProcessJsonRpcRequest(const TSharedPtr<FJsonObject>& Request);
 	
@@ -107,6 +159,14 @@ private:
 
 	/** Handle tools/call request */
 	TSharedPtr<FJsonObject> HandleToolsCall(const TSharedPtr<FJsonObject>& Params);
+
+	/** Handle resources/list request (MCP 2025-03-26).
+	 *  Exposes UE assets as MCP resources under the `ecabridge://asset/<path>` URI
+	 *  scheme. Supports cursor-based pagination and an optional `path_prefix` filter. */
+	TSharedPtr<FJsonObject> HandleResourcesList(const TSharedPtr<FJsonObject>& Params);
+
+	/** Handle resources/read request — fetches asset metadata JSON for the given URI. */
+	TSharedPtr<FJsonObject> HandleResourcesRead(const TSharedPtr<FJsonObject>& Params);
 
 	/** Build MCP tool definitions from registered commands. When CategoryFilter is
 	 *  non-empty, only commands in that category are emitted (bypasses lazy mode). */
@@ -129,7 +189,18 @@ private:
 	
 	/** Route handles for cleanup */
 	FHttpRouteHandle MCPRouteHandle;
+	FHttpRouteHandle MCPGetRouteHandle;
 	FHttpRouteHandle HealthRouteHandle;
+
+	/** Queue of server-initiated JSON-RPC notifications awaiting delivery via
+	 *  GET /mcp. Bounded to MaxPendingNotifications; oldest entries are dropped. */
+	TArray<TSharedPtr<FJsonObject>> PendingNotifications;
+	FCriticalSection NotificationLock;
+	static constexpr int32 MaxPendingNotifications = 256;
+
+	/** Active sessions keyed by Mcp-Session-Id. */
+	TMap<FString, FECASessionState> Sessions;
+	mutable FCriticalSection SessionLock;
 	
 	/** Server state */
 	bool bIsRunning = false;

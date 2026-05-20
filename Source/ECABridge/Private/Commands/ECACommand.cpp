@@ -431,6 +431,162 @@ UBlueprint* IECACommand::LoadBlueprintByPath(const FString& BlueprintPath)
 }
 
 //------------------------------------------------------------------------------
+// FECAProgressRegistry
+//------------------------------------------------------------------------------
+
+FECAProgressRegistry& FECAProgressRegistry::Get()
+{
+	static FECAProgressRegistry Instance;
+	return Instance;
+}
+
+void FECAProgressRegistry::EnsureTlsSlot()
+{
+	if (TlsSlot == 0xFFFFFFFFu)
+	{
+		TlsSlot = FPlatformTLS::AllocTlsSlot();
+	}
+}
+
+void FECAProgressRegistry::BindTokenToThread(const FString& Token)
+{
+	FScopeLock ScopedLock(&Lock);
+	EnsureTlsSlot();
+	FString* Prev = static_cast<FString*>(FPlatformTLS::GetTlsValue(TlsSlot));
+	if (Prev) { delete Prev; }
+	FPlatformTLS::SetTlsValue(TlsSlot, Token.IsEmpty() ? nullptr : new FString(Token));
+}
+
+void FECAProgressRegistry::ClearThreadBinding()
+{
+	FScopeLock ScopedLock(&Lock);
+	if (TlsSlot == 0xFFFFFFFFu) return;
+	FString* Prev = static_cast<FString*>(FPlatformTLS::GetTlsValue(TlsSlot));
+	if (Prev) { delete Prev; FPlatformTLS::SetTlsValue(TlsSlot, nullptr); }
+}
+
+FString FECAProgressRegistry::GetCurrentToken() const
+{
+	if (TlsSlot == 0xFFFFFFFFu)
+	{
+		return FString();
+	}
+	FString* Heap = static_cast<FString*>(FPlatformTLS::GetTlsValue(TlsSlot));
+	return Heap ? *Heap : FString();
+}
+
+void FECAProgressRegistry::SetListener(FListener Callback)
+{
+	FScopeLock ScopedLock(&Lock);
+	ListenerFn = MoveTemp(Callback);
+}
+
+void FECAProgressRegistry::Report(double Progress, double Total, const FString& Message)
+{
+	const FString Token = GetCurrentToken();
+	if (Token.IsEmpty())
+	{
+		return;
+	}
+	FListener Copy;
+	{
+		FScopeLock ScopedLock(&Lock);
+		Copy = ListenerFn;
+	}
+	if (Copy)
+	{
+		Copy(Token, Progress, Total, Message);
+	}
+}
+
+//------------------------------------------------------------------------------
+// FECACancellationRegistry
+//------------------------------------------------------------------------------
+
+FECACancellationRegistry& FECACancellationRegistry::Get()
+{
+	static FECACancellationRegistry Instance;
+	return Instance;
+}
+
+void FECACancellationRegistry::EnsureTlsSlot()
+{
+	if (TlsSlot == 0xFFFFFFFFu)
+	{
+		TlsSlot = FPlatformTLS::AllocTlsSlot();
+	}
+}
+
+TSharedRef<FECACancellationToken> FECACancellationRegistry::RegisterRequest(const FString& RequestId)
+{
+	FScopeLock ScopedLock(&Lock);
+	EnsureTlsSlot();
+
+	TSharedRef<FECACancellationToken> Token = MakeShared<FECACancellationToken>();
+	if (!RequestId.IsEmpty())
+	{
+		Tokens.Add(RequestId, Token);
+		// Stash the request ID on the calling thread so commands can resolve back
+		// to their token via IsCurrentRequestCancelled().
+		FString* Heap = new FString(RequestId);
+		FString* Prev = static_cast<FString*>(FPlatformTLS::GetTlsValue(TlsSlot));
+		if (Prev) { delete Prev; }
+		FPlatformTLS::SetTlsValue(TlsSlot, Heap);
+	}
+	return Token;
+}
+
+void FECACancellationRegistry::UnregisterRequest(const FString& RequestId)
+{
+	FScopeLock ScopedLock(&Lock);
+	if (!RequestId.IsEmpty())
+	{
+		Tokens.Remove(RequestId);
+	}
+	if (TlsSlot != 0xFFFFFFFFu)
+	{
+		FString* Prev = static_cast<FString*>(FPlatformTLS::GetTlsValue(TlsSlot));
+		if (Prev) { delete Prev; FPlatformTLS::SetTlsValue(TlsSlot, nullptr); }
+	}
+}
+
+bool FECACancellationRegistry::Cancel(const FString& RequestId)
+{
+	FScopeLock ScopedLock(&Lock);
+	if (TSharedRef<FECACancellationToken>* Found = Tokens.Find(RequestId))
+	{
+		(*Found)->Cancel();
+		return true;
+	}
+	return false;
+}
+
+FString FECACancellationRegistry::GetCurrentRequestId() const
+{
+	if (TlsSlot == 0xFFFFFFFFu)
+	{
+		return FString();
+	}
+	FString* Heap = static_cast<FString*>(FPlatformTLS::GetTlsValue(TlsSlot));
+	return Heap ? *Heap : FString();
+}
+
+bool FECACancellationRegistry::IsCurrentRequestCancelled() const
+{
+	const FString Id = GetCurrentRequestId();
+	if (Id.IsEmpty())
+	{
+		return false;
+	}
+	FScopeLock ScopedLock(&Lock);
+	if (const TSharedRef<FECACancellationToken>* Found = Tokens.Find(Id))
+	{
+		return (*Found)->IsCancelled();
+	}
+	return false;
+}
+
+//------------------------------------------------------------------------------
 // FECACommandRegistry
 //------------------------------------------------------------------------------
 
@@ -458,27 +614,53 @@ bool FECACommandRegistry::IsLazyMode() const
 
 int32 FECACommandRegistry::LoadCategory(const FString& Category)
 {
-	FScopeLock Lock(&CommandsLock);
-	LoadedCategories.Add(Category);
+	bool bChanged = false;
 	int32 N = 0;
-	for (const auto& Pair : Commands)
+	TFunction<void()> CallbackCopy;
 	{
-		if (Pair.Value.IsValid() && Pair.Value->GetCategory() == Category)
+		FScopeLock Lock(&CommandsLock);
+		bChanged = !LoadedCategories.Contains(Category);
+		LoadedCategories.Add(Category);
+		for (const auto& Pair : Commands)
 		{
-			++N;
+			if (Pair.Value.IsValid() && Pair.Value->GetCategory() == Category)
+			{
+				++N;
+			}
 		}
+		CallbackCopy = OnVisibleToolsChanged;
+	}
+	if (bChanged && CallbackCopy)
+	{
+		CallbackCopy();
 	}
 	return N;
 }
 
 bool FECACommandRegistry::UnloadCategory(const FString& Category)
 {
-	FScopeLock Lock(&CommandsLock);
-	if (Category == MetaCategory)
+	bool bRemoved = false;
+	TFunction<void()> CallbackCopy;
 	{
-		return false; // Never hide the meta-tools.
+		FScopeLock Lock(&CommandsLock);
+		if (Category == MetaCategory)
+		{
+			return false; // Never hide the meta-tools.
+		}
+		bRemoved = LoadedCategories.Remove(Category) > 0;
+		CallbackCopy = OnVisibleToolsChanged;
 	}
-	return LoadedCategories.Remove(Category) > 0;
+	if (bRemoved && CallbackCopy)
+	{
+		CallbackCopy();
+	}
+	return bRemoved;
+}
+
+void FECACommandRegistry::SetOnVisibleToolsChanged(TFunction<void()> Callback)
+{
+	FScopeLock Lock(&CommandsLock);
+	OnVisibleToolsChanged = MoveTemp(Callback);
 }
 
 bool FECACommandRegistry::IsCategoryVisible(const FString& Category) const
