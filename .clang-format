@@ -1,0 +1,102 @@
+# ECABridge clang-format — matches Unreal Engine's coding standard.
+#
+# This file is intentionally conservative: it codifies the style the
+# existing source already follows so contributors get consistent
+# formatting without rewriting every file in one big diff.
+#
+# To format a single file:
+#   clang-format -i Source/ECABridge/Private/SomeFile.cpp
+# To check the whole tree without writing:
+#   clang-format --dry-run --Werror $(git ls-files 'Source/**/*.cpp' 'Source/**/*.h')
+#
+# Reference: https://docs.unrealengine.com/5.0/en-US/epic-cplusplus-coding-standard-for-unreal-engine/
+
+Language: Cpp
+BasedOnStyle: LLVM
+
+# Indentation
+UseTab: Always
+TabWidth: 4
+IndentWidth: 4
+ContinuationIndentWidth: 4
+ConstructorInitializerIndentWidth: 4
+AccessModifierOffset: -4
+NamespaceIndentation: None
+
+# Braces
+BreakBeforeBraces: Allman
+Cpp11BracedListStyle: false
+
+# Line width
+ColumnLimit: 0
+ReflowComments: false
+
+# Alignment
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignEscapedNewlines: Left
+AlignOperands: true
+AlignTrailingComments: true
+PointerAlignment: Left
+DerivePointerAlignment: false
+
+# Spaces
+SpaceAfterCStyleCast: false
+SpaceAfterTemplateKeyword: false
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCpp11BracedList: true
+SpaceBeforeCtorInitializerColon: true
+SpaceBeforeInheritanceColon: true
+SpaceBeforeParens: ControlStatements
+SpaceBeforeRangeBasedForLoopColon: true
+SpaceInEmptyParentheses: false
+SpacesBeforeTrailingComments: 1
+SpacesInAngles: false
+SpacesInCStyleCastParentheses: false
+SpacesInContainerLiterals: false
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+
+# Misc
+AllowAllParametersOfDeclarationOnNextLine: true
+AllowShortBlocksOnASingleLine: Empty
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: InlineOnly
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AlwaysBreakAfterReturnType: None
+AlwaysBreakTemplateDeclarations: Yes
+BinPackArguments: true
+BinPackParameters: true
+BreakBeforeBinaryOperators: NonAssignment
+BreakBeforeTernaryOperators: true
+BreakConstructorInitializers: BeforeComma
+CompactNamespaces: false
+ConstructorInitializerAllOnOneLineOrOnePerLine: false
+FixNamespaceComments: true
+IncludeBlocks: Preserve
+IndentCaseLabels: false
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+SortIncludes: false
+SortUsingDeclarations: false
+Standard: c++17
+
+# Treat UE macros that wrap a statement (`UE_LOG`, etc) so they don't get
+# mangled. Keep this list tight — adding macros here changes parsing.
+StatementMacros:
+  - UE_LOG
+  - UE_CLOG
+  - UCLASS
+  - UENUM
+  - USTRUCT
+  - UFUNCTION
+  - UPROPERTY
+  - UDELEGATE
+  - GENERATED_BODY
+  - GENERATED_USTRUCT_BODY
+  - GENERATED_UCLASS_BODY
+  - REGISTER_ECA_COMMAND
+  - IMPLEMENT_MODULE
+  - IMPLEMENT_PRIMARY_GAME_MODULE

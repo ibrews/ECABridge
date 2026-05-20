@@ -1,0 +1,77 @@
+name: Bug report
+description: Something is wrong with ECABridge — the server, a command, or the build.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, please check the [wiki](https://github.com/ibrews/ECABridge/wiki)
+        and the [Engine Compatibility](https://github.com/ibrews/ECABridge/wiki/Engine-Compatibility)
+        page — most issues are explained there.
+  - type: input
+    id: ue_version
+    attributes:
+      label: Unreal Engine version
+      description: e.g. 5.7.0, 5.8 Preview, 5.8.1
+      placeholder: 5.8 Preview
+    validations:
+      required: true
+  - type: input
+    id: plugin_commit
+    attributes:
+      label: ECABridge commit
+      description: Output of `git rev-parse --short HEAD` in your ECABridge checkout.
+      placeholder: e.g. 10f4170
+    validations:
+      required: true
+  - type: dropdown
+    id: build_mode
+    attributes:
+      label: How was the plugin built?
+      options:
+        - Local UAT BuildPlugin via scripts/build-deploy.ps1
+        - Source build inside a host project
+        - Pre-built binary distribution
+        - Other (please describe)
+    validations:
+      required: true
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: What did you call, what response did you get, what did you expect?
+      placeholder: |
+        Called create_actor with actor_type="StaticMeshActor", got 400 instead of an actor handle.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Minimal curl invocation or smoke-test snippet preferred.
+      render: bash
+    validations:
+      required: true
+  - type: textarea
+    id: editor_log
+    attributes:
+      label: Relevant editor log
+      description: Any ECABridge or LoadModule lines from the editor log. `GetLastError=126` is especially useful.
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: optional_deps
+    attributes:
+      label: Optional plugins active
+      description: Check whichever the affected command depends on.
+      options:
+        - label: Mutable
+        - label: MovieRenderPipeline / Movie Render Graph
+        - label: MetaHumanCharacter
+        - label: Niagara
+        - label: MetaSound
+        - label: ControlRig
+        - label: GameplayAbilities
+        - label: nDisplay / DMX / OpenXR (Batch L surfaces)

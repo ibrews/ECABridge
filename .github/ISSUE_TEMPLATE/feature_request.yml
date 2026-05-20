@@ -1,0 +1,39 @@
+name: Feature request
+description: Propose a new command, surface, or behavior.
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        New commands and surfaces are organized into roadmap batches. Take
+        a quick look at [`projects/ecabridge-roadmap.md`](https://github.com/ibrews/ECABridge/wiki) or open the
+        wiki to see whether your idea already has a slot — if it does, link to it here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What command or surface do you want?
+      description: One-line summary plus a sketch of inputs/outputs if you have one.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What workflow does it unlock that doesn't work today?
+    validations:
+      required: true
+  - type: textarea
+    id: prior_art
+    attributes:
+      label: Prior art
+      description: Existing ECABridge commands, native UE 5.8 MCP commands, or Python tools that already do something close.
+    validations:
+      required: false
+  - type: input
+    id: roadmap_batch
+    attributes:
+      label: Roadmap batch (if known)
+      description: e.g. "Batch G-2 — Geometry Script extensions"
+    validations:
+      required: false

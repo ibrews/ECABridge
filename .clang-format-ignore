@@ -1,0 +1,5 @@
+# Generated / vendored sources we don't want clang-format to touch.
+Intermediate/**
+Binaries/**
+DerivedDataCache/**
+Saved/**
