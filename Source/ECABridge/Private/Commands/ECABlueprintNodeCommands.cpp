@@ -54,6 +54,7 @@
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "UObject/UObjectIterator.h"
 #include "AssetRegistry/AssetRegistryModule.h"
+#include "InputCoreTypes.h"
 
 // Register all blueprint node commands
 REGISTER_ECA_COMMAND(FECACommand_AddBlueprintEventNode)
@@ -2506,11 +2507,53 @@ FECACommandResult FECACommand_SetBlueprintPinValue::Execute(const TSharedPtr<FJs
 	// Handle Struct types (vectors, rotators, etc.)
 	else if (PinCategory == UEdGraphSchema_K2::PC_Struct)
 	{
-		// Struct values are typically stored as strings in a specific format
-		// e.g., Vector: "(X=0,Y=0,Z=0)" or "0,0,0"
-		Pin->DefaultValue = Value;
-		bSuccess = true;
-		ResultMessage = TEXT("Set struct value");
+		UScriptStruct* PinStruct = Cast<UScriptStruct>(Pin->PinType.PinSubCategoryObject.Get());
+
+		// FKey pins: the BP-pin parser expects a bare key name ("R", "SpaceBar",
+		// "LeftMouseButton"). Passing the verbose `(KeyName="R")` form that you
+		// see in .uasset text exports silently fails and the pin reads back as
+		// "AnyKey" — see ecabridge-mcp-gotchas #7. Normalize incoming variants
+		// to the bare key name before storing.
+		if (PinStruct && PinStruct == TBaseStructure<FKey>::Get())
+		{
+			FString Normalized = Value.TrimStartAndEnd();
+
+			// Strip the `(KeyName="...")` wrapper if present.
+			if (Normalized.StartsWith(TEXT("(")) && Normalized.EndsWith(TEXT(")")))
+			{
+				FString Inner = Normalized.Mid(1, Normalized.Len() - 2).TrimStartAndEnd();
+				int32 EqIdx;
+				if (Inner.FindChar(TEXT('='), EqIdx))
+				{
+					FString KeyPart = Inner.Mid(EqIdx + 1).TrimStartAndEnd();
+					KeyPart.RemoveFromStart(TEXT("\""));
+					KeyPart.RemoveFromEnd(TEXT("\""));
+					Normalized = KeyPart;
+				}
+			}
+
+			// Strip stray surrounding quotes that an LLM might add.
+			Normalized.RemoveFromStart(TEXT("\""));
+			Normalized.RemoveFromEnd(TEXT("\""));
+
+			if (Normalized.IsEmpty())
+			{
+				return FECACommandResult::Error(TEXT("FKey pin value normalized to empty string — pass a bare key name like 'R' or 'SpaceBar'."));
+			}
+
+			Pin->DefaultValue = Normalized;
+			bSuccess = true;
+			ResultMessage = FString::Printf(TEXT("Set FKey to: %s"), *Normalized);
+		}
+		else
+		{
+			// Other struct types: pass through verbatim. Callers are responsible
+			// for the correct text-import form for that struct (e.g., Vector
+			// as "(X=0,Y=0,Z=0)" or "0,0,0").
+			Pin->DefaultValue = Value;
+			bSuccess = true;
+			ResultMessage = TEXT("Set struct value");
+		}
 	}
 	// Handle all other types (bool, int, float, string, name, etc.)
 	else
