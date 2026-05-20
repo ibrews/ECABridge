@@ -226,7 +226,9 @@ namespace
 
 		// UE canonical key lookup — FName("S") -> EKeys::S, FName("F5") -> EKeys::F5, etc.
 		// FKey doesn't validate at construction; IsValid() checks the registry.
-		FKey Key(FName(*Trimmed));
+		// Brace-init avoids the most-vexing-parse interpretation of FKey(FName(...))
+		// as a function declaration on MSVC.
+		FKey Key{FName(*Trimmed)};
 		if (Key.IsValid())
 		{
 			return Key;
@@ -236,7 +238,7 @@ namespace
 		if (Trimmed.Len() == 1)
 		{
 			FString Upper = Trimmed.ToUpper();
-			FKey Upcase(FName(*Upper));
+			FKey Upcase{FName(*Upper)};
 			if (Upcase.IsValid())
 			{
 				return Upcase;
