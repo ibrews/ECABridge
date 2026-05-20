@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Wiki — Engine Compatibility & Optional Dependencies
+    url: https://github.com/ibrews/ECABridge/wiki
+    about: Most build / load errors are documented in the wiki. Check there first.
+  - name: Agile Lens engineering channel
+    url: https://agilelens.com
+    about: For internal users — fastest path for time-sensitive UE API questions.
