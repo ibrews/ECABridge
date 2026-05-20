@@ -78,6 +78,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_input_mapping_context"); }
 	virtual FString GetDescription() const override { return TEXT("Serialize a UInputMappingContext: all key → InputAction mappings with modifiers, triggers, and action details."); }
 	virtual FString GetCategory() const override { return TEXT("EnhancedInput"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -98,6 +99,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_input_action"); }
 	virtual FString GetDescription() const override { return TEXT("Serialize a UInputAction: value type (Digital/Analog1D/2D/3D), triggers, modifiers, description."); }
 	virtual FString GetCategory() const override { return TEXT("EnhancedInput"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

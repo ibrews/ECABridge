@@ -8,6 +8,7 @@
 #include "GameFramework/Actor.h"
 #include "JsonObjectConverter.h"
 #include "Misc/Base64.h"
+#include "ScopedTransaction.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 
@@ -30,6 +31,17 @@ FString FECACommandResult::ToJsonString() const
 	else
 	{
 		Response->SetStringField(TEXT("error"), ErrorMessage);
+	}
+
+	if (Warnings.Num() > 0)
+	{
+		TArray<TSharedPtr<FJsonValue>> WarningValues;
+		WarningValues.Reserve(Warnings.Num());
+		for (const FString& W : Warnings)
+		{
+			WarningValues.Add(MakeShared<FJsonValueString>(W));
+		}
+		Response->SetArrayField(TEXT("warnings"), WarningValues);
 	}
 
 	FString OutputString;
@@ -1062,7 +1074,49 @@ FECACommandResult FECACommandRegistry::ExecuteCommand(const FString& Name, const
 		return FECACommandResult::Error(FString::Printf(TEXT("Unknown command: %s"), *Name));
 	}
 
-	return Command->Execute(Params);
+	// Collect input-param warnings BEFORE Execute() — we still want to surface
+	// "did you mean 'FunctionName' (not 'function_name')?" even when the call
+	// itself fails, so agents can fix the typo and the real error in one
+	// round-trip.
+	const TArray<FString> ParamWarnings = CollectUnknownParamKeys(Command.Get(), Params);
+
+	// A1: wrap mutating commands in an FScopedTransaction so each ECABridge call
+	// becomes one undoable step. Skip when:
+	//   - The command opts out via IsMutating() == false (read-only queries).
+	//   - It's a meta-tool (list_categories etc.) — those don't touch UObjects.
+	//   - The editor / transaction system isn't available (cooked / commandlet).
+	const bool bWantTransaction =
+		Command->IsMutating() &&
+		Command->GetCategory() != FECACommandRegistry::MetaCategory &&
+		GEditor != nullptr &&
+		GEditor->Trans != nullptr;
+
+	FECACommandResult Result;
+	if (bWantTransaction)
+	{
+		FScopedTransaction Transaction(FText::FromString(
+			FString::Printf(TEXT("ECABridge: %s"), *Name)));
+
+		Result = Command->Execute(Params);
+
+		// A failed mutating call shouldn't dirty the undo stack with garbage:
+		// cancel so Ctrl+Z doesn't have a no-op entry on top.
+		if (!Result.bSuccess)
+		{
+			Transaction.Cancel();
+		}
+	}
+	else
+	{
+		Result = Command->Execute(Params);
+	}
+
+	if (ParamWarnings.Num() > 0)
+	{
+		Result.Warnings.Append(ParamWarnings);
+	}
+
+	return Result;
 }
 
 void FECACommandRegistry::LogCommands() const
@@ -1077,7 +1131,7 @@ void FECACommandRegistry::LogCommands() const
 	for (const FString& Category : Categories)
 	{
 		UE_LOG(LogTemp, Log, TEXT("  [%s]"), *Category);
-		
+
 		for (const auto& Pair : Commands)
 		{
 			if (Pair.Value->GetCategory() == Category)
@@ -1086,4 +1140,100 @@ void FECACommandRegistry::LogCommands() const
 			}
 		}
 	}
+}
+
+//------------------------------------------------------------------------------
+// CollectUnknownParamKeys
+//------------------------------------------------------------------------------
+
+TArray<FString> CollectUnknownParamKeys(
+	const IECACommand* Command,
+	const TSharedPtr<FJsonObject>& Params)
+{
+	TArray<FString> Warnings;
+
+	if (!Command || !Params.IsValid())
+	{
+		return Warnings;
+	}
+
+	const TArray<FECACommandParam> Declared = Command->GetParameters();
+	if (Declared.Num() == 0)
+	{
+		// Command takes no params (or doesn't declare any) — we have nothing
+		// to validate against. Stay silent rather than nag.
+		return Warnings;
+	}
+
+	// Pre-build lookup tables of declared parameter names.
+	TSet<FString> DeclaredExact;
+	TMap<FString, FString> DeclaredLowerToCanonical;
+	DeclaredExact.Reserve(Declared.Num());
+	DeclaredLowerToCanonical.Reserve(Declared.Num());
+	for (const FECACommandParam& P : Declared)
+	{
+		DeclaredExact.Add(P.Name);
+		DeclaredLowerToCanonical.Add(P.Name.ToLower(), P.Name);
+	}
+
+	// Max fuzzy distance scales with key length, same heuristic as
+	// SuggestSimilarCommands above.
+	auto BestFuzzyMatch = [&](const FString& KeyLower) -> FString
+	{
+		const int32 MaxDist = FMath::Max(2, KeyLower.Len() / 3);
+		FString Best;
+		int32 BestDist = MaxDist + 1;
+		for (const auto& Pair : DeclaredLowerToCanonical)
+		{
+			const int32 D = LevenshteinCapped(KeyLower, Pair.Key, MaxDist);
+			if (D < BestDist)
+			{
+				BestDist = D;
+				Best = Pair.Value;
+			}
+		}
+		return Best;
+	};
+
+	for (const auto& Pair : Params->Values)
+	{
+		const FString& Key = Pair.Key;
+
+		// Skip MCP-internal keys (e.g. _meta with progressToken, _continuation_token).
+		if (Key.StartsWith(TEXT("_")))
+		{
+			continue;
+		}
+
+		// Exact (case-sensitive) match — known good, no warning.
+		if (DeclaredExact.Contains(Key))
+		{
+			continue;
+		}
+
+		// Case-only typo — high-confidence "did you mean".
+		const FString KeyLower = Key.ToLower();
+		if (const FString* Canonical = DeclaredLowerToCanonical.Find(KeyLower))
+		{
+			Warnings.Add(FString::Printf(
+				TEXT("Unknown param '%s' — did you mean '%s'?"),
+				*Key, **Canonical));
+			continue;
+		}
+
+		// Fuzzy match (Levenshtein) — only emit a suggestion when one looks plausible.
+		const FString Fuzzy = BestFuzzyMatch(KeyLower);
+		if (!Fuzzy.IsEmpty())
+		{
+			Warnings.Add(FString::Printf(
+				TEXT("Unknown param '%s' — did you mean '%s'?"),
+				*Key, *Fuzzy));
+		}
+		else
+		{
+			Warnings.Add(FString::Printf(TEXT("Unknown param '%s'"), *Key));
+		}
+	}
+
+	return Warnings;
 }

@@ -13,6 +13,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_pcg_graph"); }
 	virtual FString GetDescription() const override { return TEXT("Serialize a PCG graph to JSON: all nodes with class, title, inputs/outputs, edges, and graph parameters. Requires PCG plugin."); }
 	virtual FString GetCategory() const override { return TEXT("PCG"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -44,6 +45,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_control_rig"); }
 	virtual FString GetDescription() const override { return TEXT("Serialize a Control Rig asset: rig hierarchy (bones, controls, nulls, curves), graph nodes, variables. Requires ControlRig plugin."); }
 	virtual FString GetCategory() const override { return TEXT("ControlRig"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -76,6 +78,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_gameplay_ability"); }
 	virtual FString GetDescription() const override { return TEXT("Serialize a GameplayAbility, GameplayEffect, or AttributeSet blueprint: tags, cooldowns, costs, modifiers, granted abilities. Requires GameplayAbilities plugin."); }
 	virtual FString GetCategory() const override { return TEXT("GAS"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

@@ -38,6 +38,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_render_status"); }
 	virtual FString GetDescription() const override { return TEXT("Check if a Movie Render Queue render is in progress and get completion percentage"); }
 	virtual FString GetCategory() const override { return TEXT("MovieRender"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

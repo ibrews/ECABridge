@@ -14,6 +14,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_pcg_data"); }
 	virtual FString GetDescription() const override { return TEXT("Return a summary of the per-pin output data on an actor's UPCGComponent (data class, tags, point count for point data). The debug surface for 'why did the PCG graph produce this?'."); }
 	virtual FString GetCategory() const override { return TEXT("PCG"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

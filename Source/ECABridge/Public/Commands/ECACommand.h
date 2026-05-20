@@ -26,6 +26,14 @@ struct ECABRIDGE_API FECACommandResult
 	 *  serializing ResultData into a single text block. */
 	TArray<TSharedPtr<FJsonObject>> McpContent;
 
+	/** Non-fatal advisory messages surfaced to the MCP client alongside the result.
+	 *  Populated automatically by the registry for things like unknown-parameter
+	 *  detection ("did you mean ..."), and commands may also append to it
+	 *  themselves to surface deprecation notices, ambiguous-input nudges, or any
+	 *  other "the call succeeded but you should know..." signal. Emitted as the
+	 *  `warnings` array in the JSON response when non-empty. */
+	TArray<FString> Warnings;
+
 	static FECACommandResult Success(TSharedPtr<FJsonObject> Data = nullptr)
 	{
 		FECACommandResult Result;
@@ -117,6 +125,18 @@ ECABRIDGE_API TSharedPtr<FJsonObject> MakeECAObjectRefSchema(const FString& Desc
  *  Distinct from MakeECAObjectRefSchema in that the value is a plain string
  *  rather than a nested {path,class} object. */
 ECABRIDGE_API TSharedPtr<FJsonObject> MakeECAAssetPathSchema(const FString& Description = FString());
+
+/** Inspect the `Params` JSON object and return one human-readable warning per
+ *  key that doesn't correspond to a declared `GetParameters()` entry on
+ *  `Command`. Comparison is case-sensitive — if a key matches a parameter only
+ *  case-insensitively, the warning includes a "did you mean 'CorrectName'?"
+ *  hint; for non-trivial typos a small Levenshtein search is used. Keys that
+ *  begin with `_` are ignored (those are MCP-internal, e.g. `_meta`). Returns
+ *  an empty array if the command declares no parameters (can't validate),
+ *  `Params` is null, or every key is recognized. */
+ECABRIDGE_API TArray<FString> CollectUnknownParamKeys(
+	const IECACommand* Command,
+	const TSharedPtr<FJsonObject>& Params);
 
 /**
  * Cancellation token tied to a single tool-call request. The MCP server stamps
@@ -218,6 +238,13 @@ public:
 	
 	/** Parameter definitions for documentation */
 	virtual TArray<FECACommandParam> GetParameters() const { return {}; }
+
+	/** Whether this command mutates editor / UObject state. Defaults to true (the
+	 *  safe choice — the registry wraps mutating commands in an FScopedTransaction
+	 *  so each call becomes one undoable step). Read-only commands (dump_/find_/
+	 *  get_/list_/describe_/search/check/validate-style queries) should override
+	 *  to return false to keep the undo stack clean. */
+	virtual bool IsMutating() const { return true; }
 
 	/** Optional output schema (JSON Schema draft-07) describing the shape of the
 	 *  result data this command returns on success. Default: nullptr (= no schema

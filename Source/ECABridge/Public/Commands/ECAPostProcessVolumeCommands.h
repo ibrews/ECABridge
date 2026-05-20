@@ -49,6 +49,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_post_process_settings"); }
 	virtual FString GetDescription() const override { return TEXT("Dump every overridden FPostProcessSettings property on a PostProcessVolume"); }
 	virtual FString GetCategory() const override { return TEXT("Rendering"); }
+	virtual bool IsMutating() const override { return false; }
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
 		return {

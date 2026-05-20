@@ -14,6 +14,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_sound_cue"); }
 	virtual FString GetDescription() const override { return TEXT("Inspect a USoundCue: enumerate its USoundNode tree (class names + child counts), and report its USoundClass, USoundAttenuation, base volume/pitch, and max distance."); }
 	virtual FString GetCategory() const override { return TEXT("Audio"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -51,6 +52,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_sound_class"); }
 	virtual FString GetDescription() const override { return TEXT("Inspect a USoundClass: volume, pitch, low-pass-filter freq, output target, child class paths."); }
 	virtual FString GetCategory() const override { return TEXT("Audio"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -85,6 +87,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_sound_attenuation"); }
 	virtual FString GetDescription() const override { return TEXT("Inspect a USoundAttenuation: spatialization, falloff distances + algorithm, air absorption, occlusion, reverb send."); }
 	virtual FString GetCategory() const override { return TEXT("Audio"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -106,6 +109,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_sound_assets"); }
 	virtual FString GetDescription() const override { return TEXT("List USoundBase-derived assets (SoundCue, SoundWave, MetaSoundSource, etc.) in the project. Filter by path prefix, name wildcard, and class name."); }
 	virtual FString GetCategory() const override { return TEXT("Audio"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

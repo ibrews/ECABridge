@@ -32,6 +32,7 @@ public:
 	virtual FString GetName() const override { return TEXT("find_path"); }
 	virtual FString GetDescription() const override { return TEXT("Find a navigation path between two points, returning the path points or an error if no path exists"); }
 	virtual FString GetCategory() const override { return TEXT("Navigation"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -73,6 +74,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_nav_mesh_info"); }
 	virtual FString GetDescription() const override { return TEXT("Get information about the navigation mesh: bounds, build status, and nav data details"); }
 	virtual FString GetCategory() const override { return TEXT("Navigation"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -130,6 +132,7 @@ public:
 	virtual FString GetName() const override { return TEXT("find_actors_by_tag"); }
 	virtual FString GetDescription() const override { return TEXT("Find all actors in the level that have a specific tag"); }
 	virtual FString GetCategory() const override { return TEXT("Navigation"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -149,6 +152,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_actor_hierarchy"); }
 	virtual FString GetDescription() const override { return TEXT("Get the full parent-child hierarchy of an actor including parent info, children, and attached components"); }
 	virtual FString GetCategory() const override { return TEXT("Navigation"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

@@ -103,6 +103,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_viewmodel_bindings"); }
 	virtual FString GetDescription() const override { return TEXT("Get all ViewModel assignments and MVVM bindings on a Widget Blueprint"); }
 	virtual FString GetCategory() const override { return TEXT("MVVM"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -173,6 +174,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_widget_mvvm_properties"); }
 	virtual FString GetDescription() const override { return TEXT("Get all bindable properties on a widget within a Widget Blueprint"); }
 	virtual FString GetCategory() const override { return TEXT("MVVM"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

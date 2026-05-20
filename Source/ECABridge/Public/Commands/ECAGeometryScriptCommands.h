@@ -18,6 +18,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_geometry_script_libraries"); }
 	virtual FString GetDescription() const override { return TEXT("List every UGeometryScriptLibrary_* function library exposed by the GeometryScripting plugin. Returns class name, function count, and module path for each."); }
 	virtual FString GetCategory() const override { return TEXT("GeometryScript"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -51,6 +52,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_geometry_script_library"); }
 	virtual FString GetDescription() const override { return TEXT("Inspect one UGeometryScriptLibrary_* class: list every BlueprintCallable UFUNCTION with its return type, parameter names, and parameter types."); }
 	virtual FString GetCategory() const override { return TEXT("GeometryScript"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

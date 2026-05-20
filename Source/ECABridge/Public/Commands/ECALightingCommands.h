@@ -41,6 +41,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_light_properties"); }
 	virtual FString GetDescription() const override { return TEXT("Get all light properties from a light actor (intensity, color, attenuation, shadow settings, type, mobility)"); }
 	virtual FString GetCategory() const override { return TEXT("Lighting"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

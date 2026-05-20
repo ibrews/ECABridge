@@ -13,6 +13,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_datatable_schema"); }
 	virtual FString GetDescription() const override { return TEXT("Get the row structure (schema) of a DataTable, including all column names and types"); }
 	virtual FString GetCategory() const override { return TEXT("DataTable"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -33,6 +34,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_datatable_rows"); }
 	virtual FString GetDescription() const override { return TEXT("Get rows from a DataTable. Returns all rows or specific rows by name. Each row includes all column values."); }
 	virtual FString GetCategory() const override { return TEXT("DataTable"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -81,6 +83,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_datatable"); }
 	virtual FString GetDescription() const override { return TEXT("Serialize a complete DataTable to JSON: row struct schema with types, plus all row data. Single-call alternative to get_datatable_schema + get_datatable_rows."); }
 	virtual FString GetCategory() const override { return TEXT("DataTable"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

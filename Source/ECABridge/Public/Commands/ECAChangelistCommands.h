@@ -60,6 +60,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_changelists"); }
 	virtual FString GetDescription() const override { return TEXT("List all pending changelists on the active source control provider. Includes id, description, file count, and shelved file count per CL. Empty list for providers that don't use changelists."); }
 	virtual FString GetCategory() const override { return TEXT("SourceControl"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

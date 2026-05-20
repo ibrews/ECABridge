@@ -16,6 +16,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_actors_in_view"); }
 	virtual FString GetDescription() const override { return TEXT("Get actors visible within a camera's view frustum. Returns near objects that the camera can see, useful for AI scene understanding."); }
 	virtual FString GetCategory() const override { return TEXT("View"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -46,6 +47,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_viewport_camera"); }
 	virtual FString GetDescription() const override { return TEXT("Get the current editor viewport camera position, rotation, and properties."); }
 	virtual FString GetCategory() const override { return TEXT("View"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -69,6 +71,7 @@ public:
 	virtual FString GetName() const override { return TEXT("describe_view"); }
 	virtual FString GetDescription() const override { return TEXT("Get a structured description of what a camera can see, organized by distance zones (near/mid/far) and object categories."); }
 	virtual FString GetCategory() const override { return TEXT("View"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
