@@ -165,7 +165,7 @@ FECACommandResult FECACommand_TintMetaHumanOutfit::Execute(const TSharedPtr<FJso
 				bIsBodyProxy = true;
 			}
 
-			FLinearColor Color;
+			FLinearColor Color = FLinearColor::Black;
 			bool bShouldTint = false;
 			const TCHAR* Category = TEXT("");
 			if (bIsShirt && bHasShirt) { Color = ShirtColor; bShouldTint = true; Category = TEXT("shirt"); }
