@@ -23,6 +23,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_ik_retargeters"); }
 	virtual FString GetDescription() const override { return TEXT("List every UIKRetargeter asset in the project. Returns source/target IKRig paths, preview skeletal mesh paths, and op count for each."); }
 	virtual FString GetCategory() const override { return TEXT("AnimRetarget"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -59,6 +60,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_ik_retargeter"); }
 	virtual FString GetDescription() const override { return TEXT("Inspect a UIKRetargeter: source/target IK rig paths, retarget op stack, retarget pose list, and a summary of chain mappings."); }
 	virtual FString GetCategory() const override { return TEXT("AnimRetarget"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -98,6 +100,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_ik_rigs"); }
 	virtual FString GetDescription() const override { return TEXT("List every UIKRigDefinition asset in the project. Returns retarget chain count, goal count, and preview skeletal mesh path."); }
 	virtual FString GetCategory() const override { return TEXT("AnimRetarget"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

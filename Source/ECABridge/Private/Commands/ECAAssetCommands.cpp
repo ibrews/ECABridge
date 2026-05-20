@@ -1060,9 +1060,9 @@ FECACommandResult FECACommand_ListTextures::Execute(const TSharedPtr<FJsonObject
 	
 	TArray<FAssetData> AssetList;
 	AssetRegistry.GetAssetsByPath(*Path, AssetList, bRecursive);
-	
+
 	TArray<TSharedPtr<FJsonValue>> TexturesArray;
-	
+
 	for (const FAssetData& Asset : AssetList)
 	{
 		if (Asset.AssetClassPath == UTexture2D::StaticClass()->GetClassPathName())
@@ -1073,11 +1073,18 @@ FECACommandResult FECACommand_ListTextures::Execute(const TSharedPtr<FJsonObject
 			TexturesArray.Add(MakeShared<FJsonValueObject>(TextureObj));
 		}
 	}
-	
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetArrayField(TEXT("textures"), TexturesArray);
 	Result->SetNumberField(TEXT("count"), TexturesArray.Num());
-	
+
+	// Coverage here is "Texture2D hits / total assets scanned" — useful for
+	// the agent to gauge how dense the requested path is.
+	const FString Coverage = FString::Printf(
+		TEXT("%d/%d assets matched Texture2D"), TexturesArray.Num(), AssetList.Num());
+	Result->SetObjectField(TEXT("_meta"),
+		MakeECADumpMeta(TEXT("AssetRegistry path query (Texture2D only)"), Coverage, TEXT("HIGH"), {}));
+
 	return FECACommandResult::Success(Result);
 }
 
@@ -1097,9 +1104,9 @@ FECACommandResult FECACommand_ListMaterials::Execute(const TSharedPtr<FJsonObjec
 	
 	TArray<FAssetData> AssetList;
 	AssetRegistry.GetAssetsByPath(*Path, AssetList, bRecursive);
-	
+
 	TArray<TSharedPtr<FJsonValue>> MaterialsArray;
-	
+
 	for (const FAssetData& Asset : AssetList)
 	{
 		if (Asset.AssetClassPath == UMaterial::StaticClass()->GetClassPathName() ||
@@ -1113,11 +1120,16 @@ FECACommandResult FECACommand_ListMaterials::Execute(const TSharedPtr<FJsonObjec
 			MaterialsArray.Add(MakeShared<FJsonValueObject>(MaterialObj));
 		}
 	}
-	
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetArrayField(TEXT("materials"), MaterialsArray);
 	Result->SetNumberField(TEXT("count"), MaterialsArray.Num());
-	
+
+	const FString Coverage = FString::Printf(
+		TEXT("%d/%d assets matched Material*"), MaterialsArray.Num(), AssetList.Num());
+	Result->SetObjectField(TEXT("_meta"),
+		MakeECADumpMeta(TEXT("AssetRegistry path query (Material variants)"), Coverage, TEXT("HIGH"), {}));
+
 	return FECACommandResult::Success(Result);
 }
 
@@ -4125,6 +4137,30 @@ FECACommandResult FECACommand_FindAssets::Execute(const TSharedPtr<FJsonObject>&
 	{
 		Result->SetNumberField(TEXT("truncated_count"), AssetDataList.Num() - Count);
 	}
+
+	// --- _meta (confidence header) ---
+	TArray<FString> Notes;
+	FString Confidence = TEXT("HIGH");
+	if (!ClassFilter.IsEmpty() && Filter.ClassPaths.Num() == 0)
+	{
+		// User asked for a class filter but we couldn't resolve the name to a
+		// UClass — the AssetRegistry query ran without any class restriction,
+		// so results are likely far broader than the caller expected.
+		Notes.Add(FString::Printf(
+			TEXT("Could not resolve class_filter '%s' — class restriction not applied"),
+			*ClassFilter));
+		Confidence = TEXT("MEDIUM");
+	}
+	if (Count < AssetDataList.Num())
+	{
+		Notes.Add(FString::Printf(TEXT("Result truncated by max_results=%d (%d hits dropped)"),
+			MaxResults, AssetDataList.Num() - Count));
+		// Truncation is the caller's choice, not a parse failure — leave
+		// confidence alone unless we also failed something else above.
+	}
+	const FString Coverage = FString::Printf(TEXT("%d/%d assets returned"), Count, AssetDataList.Num());
+	Result->SetObjectField(TEXT("_meta"),
+		MakeECADumpMeta(TEXT("AssetRegistry FARFilter query"), Coverage, Confidence, Notes));
 
 	return FECACommandResult::Success(Result);
 }

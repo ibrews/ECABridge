@@ -119,6 +119,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_sequence_info"); }
 	virtual FString GetDescription() const override { return TEXT("Get info about a Level Sequence: duration, frame rate, bindings, tracks"); }
 	virtual FString GetCategory() const override { return TEXT("Sequencer"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -246,6 +247,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_sequence_current_time"); }
 	virtual FString GetDescription() const override { return TEXT("Get the current playback position of a playing Level Sequence"); }
 	virtual FString GetCategory() const override { return TEXT("Sequencer"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -265,6 +267,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_level_sequence"); }
 	virtual FString GetDescription() const override { return TEXT("Serialize a complete Level Sequence to JSON: all bindings with tracks, sections, keyframe data, camera cuts, and playback range. Makes any sequence fully legible in one call."); }
 	virtual FString GetCategory() const override { return TEXT("Sequencer"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

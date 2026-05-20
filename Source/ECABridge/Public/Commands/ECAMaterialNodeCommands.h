@@ -61,6 +61,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_material_nodes"); }
 	virtual FString GetDescription() const override { return TEXT("Get all expression nodes in a material with their connections"); }
 	virtual FString GetCategory() const override { return TEXT("Material Node"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -82,6 +83,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_material_node_info"); }
 	virtual FString GetDescription() const override { return TEXT("Get detailed information about a material expression node including its inputs and outputs"); }
 	virtual FString GetCategory() const override { return TEXT("Material Node"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -191,6 +193,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_material_expression_types"); }
 	virtual FString GetDescription() const override { return TEXT("List all available material expression types that can be added to materials"); }
 	virtual FString GetCategory() const override { return TEXT("Material Node"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -212,6 +215,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_material_errors"); }
 	virtual FString GetDescription() const override { return TEXT("Get compilation errors for a material. Call this after making changes to check for issues."); }
 	virtual FString GetCategory() const override { return TEXT("Material Node"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -277,6 +281,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_material_property"); }
 	virtual FString GetDescription() const override { return TEXT("Get UMaterial properties using reflection. Returns all editable properties if no specific property is requested."); }
 	virtual FString GetCategory() const override { return TEXT("Material"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -368,6 +373,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_parameter_groups"); }
 	virtual FString GetDescription() const override { return TEXT("List all parameter groups in a material with counts of parameters in each group."); }
 	virtual FString GetCategory() const override { return TEXT("Material"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -392,6 +398,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_material_graph"); }
 	virtual FString GetDescription() const override { return TEXT("Dump complete material graph: all nodes, connections, material properties, material inputs, and compilation errors in one call."); }
 	virtual FString GetCategory() const override { return TEXT("Material Node"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

@@ -19,10 +19,11 @@ public:
 		return {
 			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Path to the Blueprint asset"), true },
 			{ TEXT("event_name"), TEXT("string"), TEXT("Event name: ReceiveBeginPlay, ReceiveTick, ReceiveActorBeginOverlap, etc."), true },
-			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false }
+			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false },
+			{ TEXT("name"), TEXT("string"), TEXT("Optional friendly name to bind to the new node's GUID for later reference via node_name"), false }
 		};
 	}
-	
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -41,10 +42,11 @@ public:
 		return {
 			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Path to the Blueprint asset"), true },
 			{ TEXT("action_name"), TEXT("string"), TEXT("Name of the input action"), true },
-			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false }
+			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false },
+			{ TEXT("name"), TEXT("string"), TEXT("Optional friendly name to bind to the new node's GUID for later reference via node_name"), false }
 		};
 	}
-	
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -66,10 +68,11 @@ public:
 			{ TEXT("target"), TEXT("string"), TEXT("Target for the function call (self, component name, or class)"), false, TEXT("self") },
 			{ TEXT("target_class"), TEXT("string"), TEXT("Class containing the function (e.g., KismetSystemLibrary, Actor)"), false },
 			{ TEXT("graph_name"), TEXT("string"), TEXT("Name of the graph to add to (EventGraph or function name)"), false, TEXT("EventGraph") },
-			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false }
+			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false },
+			{ TEXT("name"), TEXT("string"), TEXT("Optional friendly name to bind to the new node's GUID for later reference via node_name"), false }
 		};
 	}
-	
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -94,10 +97,11 @@ public:
 			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Path to the Blueprint asset"), true },
 			{ TEXT("macro_name"), TEXT("string"), TEXT("Name of the macro: ForLoop, WhileLoop, ForEachLoop, Gate, etc."), true },
 			{ TEXT("graph_name"), TEXT("string"), TEXT("Name of the graph to add to"), false, TEXT("EventGraph") },
-			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false }
+			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false },
+			{ TEXT("name"), TEXT("string"), TEXT("Optional friendly name to bind to the new node's GUID for later reference via node_name"), false }
 		};
 	}
-	
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -121,10 +125,11 @@ public:
 			{ TEXT("target_class"), TEXT("string"), TEXT("Class to cast to (e.g., Character, Pawn, or /Game/BP_Enemy for Blueprints)"), true },
 			{ TEXT("pure"), TEXT("boolean"), TEXT("Create a pure cast (no exec pins)"), false, TEXT("false") },
 			{ TEXT("graph_name"), TEXT("string"), TEXT("Name of the graph to add to"), false, TEXT("EventGraph") },
-			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false }
+			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false },
+			{ TEXT("name"), TEXT("string"), TEXT("Optional friendly name to bind to the new node's GUID for later reference via node_name"), false }
 		};
 	}
-	
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -142,14 +147,16 @@ public:
 	{
 		return {
 			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Path to the Blueprint asset"), true },
-			{ TEXT("source_node_id"), TEXT("string"), TEXT("GUID of the source node"), true },
+			{ TEXT("source_node_id"), TEXT("string"), TEXT("GUID of the source node (or use source_node_name)"), false },
+			{ TEXT("source_node_name"), TEXT("string"), TEXT("Friendly name of the source node (registered via name_blueprint_node or the `name` param on add_* commands)"), false },
 			{ TEXT("source_pin"), TEXT("string"), TEXT("Name of the output pin on the source node"), true },
-			{ TEXT("target_node_id"), TEXT("string"), TEXT("GUID of the target node"), true },
+			{ TEXT("target_node_id"), TEXT("string"), TEXT("GUID of the target node (or use target_node_name)"), false },
+			{ TEXT("target_node_name"), TEXT("string"), TEXT("Friendly name of the target node"), false },
 			{ TEXT("target_pin"), TEXT("string"), TEXT("Name of the input pin on the target node"), true },
 			{ TEXT("graph_name"), TEXT("string"), TEXT("Name of the graph"), false, TEXT("EventGraph") }
 		};
 	}
-	
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -168,10 +175,11 @@ public:
 		return {
 			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Path to the Blueprint asset"), true },
 			{ TEXT("graph_name"), TEXT("string"), TEXT("Name of the graph"), false, TEXT("EventGraph") },
-			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false }
+			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false },
+			{ TEXT("name"), TEXT("string"), TEXT("Optional friendly name to bind to the new node's GUID for later reference via node_name"), false }
 		};
 	}
-	
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -191,10 +199,11 @@ public:
 			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Path to the Blueprint asset"), true },
 			{ TEXT("component_name"), TEXT("string"), TEXT("Name of the component to reference"), true },
 			{ TEXT("graph_name"), TEXT("string"), TEXT("Name of the graph"), false, TEXT("EventGraph") },
-			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false }
+			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false },
+			{ TEXT("name"), TEXT("string"), TEXT("Optional friendly name to bind to the new node's GUID for later reference via node_name"), false }
 		};
 	}
-	
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -207,6 +216,7 @@ public:
 	virtual FString GetName() const override { return TEXT("find_blueprint_nodes"); }
 	virtual FString GetDescription() const override { return TEXT("Find nodes in a Blueprint graph by type or name"); }
 	virtual FString GetCategory() const override { return TEXT("Blueprint Node"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -237,10 +247,11 @@ public:
 			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Path to the Blueprint asset"), true },
 			{ TEXT("variable_name"), TEXT("string"), TEXT("Name of the variable to get"), true },
 			{ TEXT("graph_name"), TEXT("string"), TEXT("Name of the graph"), false, TEXT("EventGraph") },
-			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false }
+			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false },
+			{ TEXT("name"), TEXT("string"), TEXT("Optional friendly name to bind to the new node's GUID for later reference via node_name"), false }
 		};
 	}
-	
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -260,10 +271,11 @@ public:
 			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Path to the Blueprint asset"), true },
 			{ TEXT("variable_name"), TEXT("string"), TEXT("Name of the variable to set"), true },
 			{ TEXT("graph_name"), TEXT("string"), TEXT("Name of the graph"), false, TEXT("EventGraph") },
-			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false }
+			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false },
+			{ TEXT("name"), TEXT("string"), TEXT("Optional friendly name to bind to the new node's GUID for later reference via node_name"), false }
 		};
 	}
-	
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -318,6 +330,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_blueprint_node_pins"); }
 	virtual FString GetDescription() const override { return TEXT("Get detailed pin information for a node by its GUID. Use this to discover pin names for connections."); }
 	virtual FString GetCategory() const override { return TEXT("Blueprint Node"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -346,11 +359,12 @@ public:
 	{
 		return {
 			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Path to the Blueprint asset"), true },
-			{ TEXT("node_id"), TEXT("string"), TEXT("GUID of the node to delete"), true },
+			{ TEXT("node_id"), TEXT("string"), TEXT("GUID of the node to delete (or use node_name)"), false },
+			{ TEXT("node_name"), TEXT("string"), TEXT("Friendly name of the node to delete (registered via name_blueprint_node or the `name` param on add_* commands)"), false },
 			{ TEXT("graph_name"), TEXT("string"), TEXT("Name of the graph"), false, TEXT("EventGraph") }
 		};
 	}
-	
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -391,12 +405,13 @@ public:
 	{
 		return {
 			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Path to the Blueprint asset"), true },
-			{ TEXT("node_id"), TEXT("string"), TEXT("GUID of the node"), true },
+			{ TEXT("node_id"), TEXT("string"), TEXT("GUID of the node (or use node_name)"), false },
+			{ TEXT("node_name"), TEXT("string"), TEXT("Friendly name of the node (registered via name_blueprint_node or the `name` param on add_* commands)"), false },
 			{ TEXT("pin_name"), TEXT("string"), TEXT("Specific pin to disconnect (optional, disconnects all if not specified)"), false },
 			{ TEXT("graph_name"), TEXT("string"), TEXT("Name of the graph"), false, TEXT("EventGraph") }
 		};
 	}
-	
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -415,13 +430,14 @@ public:
 	{
 		return {
 			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Path to the Blueprint asset"), true },
-			{ TEXT("node_id"), TEXT("string"), TEXT("GUID of the node"), true },
+			{ TEXT("node_id"), TEXT("string"), TEXT("GUID of the node (or use node_name)"), false },
+			{ TEXT("node_name"), TEXT("string"), TEXT("Friendly name of the node (registered via name_blueprint_node or the `name` param on add_* commands)"), false },
 			{ TEXT("pin_name"), TEXT("string"), TEXT("Name of the pin to set"), true },
 			{ TEXT("value"), TEXT("string"), TEXT("Value to set (as string - will be parsed based on pin type)"), true },
 			{ TEXT("graph_name"), TEXT("string"), TEXT("Name of the graph"), false, TEXT("EventGraph") }
 		};
 	}
-	
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -456,6 +472,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_blueprint_variable_default"); }
 	virtual FString GetDescription() const override { return TEXT("Get the default value of a Blueprint variable"); }
 	virtual FString GetCategory() const override { return TEXT("Blueprint"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -482,14 +499,16 @@ public:
 	{
 		return {
 			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Path to the Blueprint asset"), true },
-			{ TEXT("source_node_id"), TEXT("string"), TEXT("GUID of the source node"), true },
+			{ TEXT("source_node_id"), TEXT("string"), TEXT("GUID of the source node (or use source_node_name)"), false },
+			{ TEXT("source_node_name"), TEXT("string"), TEXT("Friendly name of the source node"), false },
 			{ TEXT("source_pin"), TEXT("string"), TEXT("Name of the source pin"), true },
-			{ TEXT("target_node_id"), TEXT("string"), TEXT("GUID of the target node"), true },
+			{ TEXT("target_node_id"), TEXT("string"), TEXT("GUID of the target node (or use target_node_name)"), false },
+			{ TEXT("target_node_name"), TEXT("string"), TEXT("Friendly name of the target node"), false },
 			{ TEXT("target_pin"), TEXT("string"), TEXT("Name of the target pin"), true },
 			{ TEXT("graph_name"), TEXT("string"), TEXT("Name of the graph"), false, TEXT("EventGraph") }
 		};
 	}
-	
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -509,10 +528,11 @@ public:
 			{ TEXT("blueprint_path"), TEXT("string"), TEXT("Path to the Blueprint asset"), true },
 			{ TEXT("component_name"), TEXT("string"), TEXT("Name of the component to bind the event to"), true },
 			{ TEXT("event_name"), TEXT("string"), TEXT("Event name: OnComponentBeginOverlap, OnComponentEndOverlap, OnComponentHit, OnComponentWake, OnComponentSleep, etc."), true },
-			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false }
+			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false },
+			{ TEXT("name"), TEXT("string"), TEXT("Optional friendly name to bind to the new node's GUID for later reference via node_name"), false }
 		};
 	}
-	
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -564,10 +584,11 @@ public:
 			{ TEXT("node_type"), TEXT("string"), TEXT("Type: branch, select, switch_int, switch_string, switch_name, switch_enum"), true },
 			{ TEXT("enum_type"), TEXT("string"), TEXT("For switch_enum: the enum type path (e.g., /Script/Engine.ECollisionChannel)"), false },
 			{ TEXT("graph_name"), TEXT("string"), TEXT("Name of the graph to add to"), false, TEXT("EventGraph") },
-			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false }
+			{ TEXT("node_position"), TEXT("object"), TEXT("Node position in graph {x, y}"), false },
+			{ TEXT("name"), TEXT("string"), TEXT("Optional friendly name to bind to the new node's GUID for later reference via node_name"), false }
 		};
 	}
-	
+
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
 
@@ -599,6 +620,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_blueprint_graph"); }
 	virtual FString GetDescription() const override { return TEXT("Serialize an entire Blueprint to JSON: all graphs (event, function, macro), all nodes with pins and connections, all variables with types and defaults, compilation status. Makes any Blueprint fully readable in one call."); }
 	virtual FString GetCategory() const override { return TEXT("Blueprint Node"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -657,6 +679,7 @@ public:
 	virtual FString GetName() const override { return TEXT("search_blueprint_usage"); }
 	virtual FString GetDescription() const override { return TEXT("Search across multiple Blueprints for nodes matching a search term. Scans all graphs (UbergraphPages + FunctionGraphs) in each Blueprint."); }
 	virtual FString GetCategory() const override { return TEXT("Blueprint Node"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

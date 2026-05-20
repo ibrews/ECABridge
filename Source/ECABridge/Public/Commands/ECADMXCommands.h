@@ -19,6 +19,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_dmx_libraries"); }
 	virtual FString GetDescription() const override { return TEXT("List every UDMXLibrary asset in the project. Returns package_path, name, and patch_count for each library."); }
 	virtual FString GetCategory() const override { return TEXT("DMX"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override { return {}; }
 
@@ -40,6 +41,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_dmx_patch"); }
 	virtual FString GetDescription() const override { return TEXT("Dump the fixture-patch table for a UDMXLibrary asset. Pass library_path (e.g. /Game/Lighting/MyLib). Returns an array of patches with universe_id, starting_channel, fixture_type, mode, and entity_id."); }
 	virtual FString GetCategory() const override { return TEXT("DMX"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

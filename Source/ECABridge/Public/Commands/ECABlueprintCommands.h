@@ -126,6 +126,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_blueprint_info"); }
 	virtual FString GetDescription() const override { return TEXT("Get information about a Blueprint"); }
 	virtual FString GetCategory() const override { return TEXT("Blueprint"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -158,6 +159,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_blueprints"); }
 	virtual FString GetDescription() const override { return TEXT("List all Blueprint assets in a path"); }
 	virtual FString GetCategory() const override { return TEXT("Blueprint"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

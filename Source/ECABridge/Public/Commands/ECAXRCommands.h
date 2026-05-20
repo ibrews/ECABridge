@@ -19,6 +19,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_xr_runtime_info"); }
 	virtual FString GetDescription() const override { return TEXT("Get information about the active XR / OpenXR runtime: system name, version, positional-tracking support, and head-tracking permission. Returns xr_active=false with a message if no XR system is currently bound."); }
 	virtual FString GetCategory() const override { return TEXT("XR"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override { return {}; }
 
@@ -39,6 +40,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_xr_input_state"); }
 	virtual FString GetDescription() const override { return TEXT("Dump the current tracking state of every XR device known to the active runtime — HMD, controllers, trackers, sensors. Each entry includes device id, tracking flag, and (if tracked) current orientation + position."); }
 	virtual FString GetCategory() const override { return TEXT("XR"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override { return {}; }
 

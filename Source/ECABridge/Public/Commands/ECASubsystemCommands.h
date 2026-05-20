@@ -13,6 +13,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_editor_subsystems"); }
 	virtual FString GetDescription() const override { return TEXT("List every active UEditorSubsystem (class name, package, path). Use dump_subsystem to introspect a specific one."); }
 	virtual FString GetCategory() const override { return TEXT("Subsystem"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -41,6 +42,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_engine_subsystems"); }
 	virtual FString GetDescription() const override { return TEXT("List every active UEngineSubsystem (class name, package, path). Use dump_subsystem to introspect a specific one."); }
 	virtual FString GetCategory() const override { return TEXT("Subsystem"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -77,6 +79,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_subsystem"); }
 	virtual FString GetDescription() const override { return TEXT("Inspect a subsystem (editor / engine / world) by class name: list its UFUNCTIONs and UPROPERTYs via reflection."); }
 	virtual FString GetCategory() const override { return TEXT("Subsystem"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

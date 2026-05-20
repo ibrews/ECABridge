@@ -934,41 +934,43 @@ FECACommandResult FECACommand_FindActors::Execute(const TSharedPtr<FJsonObject>&
 	GetFloatParam(Params, TEXT("radius"), Radius, false);
 	
 	TArray<TSharedPtr<FJsonValue>> ActorsArray;
-	
+	int32 TotalScanned = 0;
+
 	for (TActorIterator<AActor> It(World); It; ++It)
 	{
 		AActor* Actor = *It;
+		++TotalScanned;
 		bool bMatch = true;
-		
+
 		// Name pattern filter - check both label and object name
 		if (bHasNamePattern && bMatch)
 		{
 			FString ActorLabel = Actor->GetActorLabel();
 			FString ActorObjName = Actor->GetName();
-			bMatch = ActorLabel.MatchesWildcard(NamePattern, ESearchCase::IgnoreCase) || 
+			bMatch = ActorLabel.MatchesWildcard(NamePattern, ESearchCase::IgnoreCase) ||
 			         ActorObjName.MatchesWildcard(NamePattern, ESearchCase::IgnoreCase);
 		}
-		
+
 		// Class filter
 		if (bHasClassName && bMatch)
 		{
 			FString ActorClassName = Actor->GetClass()->GetName();
 			bMatch = ActorClassName.Contains(ClassName);
 		}
-		
+
 		// Tag filter
 		if (bHasTag && bMatch)
 		{
 			bMatch = Actor->Tags.Contains(FName(*Tag));
 		}
-		
+
 		// Location filter
 		if (bHasLocation && bMatch)
 		{
 			double Distance = FVector::Dist(Actor->GetActorLocation(), NearLocation);
 			bMatch = Distance <= Radius;
 		}
-		
+
 		if (bMatch)
 		{
 			TSharedPtr<FJsonObject> ActorJson = MakeShared<FJsonObject>();
@@ -978,10 +980,21 @@ FECACommandResult FECACommand_FindActors::Execute(const TSharedPtr<FJsonObject>&
 			ActorsArray.Add(MakeShared<FJsonValueObject>(ActorJson));
 		}
 	}
-	
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetArrayField(TEXT("actors"), ActorsArray);
 	Result->SetNumberField(TEXT("count"), ActorsArray.Num());
+
+	// --- _meta (confidence header) ---
+	// Coverage describes "how much of the world we scanned" — TActorIterator
+	// only walks loaded actors, so in a World Partition setup unstreamed
+	// cells silently won't appear. We can't cheaply detect that here without
+	// pulling in the WorldPartition module, so the method label warns instead.
+	const FString Coverage = FString::Printf(
+		TEXT("%d/%d actors matched (loaded actors only)"), ActorsArray.Num(), TotalScanned);
+	Result->SetObjectField(TEXT("_meta"),
+		MakeECADumpMeta(TEXT("TActorIterator scan (loaded actors only; WP unstreamed cells excluded)"),
+			Coverage, TEXT("HIGH"), {}));
 	return FECACommandResult::Success(Result);
 }
 

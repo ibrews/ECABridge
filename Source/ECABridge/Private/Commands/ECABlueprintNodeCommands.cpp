@@ -2,6 +2,7 @@
 
 #include "Commands/ECABlueprintNodeCommands.h"
 #include "Commands/ECACommand.h"
+#include "Commands/ECANodeNameRegistry.h"
 #include "Editor.h"
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
@@ -370,22 +371,116 @@ static UEdGraphNode* FindNodeByGuid(UEdGraph* Graph, const FGuid& Guid)
 	return nullptr;
 }
 
+// Resolve a node reference passed via either node_id (raw GUID hex) or
+// node_name (a friendly name previously registered via name_blueprint_node
+// or via the optional `name` param on the add_* creators). The name path
+// wins when both fields are set — agents typically only set one.
+//
+// Returns false when neither field is set, the name isn't bound, or the GUID
+// parse fails. OutErrorMessage explains which case it was so callers can
+// pass it through to ValidationError / Error. When the name path resolves,
+// OutBlueprintPath / OutGraphName are populated from the binding (the caller
+// can use them to skip its own blueprint_path / graph_name extraction); when
+// the GUID path is used those output strings are left untouched.
+static bool ResolveNodeRef(
+	const TSharedPtr<FJsonObject>& Params,
+	const FString& IdFieldName,
+	const FString& NameFieldName,
+	FString& OutBlueprintPath,
+	FString& OutGraphName,
+	FGuid& OutGuid,
+	FString& OutErrorMessage)
+{
+	if (!Params.IsValid())
+	{
+		OutErrorMessage = TEXT("Missing parameters object");
+		return false;
+	}
+
+	// Friendly-name path first (wins when both are set).
+	FString Name;
+	if (Params->TryGetStringField(NameFieldName, Name) && !Name.IsEmpty())
+	{
+		FString BP, Graph;
+		FGuid Guid;
+		if (!FECANodeNameRegistry::Get().Resolve(Name, BP, Graph, Guid))
+		{
+			OutErrorMessage = FString::Printf(
+				TEXT("%s '%s' is not bound in the session registry. Use name_blueprint_node to bind it, or pass %s with a raw GUID."),
+				*NameFieldName, *Name, *IdFieldName);
+			return false;
+		}
+		OutBlueprintPath = BP;
+		OutGraphName = Graph;
+		OutGuid = Guid;
+		return true;
+	}
+
+	// Raw GUID path.
+	FString IdString;
+	if (!Params->TryGetStringField(IdFieldName, IdString) || IdString.IsEmpty())
+	{
+		OutErrorMessage = FString::Printf(
+			TEXT("Missing required parameter: pass %s (raw GUID) or %s (friendly name registered via name_blueprint_node)"),
+			*IdFieldName, *NameFieldName);
+		return false;
+	}
+
+	if (!FGuid::Parse(IdString, OutGuid))
+	{
+		OutErrorMessage = FString::Printf(TEXT("Invalid GUID format for %s: %s"), *IdFieldName, *IdString);
+		return false;
+	}
+	return true;
+}
+
+// Convenience: if Params carries a non-empty `name` field, bind it in the
+// session registry to the just-created node's GUID. Used by every add_*
+// command so callers can pass a friendly name at create-time and reference
+// it via node_name in subsequent calls.
+static void MaybeAutoRegisterNodeName(
+	const TSharedPtr<FJsonObject>& Params,
+	const FString& BlueprintPath,
+	const FString& GraphName,
+	UEdGraphNode* NewNode)
+{
+	if (!Params.IsValid() || !NewNode)
+	{
+		return;
+	}
+	FString FriendlyName;
+	if (Params->TryGetStringField(TEXT("name"), FriendlyName) && !FriendlyName.IsEmpty())
+	{
+		FECANodeNameRegistry::Get().Register(FriendlyName, BlueprintPath, GraphName, NewNode->NodeGuid);
+	}
+}
+
 // Helper to resolve a node reference (either temp_id or GUID)
 static UEdGraphNode* ResolveNodeReference(UEdGraph* Graph, const FString& Reference, const TMap<FString, UEdGraphNode*>& TempIdMap)
 {
-	// First check if it's a temp_id
+	// First check if it's a temp_id (in-batch reference).
 	if (const UEdGraphNode* const* Found = TempIdMap.Find(Reference))
 	{
 		return const_cast<UEdGraphNode*>(*Found);
 	}
-	
-	// Otherwise try to parse as GUID
+
+	// Try to parse as a raw GUID.
 	FGuid Guid;
 	if (FGuid::Parse(Reference, Guid))
 	{
 		return FindNodeByGuid(Graph, Guid);
 	}
-	
+
+	// Fall back to the friendly-name registry. Lets a batch wire to a node
+	// that was named in a prior call without the caller having to resolve
+	// the GUID themselves.
+	FString BoundBP, BoundGraph;
+	FGuid BoundGuid;
+	if (FECANodeNameRegistry::Get().Resolve(Reference, BoundBP, BoundGraph, BoundGuid))
+	{
+		return FindNodeByGuid(Graph, BoundGuid);
+	}
+
 	return nullptr;
 }
 
@@ -528,15 +623,17 @@ FECACommandResult FECACommand_AddBlueprintEventNode::Execute(const TSharedPtr<FJ
 	EventNode->AllocateDefaultPins();
 	EnsureBPNodeHasValidGuid(EventNode);
 	EventNode->ReconstructNode();
-	
+
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
-	
+
+	MaybeAutoRegisterNodeName(Params, BlueprintPath, TEXT("EventGraph"), EventNode);
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetStringField(TEXT("node_id"), EventNode->NodeGuid.ToString());
 	Result->SetStringField(TEXT("event_name"), EventName);
 	Result->SetObjectField(TEXT("node"), NodeToJson(EventNode));
 	AddNodeErrorInfo(Result, EventNode);
-	
+
 	return FECACommandResult::Success(Result);
 }
 
@@ -581,14 +678,16 @@ FECACommandResult FECACommand_AddBlueprintInputActionNode::Execute(const TShared
 	EventGraph->AddNode(InputActionNode, false, false);
 	InputActionNode->AllocateDefaultPins();
 	EnsureBPNodeHasValidGuid(InputActionNode);
-	
+
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
-	
+
+	MaybeAutoRegisterNodeName(Params, BlueprintPath, TEXT("EventGraph"), InputActionNode);
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetStringField(TEXT("node_id"), InputActionNode->NodeGuid.ToString());
 	Result->SetStringField(TEXT("action_name"), ActionName);
 	Result->SetObjectField(TEXT("node"), NodeToJson(InputActionNode));
-	
+
 	return FECACommandResult::Success(Result);
 }
 
@@ -742,9 +841,11 @@ FECACommandResult FECACommand_AddBlueprintFunctionNode::Execute(const TSharedPtr
 		CallNode->AllocateDefaultPins();
 		EnsureBPNodeHasValidGuid(CallNode);
 		CallNode->ReconstructNode();
-		
+
 		FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
-		
+
+		MaybeAutoRegisterNodeName(Params, BlueprintPath, GraphName, CallNode);
+
 		TSharedPtr<FJsonObject> Result = MakeResult();
 		Result->SetStringField(TEXT("node_id"), CallNode->NodeGuid.ToString());
 		Result->SetStringField(TEXT("function_name"), FunctionName);
@@ -752,7 +853,7 @@ FECACommandResult FECACommand_AddBlueprintFunctionNode::Execute(const TSharedPtr
 		Result->SetBoolField(TEXT("is_blueprint_function"), true);
 		Result->SetObjectField(TEXT("node"), NodeToJson(CallNode));
 		AddNodeErrorInfo(Result, CallNode);
-		
+
 		return FECACommandResult::Success(Result);
 	}
 	
@@ -912,25 +1013,27 @@ FECACommandResult FECACommand_AddBlueprintFunctionNode::Execute(const TSharedPtr
 	CallNode->SetFromFunction(Function);
 	CallNode->NodePosX = Position.X;
 	CallNode->NodePosY = Position.Y;
-	
+
 	Graph->AddNode(CallNode, false, false);
 	CallNode->AllocateDefaultPins();
 	EnsureBPNodeHasValidGuid(CallNode);
-	
+
 	// Reconstruct node to ensure proper setup and error detection
 	CallNode->ReconstructNode();
-	
+
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
-	
+
+	MaybeAutoRegisterNodeName(Params, BlueprintPath, GraphName, CallNode);
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetStringField(TEXT("node_id"), CallNode->NodeGuid.ToString());
 	Result->SetStringField(TEXT("function_name"), FunctionName);
 	Result->SetStringField(TEXT("function_class"), Function->GetOwnerClass()->GetName());
 	Result->SetObjectField(TEXT("node"), NodeToJson(CallNode));
-	
+
 	// Include any errors at the top level for easy access
 	AddNodeErrorInfo(Result, CallNode);
-	
+
 	return FECACommandResult::Success(Result);
 }
 
@@ -945,53 +1048,54 @@ FECACommandResult FECACommand_ConnectBlueprintNodes::Execute(const TSharedPtr<FJ
 	{
 		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
-	
-	FString SourceNodeId, TargetNodeId;
+
 	FString SourcePinName, TargetPinName;
-	
-	if (!GetStringParam(Params, TEXT("source_node_id"), SourceNodeId))
-	{
-		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: source_node_id"));
-	}
 	if (!GetStringParam(Params, TEXT("source_pin"), SourcePinName))
 	{
 		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: source_pin"));
-	}
-	if (!GetStringParam(Params, TEXT("target_node_id"), TargetNodeId))
-	{
-		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: target_node_id"));
 	}
 	if (!GetStringParam(Params, TEXT("target_pin"), TargetPinName))
 	{
 		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: target_pin"));
 	}
-	
+
 	FString GraphName = TEXT("EventGraph");
 	GetStringParam(Params, TEXT("graph_name"), GraphName, false);
-	
+
+	// Resolve both endpoints via id-or-name. The registry binding's stored
+	// blueprint_path / graph_name are advisory — we still honor the caller's
+	// blueprint_path + graph_name for the actual lookup so connecting two named
+	// nodes across the same Blueprint stays well-defined.
+	FString SourceBP, SourceGraphName, TargetBP, TargetGraphName;
+	FGuid SourceGuid, TargetGuid;
+	FString ErrMsg;
+	if (!ResolveNodeRef(Params, TEXT("source_node_id"), TEXT("source_node_name"),
+		SourceBP, SourceGraphName, SourceGuid, ErrMsg))
+	{
+		return FECACommandResult::ValidationError(this, ErrMsg);
+	}
+	if (!ResolveNodeRef(Params, TEXT("target_node_id"), TEXT("target_node_name"),
+		TargetBP, TargetGraphName, TargetGuid, ErrMsg))
+	{
+		return FECACommandResult::ValidationError(this, ErrMsg);
+	}
+
 	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
 	if (!Blueprint)
 	{
 		return FECACommandResult::Error(FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintPath));
 	}
-	
+
 	UEdGraph* Graph = FindGraphByName(Blueprint, GraphName);
 	if (!Graph)
 	{
 		return FECACommandResult::Error(FString::Printf(TEXT("Graph not found: %s"), *GraphName));
 	}
-	
-	// Parse GUIDs
-	FGuid SourceGuid, TargetGuid;
-	if (!FGuid::Parse(SourceNodeId, SourceGuid))
-	{
-		return FECACommandResult::Error(FString::Printf(TEXT("Invalid source node ID: %s"), *SourceNodeId));
-	}
-	if (!FGuid::Parse(TargetNodeId, TargetGuid))
-	{
-		return FECACommandResult::Error(FString::Printf(TEXT("Invalid target node ID: %s"), *TargetNodeId));
-	}
-	
+
+	// Keep round-trippable identifiers for the response payload.
+	const FString SourceNodeId = SourceGuid.ToString();
+	const FString TargetNodeId = TargetGuid.ToString();
+
 	// Find nodes
 	UEdGraphNode* SourceNode = FindNodeByGuid(Graph, SourceGuid);
 	UEdGraphNode* TargetNode = FindNodeByGuid(Graph, TargetGuid);
@@ -1120,17 +1224,19 @@ FECACommandResult FECACommand_AddBlueprintSelfReference::Execute(const TSharedPt
 	UK2Node_Self* SelfNode = NewObject<UK2Node_Self>(Graph);
 	SelfNode->NodePosX = Position.X;
 	SelfNode->NodePosY = Position.Y;
-	
+
 	Graph->AddNode(SelfNode, false, false);
 	SelfNode->AllocateDefaultPins();
 	EnsureBPNodeHasValidGuid(SelfNode);
-	
+
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
-	
+
+	MaybeAutoRegisterNodeName(Params, BlueprintPath, GraphName, SelfNode);
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetStringField(TEXT("node_id"), SelfNode->NodeGuid.ToString());
 	Result->SetObjectField(TEXT("node"), NodeToJson(SelfNode));
-	
+
 	return FECACommandResult::Success(Result);
 }
 
@@ -1174,18 +1280,20 @@ FECACommandResult FECACommand_AddBlueprintComponentReference::Execute(const TSha
 	GetNode->VariableReference.SetSelfMember(FName(*ComponentName));
 	GetNode->NodePosX = Position.X;
 	GetNode->NodePosY = Position.Y;
-	
+
 	Graph->AddNode(GetNode, false, false);
 	GetNode->AllocateDefaultPins();
 	EnsureBPNodeHasValidGuid(GetNode);
-	
+
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
-	
+
+	MaybeAutoRegisterNodeName(Params, BlueprintPath, GraphName, GetNode);
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetStringField(TEXT("node_id"), GetNode->NodeGuid.ToString());
 	Result->SetStringField(TEXT("component_name"), ComponentName);
 	Result->SetObjectField(TEXT("node"), NodeToJson(GetNode));
-	
+
 	return FECACommandResult::Success(Result);
 }
 
@@ -1221,35 +1329,64 @@ FECACommandResult FECACommand_FindBlueprintNodes::Execute(const TSharedPtr<FJson
 	}
 	
 	TArray<TSharedPtr<FJsonValue>> NodesArray;
-	
+	int32 SkippedNodes = 0;
+	const int32 TotalNodes = Graph->Nodes.Num();
+
 	for (UEdGraphNode* Node : Graph->Nodes)
 	{
+		if (!Node)
+		{
+			++SkippedNodes;
+			continue;
+		}
+
 		bool bMatch = true;
-		
+
 		// Filter by class
 		if (!NodeClass.IsEmpty() && bMatch)
 		{
 			FString ClassName = Node->GetClass()->GetName();
 			bMatch = ClassName.Contains(NodeClass);
 		}
-		
+
 		// Filter by title
 		if (!NodeTitle.IsEmpty() && bMatch)
 		{
 			FString Title = Node->GetNodeTitle(ENodeTitleType::FullTitle).ToString();
 			bMatch = Title.Contains(NodeTitle);
 		}
-		
+
 		if (bMatch)
 		{
 			NodesArray.Add(MakeShared<FJsonValueObject>(NodeToJson(Node)));
 		}
 	}
-	
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetArrayField(TEXT("nodes"), NodesArray);
 	Result->SetNumberField(TEXT("count"), NodesArray.Num());
-	
+
+	// --- _meta (confidence header) ---
+	// Coverage here describes "how much of the graph we successfully scanned",
+	// not "how many matched the filter" — the agent shouldn't conflate them.
+	TArray<FString> Notes;
+	FString Confidence = TEXT("HIGH");
+	if (SkippedNodes > 0)
+	{
+		Notes.Add(FString::Printf(TEXT("Skipped %d null node entr%s in graph"),
+			SkippedNodes, SkippedNodes == 1 ? TEXT("y") : TEXT("ies")));
+		Confidence = TEXT("MEDIUM");
+	}
+	const int32 Scanned = TotalNodes - SkippedNodes;
+	FString Coverage;
+	if (TotalNodes > 0)
+	{
+		const int32 Pct = FMath::RoundToInt(100.0 * Scanned / TotalNodes);
+		Coverage = FString::Printf(TEXT("%d/%d nodes scanned (%d%%)"), Scanned, TotalNodes, Pct);
+	}
+	Result->SetObjectField(TEXT("_meta"),
+		MakeECADumpMeta(TEXT("Linear graph scan with class/title filter"), Coverage, Confidence, Notes));
+
 	return FECACommandResult::Success(Result);
 }
 
@@ -1339,6 +1476,8 @@ FECACommandResult FECACommand_AddBlueprintVariableGetNode::Execute(const TShared
 
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
 
+	MaybeAutoRegisterNodeName(Params, BlueprintPath, GraphName, GetNode);
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetStringField(TEXT("node_id"), GetNode->NodeGuid.ToString());
 	Result->SetStringField(TEXT("variable_name"), VariableName);
@@ -1403,6 +1542,8 @@ FECACommandResult FECACommand_AddBlueprintVariableSetNode::Execute(const TShared
 	SetNode->ReconstructNode();
 
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+
+	MaybeAutoRegisterNodeName(Params, BlueprintPath, GraphName, SetNode);
 
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetStringField(TEXT("node_id"), SetNode->NodeGuid.ToString());
@@ -1871,16 +2012,30 @@ FECACommandResult FECACommand_BatchEditBlueprintNodes::Execute(const TSharedPtr<
 			Graph->AddNode(CreatedNode, false, false);
 			CreatedNode->AllocateDefaultPins();
 			EnsureBPNodeHasValidGuid(CreatedNode);
-			
+
 			TempIdToNode.Add(TempId, CreatedNode);
-			
+
+			// Optional per-entry `name` field auto-registers the new node's
+			// GUID in the session registry so a follow-up call can reference
+			// it by friendly name. Mirrors the optional `name` param on the
+			// single-shot add_* commands.
+			FString FriendlyName;
+			if (NodeDef->TryGetStringField(TEXT("name"), FriendlyName) && !FriendlyName.IsEmpty())
+			{
+				FECANodeNameRegistry::Get().Register(FriendlyName, BlueprintPath, GraphName, CreatedNode->NodeGuid);
+			}
+
 			// Add to result
 			TSharedPtr<FJsonObject> NodeResult = NodeToJson(CreatedNode);
 			NodeResult->SetStringField(TEXT("temp_id"), TempId);
+			if (!FriendlyName.IsEmpty())
+			{
+				NodeResult->SetStringField(TEXT("name"), FriendlyName);
+			}
 			CreatedNodesArray.Add(MakeShared<FJsonValueObject>(NodeResult));
 		}
 	}
-	
+
 	// Now process connections
 	const TArray<TSharedPtr<FJsonValue>>* ConnectionsArray = NULL;
 	TArray<TSharedPtr<FJsonValue>> CompletedConnectionsArray;
@@ -1896,13 +2051,21 @@ FECACommandResult FECACommand_BatchEditBlueprintNodes::Execute(const TSharedPtr<
 			}
 			
 			const TSharedPtr<FJsonObject>& ConnDef = ConnValue->AsObject();
-			
+
 			FString SourceNodeRef, TargetNodeRef;
 			FString SourcePinName, TargetPinName;
-			
+
+			// Per-entry friendly-name aliases. When provided, source_node /
+			// target_node become optional. We still pass the resolved string
+			// through ResolveNodeReference because that helper already falls
+			// back to the registry when a string isn't a temp_id or GUID.
 			if (!ConnDef->TryGetStringField(TEXT("source_node"), SourceNodeRef))
 			{
-				Errors.Add(TEXT("Connection missing 'source_node'"));
+				ConnDef->TryGetStringField(TEXT("source_node_name"), SourceNodeRef);
+			}
+			if (SourceNodeRef.IsEmpty())
+			{
+				Errors.Add(TEXT("Connection missing 'source_node' (or 'source_node_name')"));
 				continue;
 			}
 			if (!ConnDef->TryGetStringField(TEXT("source_pin"), SourcePinName))
@@ -1912,7 +2075,11 @@ FECACommandResult FECACommand_BatchEditBlueprintNodes::Execute(const TSharedPtr<
 			}
 			if (!ConnDef->TryGetStringField(TEXT("target_node"), TargetNodeRef))
 			{
-				Errors.Add(TEXT("Connection missing 'target_node'"));
+				ConnDef->TryGetStringField(TEXT("target_node_name"), TargetNodeRef);
+			}
+			if (TargetNodeRef.IsEmpty())
+			{
+				Errors.Add(TEXT("Connection missing 'target_node' (or 'target_node_name')"));
 				continue;
 			}
 			if (!ConnDef->TryGetStringField(TEXT("target_pin"), TargetPinName))
@@ -1920,8 +2087,8 @@ FECACommandResult FECACommand_BatchEditBlueprintNodes::Execute(const TSharedPtr<
 				Errors.Add(TEXT("Connection missing 'target_pin'"));
 				continue;
 			}
-			
-			// Resolve nodes (can be temp_id or GUID)
+
+			// Resolve nodes (temp_id, GUID, or registry-bound friendly name)
 			UEdGraphNode* SourceNode = ResolveNodeReference(Graph, SourceNodeRef, TempIdToNode);
 			UEdGraphNode* TargetNode = ResolveNodeReference(Graph, TargetNodeRef, TempIdToNode);
 			
@@ -2113,35 +2280,33 @@ FECACommandResult FECACommand_DeleteBlueprintNode::Execute(const TSharedPtr<FJso
 	{
 		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
-	
-	FString NodeId;
-	if (!GetStringParam(Params, TEXT("node_id"), NodeId))
-	{
-		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: node_id"));
-	}
-	
+
 	FString GraphName = TEXT("EventGraph");
 	GetStringParam(Params, TEXT("graph_name"), GraphName, false);
-	
+
+	FString IgnoredBP, IgnoredGraph;
+	FGuid TargetGuid;
+	FString ErrMsg;
+	if (!ResolveNodeRef(Params, TEXT("node_id"), TEXT("node_name"),
+		IgnoredBP, IgnoredGraph, TargetGuid, ErrMsg))
+	{
+		return FECACommandResult::ValidationError(this, ErrMsg);
+	}
+
+	const FString NodeId = TargetGuid.ToString();
+
 	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
 	if (!Blueprint)
 	{
 		return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Blueprint: %s"), *BlueprintPath));
 	}
-	
+
 	UEdGraph* Graph = FindGraphByName(Blueprint, GraphName);
 	if (!Graph)
 	{
 		return FECACommandResult::Error(FString::Printf(TEXT("Graph not found: %s"), *GraphName));
 	}
-	
-	// Parse the GUID
-	FGuid TargetGuid;
-	if (!FGuid::Parse(NodeId, TargetGuid))
-	{
-		return FECACommandResult::Error(FString::Printf(TEXT("Invalid GUID format: %s"), *NodeId));
-	}
-	
+
 	// Find the node by GUID
 	UEdGraphNode* NodeToDelete = nullptr;
 	for (UEdGraphNode* Node : Graph->Nodes)
@@ -2152,7 +2317,7 @@ FECACommandResult FECACommand_DeleteBlueprintNode::Execute(const TSharedPtr<FJso
 			break;
 		}
 	}
-	
+
 	if (!NodeToDelete)
 	{
 		return FECACommandResult::Error(FString::Printf(TEXT("Node not found with GUID: %s"), *NodeId));
@@ -2302,38 +2467,36 @@ FECACommandResult FECACommand_DisconnectBlueprintNode::Execute(const TSharedPtr<
 	{
 		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
-	
-	FString NodeId;
-	if (!GetStringParam(Params, TEXT("node_id"), NodeId))
-	{
-		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: node_id"));
-	}
-	
+
 	FString GraphName = TEXT("EventGraph");
 	GetStringParam(Params, TEXT("graph_name"), GraphName, false);
-	
+
 	FString PinName;
 	bool bSpecificPin = GetStringParam(Params, TEXT("pin_name"), PinName, false);
-	
+
+	FString IgnoredBP, IgnoredGraph;
+	FGuid TargetGuid;
+	FString ErrMsg;
+	if (!ResolveNodeRef(Params, TEXT("node_id"), TEXT("node_name"),
+		IgnoredBP, IgnoredGraph, TargetGuid, ErrMsg))
+	{
+		return FECACommandResult::ValidationError(this, ErrMsg);
+	}
+
+	const FString NodeId = TargetGuid.ToString();
+
 	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
 	if (!Blueprint)
 	{
 		return FECACommandResult::Error(FString::Printf(TEXT("Failed to load Blueprint: %s"), *BlueprintPath));
 	}
-	
+
 	UEdGraph* Graph = FindGraphByName(Blueprint, GraphName);
 	if (!Graph)
 	{
 		return FECACommandResult::Error(FString::Printf(TEXT("Graph not found: %s"), *GraphName));
 	}
-	
-	// Parse the GUID
-	FGuid TargetGuid;
-	if (!FGuid::Parse(NodeId, TargetGuid))
-	{
-		return FECACommandResult::Error(FString::Printf(TEXT("Invalid GUID format: %s"), *NodeId));
-	}
-	
+
 	// Find the node by GUID
 	UEdGraphNode* TargetNode = nullptr;
 	for (UEdGraphNode* Node : Graph->Nodes)
@@ -2344,7 +2507,7 @@ FECACommandResult FECACommand_DisconnectBlueprintNode::Execute(const TSharedPtr<
 			break;
 		}
 	}
-	
+
 	if (!TargetNode)
 	{
 		return FECACommandResult::Error(FString::Printf(TEXT("Node not found with GUID: %s"), *NodeId));
@@ -2405,47 +2568,45 @@ FECACommandResult FECACommand_SetBlueprintPinValue::Execute(const TSharedPtr<FJs
 	{
 		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
-	
-	FString NodeId;
-	if (!GetStringParam(Params, TEXT("node_id"), NodeId))
-	{
-		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: node_id"));
-	}
-	
+
 	FString PinName;
 	if (!GetStringParam(Params, TEXT("pin_name"), PinName))
 	{
 		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: pin_name"));
 	}
-	
+
 	FString Value;
 	if (!GetStringParam(Params, TEXT("value"), Value))
 	{
 		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: value"));
 	}
-	
+
 	FString GraphName = TEXT("EventGraph");
 	GetStringParam(Params, TEXT("graph_name"), GraphName, false);
-	
+
+	FString IgnoredBP, IgnoredGraph;
+	FGuid NodeGuid;
+	FString ErrMsg;
+	if (!ResolveNodeRef(Params, TEXT("node_id"), TEXT("node_name"),
+		IgnoredBP, IgnoredGraph, NodeGuid, ErrMsg))
+	{
+		return FECACommandResult::ValidationError(this, ErrMsg);
+	}
+
+	const FString NodeId = NodeGuid.ToString();
+
 	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
 	if (!Blueprint)
 	{
 		return FECACommandResult::Error(FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintPath));
 	}
-	
+
 	UEdGraph* Graph = FindGraphByName(Blueprint, GraphName);
 	if (!Graph)
 	{
 		return FECACommandResult::Error(FString::Printf(TEXT("Graph not found: %s"), *GraphName));
 	}
-	
-	// Parse the GUID
-	FGuid NodeGuid;
-	if (!FGuid::Parse(NodeId, NodeGuid))
-	{
-		return FECACommandResult::Error(FString::Printf(TEXT("Invalid node ID: %s"), *NodeId));
-	}
-	
+
 	// Find the node
 	UEdGraphNode* Node = FindNodeByGuid(Graph, NodeGuid);
 	if (!Node)
@@ -3003,57 +3164,51 @@ FECACommandResult FECACommand_BreakPinConnection::Execute(const TSharedPtr<FJson
 	{
 		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: blueprint_path"));
 	}
-	
-	FString SourceNodeId;
-	if (!GetStringParam(Params, TEXT("source_node_id"), SourceNodeId))
-	{
-		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: source_node_id"));
-	}
-	
+
 	FString SourcePinName;
 	if (!GetStringParam(Params, TEXT("source_pin"), SourcePinName))
 	{
 		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: source_pin"));
 	}
-	
-	FString TargetNodeId;
-	if (!GetStringParam(Params, TEXT("target_node_id"), TargetNodeId))
-	{
-		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: target_node_id"));
-	}
-	
+
 	FString TargetPinName;
 	if (!GetStringParam(Params, TEXT("target_pin"), TargetPinName))
 	{
 		return FECACommandResult::ValidationError(this, TEXT("Missing required parameter: target_pin"));
 	}
-	
+
 	FString GraphName = TEXT("EventGraph");
 	GetStringParam(Params, TEXT("graph_name"), GraphName, false);
-	
+
+	FString IgnoredBP, IgnoredGraph;
+	FGuid SourceGuid, TargetGuid;
+	FString ErrMsg;
+	if (!ResolveNodeRef(Params, TEXT("source_node_id"), TEXT("source_node_name"),
+		IgnoredBP, IgnoredGraph, SourceGuid, ErrMsg))
+	{
+		return FECACommandResult::ValidationError(this, ErrMsg);
+	}
+	if (!ResolveNodeRef(Params, TEXT("target_node_id"), TEXT("target_node_name"),
+		IgnoredBP, IgnoredGraph, TargetGuid, ErrMsg))
+	{
+		return FECACommandResult::ValidationError(this, ErrMsg);
+	}
+
+	const FString SourceNodeId = SourceGuid.ToString();
+	const FString TargetNodeId = TargetGuid.ToString();
+
 	UBlueprint* Blueprint = LoadBlueprintByPath(BlueprintPath);
 	if (!Blueprint)
 	{
 		return FECACommandResult::Error(FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintPath));
 	}
-	
+
 	UEdGraph* Graph = FindGraphByName(Blueprint, GraphName);
 	if (!Graph)
 	{
 		return FECACommandResult::Error(FString::Printf(TEXT("Graph not found: %s"), *GraphName));
 	}
-	
-	// Parse GUIDs
-	FGuid SourceGuid, TargetGuid;
-	if (!FGuid::Parse(SourceNodeId, SourceGuid))
-	{
-		return FECACommandResult::Error(FString::Printf(TEXT("Invalid source node ID: %s"), *SourceNodeId));
-	}
-	if (!FGuid::Parse(TargetNodeId, TargetGuid))
-	{
-		return FECACommandResult::Error(FString::Printf(TEXT("Invalid target node ID: %s"), *TargetNodeId));
-	}
-	
+
 	// Find nodes
 	UEdGraphNode* SourceNode = FindNodeByGuid(Graph, SourceGuid);
 	UEdGraphNode* TargetNode = FindNodeByGuid(Graph, TargetGuid);
@@ -3232,16 +3387,18 @@ FECACommandResult FECACommand_AddComponentEventNode::Execute(const TSharedPtr<FJ
 	EventGraph->AddNode(EventNode, false, false);
 	EventNode->AllocateDefaultPins();
 	EnsureBPNodeHasValidGuid(EventNode);
-	
+
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
-	
+
+	MaybeAutoRegisterNodeName(Params, BlueprintPath, TEXT("EventGraph"), EventNode);
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetStringField(TEXT("node_id"), EventNode->NodeGuid.ToString());
 	Result->SetStringField(TEXT("component_name"), ComponentName);
 	Result->SetStringField(TEXT("event_name"), EventName);
 	Result->SetStringField(TEXT("component_class"), ComponentClass->GetName());
 	Result->SetObjectField(TEXT("node"), NodeToJson(EventNode));
-	
+
 	return FECACommandResult::Success(Result);
 }
 
@@ -3324,15 +3481,17 @@ FECACommandResult FECACommand_AddBlueprintMacroNode::Execute(const TSharedPtr<FJ
 	MacroNode->AllocateDefaultPins();
 	EnsureBPNodeHasValidGuid(MacroNode);
 	MacroNode->ReconstructNode();
-	
+
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
-	
+
+	MaybeAutoRegisterNodeName(Params, BlueprintPath, GraphName, MacroNode);
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetStringField(TEXT("node_id"), MacroNode->NodeGuid.ToString());
 	Result->SetStringField(TEXT("macro_name"), MacroName);
 	Result->SetObjectField(TEXT("node"), NodeToJson(MacroNode));
 	AddNodeErrorInfo(Result, MacroNode);
-	
+
 	return FECACommandResult::Success(Result);
 }
 
@@ -3438,16 +3597,18 @@ FECACommandResult FECACommand_AddBlueprintCastNode::Execute(const TSharedPtr<FJs
 	CastNode->AllocateDefaultPins();
 	EnsureBPNodeHasValidGuid(CastNode);
 	CastNode->ReconstructNode();
-	
+
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
-	
+
+	MaybeAutoRegisterNodeName(Params, BlueprintPath, GraphName, CastNode);
+
 	TSharedPtr<FJsonObject> Result = MakeResult();
 	Result->SetStringField(TEXT("node_id"), CastNode->NodeGuid.ToString());
 	Result->SetStringField(TEXT("target_class"), TargetClass->GetName());
 	Result->SetBoolField(TEXT("pure"), bPureCast);
 	Result->SetObjectField(TEXT("node"), NodeToJson(CastNode));
 	AddNodeErrorInfo(Result, CastNode);
-	
+
 	return FECACommandResult::Success(Result);
 }
 
@@ -3635,25 +3796,27 @@ FECACommandResult FECACommand_AddBlueprintFlowControlNode::Execute(const TShared
 	{
 		CreatedNode->NodePosX = Position.X;
 		CreatedNode->NodePosY = Position.Y;
-		
+
 		Graph->AddNode(CreatedNode, false, false);
 		CreatedNode->AllocateDefaultPins();
 		EnsureBPNodeHasValidGuid(CreatedNode);
 		CreatedNode->ReconstructNode();
-		
+
 		FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
-		
+
+		MaybeAutoRegisterNodeName(Params, BlueprintPath, GraphName, CreatedNode);
+
 		TSharedPtr<FJsonObject> Result = MakeResult();
 		Result->SetStringField(TEXT("node_id"), CreatedNode->NodeGuid.ToString());
 		Result->SetStringField(TEXT("node_type"), NodeTypeName);
 		Result->SetObjectField(TEXT("node"), NodeToJson(CreatedNode));
-		
+
 		// Include any errors
 		AddNodeErrorInfo(Result, CreatedNode);
-		
+
 		return FECACommandResult::Success(Result);
 	}
-	
+
 	return FECACommandResult::Error(TEXT("Failed to create flow control node"));
 }
 
@@ -4254,7 +4417,7 @@ FECACommandResult FECACommand_AutoLayoutBlueprintGraph_Legacy(const TSharedPtr<F
 
 REGISTER_ECA_COMMAND(FECACommand_DumpBlueprintGraph)
 
-static TSharedPtr<FJsonObject> DumpGraphToJson(UEdGraph* Graph, bool bIncludePositions)
+static TSharedPtr<FJsonObject> DumpGraphToJson(UEdGraph* Graph, bool bIncludePositions, int32* OutTotalNodes = nullptr, int32* OutParsedNodes = nullptr, int32* OutSkippedNodes = nullptr)
 {
 	TSharedPtr<FJsonObject> GraphObj = MakeShared<FJsonObject>();
 	GraphObj->SetStringField(TEXT("name"), Graph->GetName());
@@ -4270,10 +4433,15 @@ static TSharedPtr<FJsonObject> DumpGraphToJson(UEdGraph* Graph, bool bIncludePos
 
 	// Serialize all nodes
 	TArray<TSharedPtr<FJsonValue>> NodesArray;
+	int32 SkippedNodes = 0;
 	for (UEdGraphNode* Node : Graph->Nodes)
 	{
 		if (!Node)
 		{
+			// Null entry in Graph->Nodes — usually a stale ref left over from a
+			// deleted node that wasn't compacted out. Count it so the _meta
+			// block can flag the dump as MEDIUM confidence.
+			++SkippedNodes;
 			continue;
 		}
 
@@ -4296,6 +4464,9 @@ static TSharedPtr<FJsonObject> DumpGraphToJson(UEdGraph* Graph, bool bIncludePos
 	}
 	GraphObj->SetArrayField(TEXT("nodes"), NodesArray);
 	GraphObj->SetNumberField(TEXT("node_count"), NodesArray.Num());
+	if (OutTotalNodes)   { *OutTotalNodes   += Graph->Nodes.Num(); }
+	if (OutParsedNodes)  { *OutParsedNodes  += NodesArray.Num(); }
+	if (OutSkippedNodes) { *OutSkippedNodes += SkippedNodes; }
 
 	// Build a flat connections list for easier consumption
 	TArray<TSharedPtr<FJsonValue>> ConnectionsArray;
@@ -4417,14 +4588,20 @@ FECACommandResult FECACommand_DumpBlueprintGraph::Execute(const TSharedPtr<FJson
 	Result->SetArrayField(TEXT("variables"), VarsArray);
 
 	// --- Components (from SimpleConstructionScript) ---
+	int32 SkippedComponents = 0;
+	int32 TotalComponents = 0;
 	if (Blueprint->SimpleConstructionScript)
 	{
 		TArray<TSharedPtr<FJsonValue>> ComponentsArray;
 		const TArray<USCS_Node*>& SCSNodes = Blueprint->SimpleConstructionScript->GetAllNodes();
+		TotalComponents = SCSNodes.Num();
 		for (USCS_Node* SCSNode : SCSNodes)
 		{
 			if (!SCSNode || !SCSNode->ComponentTemplate)
 			{
+				// Null SCS node or missing ComponentTemplate — typically the
+				// underlying component class was deleted or renamed.
+				++SkippedComponents;
 				continue;
 			}
 			TSharedPtr<FJsonObject> CompObj = MakeShared<FJsonObject>();
@@ -4441,12 +4618,16 @@ FECACommandResult FECACommand_DumpBlueprintGraph::Execute(const TSharedPtr<FJson
 
 	// --- Graphs ---
 	TArray<TSharedPtr<FJsonValue>> GraphsArray;
+	int32 TotalNodes = 0;
+	int32 ParsedNodes = 0;
+	int32 SkippedNodes = 0;
 
 	auto DumpGraphIfMatch = [&](UEdGraph* Graph)
 	{
 		if (!Graph) return;
 		if (!SpecificGraph.IsEmpty() && Graph->GetName() != SpecificGraph) return;
-		GraphsArray.Add(MakeShared<FJsonValueObject>(DumpGraphToJson(Graph, bIncludePositions)));
+		GraphsArray.Add(MakeShared<FJsonValueObject>(
+			DumpGraphToJson(Graph, bIncludePositions, &TotalNodes, &ParsedNodes, &SkippedNodes)));
 	};
 
 	// Event graphs (UbergraphPages)
@@ -4479,6 +4660,30 @@ FECACommandResult FECACommand_DumpBlueprintGraph::Execute(const TSharedPtr<FJson
 		}
 	}
 	Result->SetArrayField(TEXT("interfaces"), InterfacesArray);
+
+	// --- _meta (confidence header) ---
+	TArray<FString> Notes;
+	FString Confidence = TEXT("HIGH");
+	if (SkippedNodes > 0)
+	{
+		Notes.Add(FString::Printf(TEXT("Skipped %d null node entr%s across graphs"),
+			SkippedNodes, SkippedNodes == 1 ? TEXT("y") : TEXT("ies")));
+		Confidence = TEXT("MEDIUM");
+	}
+	if (SkippedComponents > 0)
+	{
+		Notes.Add(FString::Printf(TEXT("Skipped %d SCS component%s with null template"),
+			SkippedComponents, SkippedComponents == 1 ? TEXT("") : TEXT("s")));
+		Confidence = TEXT("MEDIUM");
+	}
+	FString Coverage;
+	if (TotalNodes > 0)
+	{
+		const int32 Pct = FMath::RoundToInt(100.0 * ParsedNodes / TotalNodes);
+		Coverage = FString::Printf(TEXT("%d/%d nodes (%d%%)"), ParsedNodes, TotalNodes, Pct);
+	}
+	Result->SetObjectField(TEXT("_meta"),
+		MakeECADumpMeta(TEXT("K2 schema walk + pin reflection"), Coverage, Confidence, Notes));
 
 	return FECACommandResult::Success(Result);
 }
@@ -4516,6 +4721,10 @@ FECACommandResult FECACommand_SearchBlueprintUsage::Execute(const TSharedPtr<FJs
 
 	TArray<TSharedPtr<FJsonValue>> MatchesArray;
 	int32 TotalMatches = 0;
+	int32 BlueprintsScanned = 0;
+	int32 BlueprintsFailedToLoad = 0;
+	int32 NullGraphsSkipped = 0;
+	int32 NullNodesSkipped = 0;
 
 	for (const FAssetData& AssetData : AssetDataList)
 	{
@@ -4528,8 +4737,10 @@ FECACommandResult FECACommand_SearchBlueprintUsage::Execute(const TSharedPtr<FJs
 		UBlueprint* Blueprint = LoadObject<UBlueprint>(nullptr, *AssetPath);
 		if (!Blueprint)
 		{
+			++BlueprintsFailedToLoad;
 			continue;
 		}
+		++BlueprintsScanned;
 
 		// Collect all graphs: UbergraphPages + FunctionGraphs
 		TArray<UEdGraph*> AllGraphs;
@@ -4540,6 +4751,7 @@ FECACommandResult FECACommand_SearchBlueprintUsage::Execute(const TSharedPtr<FJs
 		{
 			if (!Graph)
 			{
+				++NullGraphsSkipped;
 				continue;
 			}
 
@@ -4550,6 +4762,7 @@ FECACommandResult FECACommand_SearchBlueprintUsage::Execute(const TSharedPtr<FJs
 			{
 				if (!Node)
 				{
+					++NullNodesSkipped;
 					continue;
 				}
 
@@ -4586,6 +4799,38 @@ FECACommandResult FECACommand_SearchBlueprintUsage::Execute(const TSharedPtr<FJs
 	Result->SetArrayField(TEXT("matches"), MatchesArray);
 	Result->SetNumberField(TEXT("total_matches"), TotalMatches);
 	Result->SetNumberField(TEXT("blueprints_scanned"), AssetDataList.Num());
+
+	// --- _meta (confidence header) ---
+	TArray<FString> Notes;
+	FString Confidence = TEXT("HIGH");
+	if (BlueprintsFailedToLoad > 0)
+	{
+		Notes.Add(FString::Printf(TEXT("%d Blueprint%s failed to load (missing/stale references)"),
+			BlueprintsFailedToLoad, BlueprintsFailedToLoad == 1 ? TEXT("") : TEXT("s")));
+		Confidence = TEXT("MEDIUM");
+	}
+	if (NullGraphsSkipped > 0)
+	{
+		Notes.Add(FString::Printf(TEXT("Skipped %d null graph entr%s"),
+			NullGraphsSkipped, NullGraphsSkipped == 1 ? TEXT("y") : TEXT("ies")));
+		Confidence = TEXT("MEDIUM");
+	}
+	if (NullNodesSkipped > 0)
+	{
+		Notes.Add(FString::Printf(TEXT("Skipped %d null node entr%s"),
+			NullNodesSkipped, NullNodesSkipped == 1 ? TEXT("y") : TEXT("ies")));
+		Confidence = TEXT("MEDIUM");
+	}
+	if (MatchesArray.Num() >= MaxResults && AssetDataList.Num() > MaxResults)
+	{
+		Notes.Add(FString::Printf(TEXT("Result capped at max_results=%d; %d candidate Blueprints not scanned"),
+			MaxResults, AssetDataList.Num() - BlueprintsScanned));
+	}
+	const FString Coverage = FString::Printf(TEXT("%d/%d Blueprints scanned"),
+		BlueprintsScanned, AssetDataList.Num());
+	Result->SetObjectField(TEXT("_meta"),
+		MakeECADumpMeta(TEXT("AssetRegistry Blueprint enumeration + per-node title/class scan"),
+			Coverage, Confidence, Notes));
 
 	return FECACommandResult::Success(Result);
 }

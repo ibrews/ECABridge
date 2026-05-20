@@ -84,6 +84,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_component_property"); }
 	virtual FString GetDescription() const override { return TEXT("Read a property value from a Blueprint component template — the same default value that set_component_property writes. Returns the value as a string (Unreal property text format) plus a typed JSON field for primitives. Useful for verifying that a write took effect or inspecting an existing component."); }
 	virtual FString GetCategory() const override { return TEXT("Component"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -142,6 +143,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_blueprint_components"); }
 	virtual FString GetDescription() const override { return TEXT("Get all components in a Blueprint, with optional per-component overrides — properties whose template values differ from their class defaults. Use include_overrides=true to debug 'why does my component not behave like a fresh one' problems."); }
 	virtual FString GetCategory() const override { return TEXT("Component"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

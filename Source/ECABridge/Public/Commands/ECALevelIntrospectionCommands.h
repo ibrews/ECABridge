@@ -15,6 +15,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_level"); }
 	virtual FString GetDescription() const override { return TEXT("Serialize the current level to JSON. verbosity=summary (default) returns just names+classes+tags; transforms adds per-actor transform/mobility; full adds components and optional properties. Filters by class/folder/tag/bounds."); }
 	virtual FString GetCategory() const override { return TEXT("Editor"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

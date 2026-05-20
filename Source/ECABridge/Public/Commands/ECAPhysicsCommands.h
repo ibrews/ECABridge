@@ -13,6 +13,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_physics_asset"); }
 	virtual FString GetDescription() const override { return TEXT("Inspect a UPhysicsAsset: list bodies (bone name + collision shapes summary) and constraints (joint name, parent/child bone)."); }
 	virtual FString GetCategory() const override { return TEXT("Physics"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -45,6 +46,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_physical_material"); }
 	virtual FString GetDescription() const override { return TEXT("Inspect a UPhysicalMaterial: friction (static/dynamic), restitution, density, surface type, combine modes."); }
 	virtual FString GetCategory() const override { return TEXT("Physics"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

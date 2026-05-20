@@ -19,6 +19,7 @@ public:
 	virtual FString GetName() const override { return TEXT("validate_before_submit"); }
 	virtual FString GetDescription() const override { return TEXT("Run UEditorValidatorSubsystem across the assets in a pending changelist; returns overall pass/fail and per-asset errors/warnings. Does NOT submit; the caller should consult the result and then call submit_changelist."); }
 	virtual FString GetCategory() const override { return TEXT("SourceControlValidation"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

@@ -48,6 +48,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_bookmarks"); }
 	virtual FString GetDescription() const override { return TEXT("List saved viewport bookmark slots and their stored pose data."); }
 	virtual FString GetCategory() const override { return TEXT("EditorUX"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };

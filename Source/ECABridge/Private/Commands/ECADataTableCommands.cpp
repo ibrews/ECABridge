@@ -810,5 +810,24 @@ FECACommandResult FECACommand_DumpDataTable::Execute(const TSharedPtr<FJsonObjec
 	Result->SetNumberField(TEXT("returned_count"), ReturnedCount);
 	Result->SetBoolField(TEXT("truncated"), MaxRows > 0 && TotalRowCount > MaxRows);
 
+	// --- _meta (confidence header) ---
+	// Schema walk is reflective and complete; row iteration is exhaustive
+	// except for the explicit max_rows cap (which is the caller's decision,
+	// not a parse failure). Confidence stays HIGH.
+	TArray<FString> Notes;
+	if (MaxRows > 0 && TotalRowCount > MaxRows)
+	{
+		Notes.Add(FString::Printf(TEXT("Result truncated by max_rows=%d (%d rows omitted)"),
+			MaxRows, TotalRowCount - MaxRows));
+	}
+	FString Coverage;
+	if (TotalRowCount > 0)
+	{
+		const int32 Pct = FMath::RoundToInt(100.0 * ReturnedCount / TotalRowCount);
+		Coverage = FString::Printf(TEXT("%d/%d rows (%d%%)"), ReturnedCount, TotalRowCount, Pct);
+	}
+	Result->SetObjectField(TEXT("_meta"),
+		MakeECADumpMeta(TEXT("DataTable schema reflection + row iteration"), Coverage, TEXT("HIGH"), Notes));
+
 	return FECACommandResult::Success(Result);
 }

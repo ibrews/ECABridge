@@ -22,6 +22,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_livelink_subjects"); }
 	virtual FString GetDescription() const override { return TEXT("List all LiveLink subjects currently registered with the editor. Returns name, source, role, enabled, virtual, and state for each subject. Optional include_disabled (default true) and include_virtual (default true) toggle which subjects are returned."); }
 	virtual FString GetCategory() const override { return TEXT("LiveLink"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -49,6 +50,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_livelink_data"); }
 	virtual FString GetDescription() const override { return TEXT("Dump the current LiveLink data for one subject: role, state, source info, and the most recent N frame timestamps (default 5). Pass subject_name (required). Use list_livelink_subjects first to enumerate valid names."); }
 	virtual FString GetCategory() const override { return TEXT("LiveLink"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -77,6 +79,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_livelink_presets"); }
 	virtual FString GetDescription() const override { return TEXT("List every ULiveLinkPreset asset in the project. Returns source count, subject count, and asset path."); }
 	virtual FString GetCategory() const override { return TEXT("LiveLink"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -111,6 +114,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_livelink_preset"); }
 	virtual FString GetDescription() const override { return TEXT("Inspect a ULiveLinkPreset: enumerate its source factories + friendly names and its subject names + role class."); }
 	virtual FString GetCategory() const override { return TEXT("LiveLink"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

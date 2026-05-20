@@ -17,6 +17,7 @@ public:
 	virtual FString GetName() const override { return TEXT("diff_asset_against_depot"); }
 	virtual FString GetDescription() const override { return TEXT("Diff a local asset against the head revision in source control. Returns local/depot size + SHA1, and a unified text diff for text files. Binary assets get a marker and should be diffed via the editor."); }
 	virtual FString GetCategory() const override { return TEXT("SourceControl"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

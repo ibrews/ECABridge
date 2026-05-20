@@ -15,6 +15,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_ddc_stats"); }
 	virtual FString GetDescription() const override { return TEXT("Snapshot DerivedDataCache statistics: graph name, shared/local mode, and per-asset-type load/build counts, times and sizes."); }
 	virtual FString GetCategory() const override { return TEXT("Asset"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override { return {}; }
 

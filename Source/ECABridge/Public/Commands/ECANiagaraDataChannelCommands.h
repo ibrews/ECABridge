@@ -36,6 +36,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_niagara_data_channel"); }
 	virtual FString GetDescription() const override { return TEXT("Serialize a NiagaraDataChannelAsset to JSON: variable names, types, channel settings, and usage scope."); }
 	virtual FString GetCategory() const override { return TEXT("Niagara"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

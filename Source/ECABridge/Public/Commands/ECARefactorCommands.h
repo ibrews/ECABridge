@@ -61,6 +61,7 @@ public:
 	virtual FString GetName() const override { return TEXT("search_and_replace_property"); }
 	virtual FString GetDescription() const override { return TEXT("Find all actors in the level with a specific property value and change it. Bulk property editing — e.g., change all PointLights with intensity 5000 to 3000, or set all StaticMeshActors with tag 'old' to tag 'new'."); }
 	virtual FString GetCategory() const override { return TEXT("Refactor"); }
+	// Note: bulk MUTATION despite the "Search" prefix — IsMutating defaults to true.
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

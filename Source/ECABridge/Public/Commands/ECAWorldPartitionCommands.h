@@ -15,6 +15,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_world_partition_info"); }
 	virtual FString GetDescription() const override { return TEXT("Return World Partition info for the current editor world: enabled flag, runtime hash class, streaming flags, cell totals, and (for spatial hash) per-grid-level cell sizes."); }
 	virtual FString GetCategory() const override { return TEXT("WorldPartition"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
 	{
@@ -44,6 +45,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_world_partition_cells"); }
 	virtual FString GetDescription() const override { return TEXT("Enumerate runtime cells of the current editor world's World Partition. Each entry: debug_name, state, level_package, actor_count, bounds."); }
 	virtual FString GetCategory() const override { return TEXT("WorldPartition"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -80,6 +82,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_world_partition_grid"); }
 	virtual FString GetDescription() const override { return TEXT("Dump World Partition spatial-hash grid spec: per-level cell size and cell-count summary. No-op when WP is non-spatial."); }
 	virtual FString GetCategory() const override { return TEXT("WorldPartition"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

@@ -39,6 +39,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_metahuman_character"); }
 	virtual FString GetDescription() const override { return TEXT("Serialize a MetaHumanCharacter asset to JSON: skin tone and colors, eye color and shape, teeth, makeup, body type, rigging state, and any wardrobe items. Requires MetaHumanCharacter plugin."); }
 	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -229,6 +230,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_metahuman_body_constraints"); }
 	virtual FString GetDescription() const override { return TEXT("List all body-shape constraints for a MetaHuman (Height, Weight, Chest, Waist, etc.) with current values and valid ranges. Use this to discover what body-shape dimensions can be set."); }
 	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -356,6 +358,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_metahuman_grooms"); }
 	virtual FString GetDescription() const override { return TEXT("List available MetaHuman wardrobe items (hair grooms, beards, eyebrows, eyelashes, outfits). Returns assets grouped by slot. Searches the asset registry for UMetaHumanWardrobeItem assets. Use the returned paths with attach_metahuman_groom."); }
 	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -376,6 +379,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_metahuman_presets"); }
 	virtual FString GetDescription() const override { return TEXT("List available MetaHuman face preset characters (Ada, Bruce, Celeste, etc.). These are pre-sculpted faces you can apply to your character via set_metahuman_face_preset."); }
 	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
@@ -485,6 +489,7 @@ public:
 	virtual FString GetName() const override { return TEXT("describe_metahuman"); }
 	virtual FString GetDescription() const override { return TEXT("Apply a natural-language description to a MetaHumanCharacter. Parses phrases like 'tall muscular dark-skinned with green eyes' and sets the matching properties. Convenience wrapper — use set_metahuman_property for precise control."); }
 	virtual FString GetCategory() const override { return TEXT("MetaHuman"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

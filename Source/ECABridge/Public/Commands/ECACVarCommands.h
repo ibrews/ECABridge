@@ -11,6 +11,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_cvar"); }
 	virtual FString GetDescription() const override { return TEXT("Get the current value of a console variable (CVar) by name. Returns value, type, default, and help text."); }
 	virtual FString GetCategory() const override { return TEXT("EditorUX"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -48,6 +49,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_cvars"); }
 	virtual FString GetDescription() const override { return TEXT("List registered console variables. Optional substring filter (e.g., 'r.Shadow') applied to the name."); }
 	virtual FString GetCategory() const override { return TEXT("EditorUX"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

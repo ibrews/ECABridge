@@ -876,6 +876,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_mesh_info"); }
 	virtual FString GetDescription() const override { return TEXT("Get detailed information about a mesh asset"); }
 	virtual FString GetCategory() const override { return TEXT("Mesh"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -896,6 +897,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_mesh_bounds"); }
 	virtual FString GetDescription() const override { return TEXT("Get mesh bounding box information"); }
 	virtual FString GetCategory() const override { return TEXT("Mesh"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

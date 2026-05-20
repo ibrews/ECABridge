@@ -23,6 +23,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_ndisplay_status"); }
 	virtual FString GetDescription() const override { return TEXT("Get the current nDisplay cluster status: operation mode, node id (when running as a cluster node), cluster role, primary node id, and peer node count."); }
 	virtual FString GetCategory() const override { return TEXT("NDisplay"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override { return {}; }
 
@@ -41,6 +42,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_ndisplay_root_actors"); }
 	virtual FString GetDescription() const override { return TEXT("List every ADisplayClusterRootActor in the current editor world with its actor name, label, and bound config asset path."); }
 	virtual FString GetCategory() const override { return TEXT("NDisplay"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override { return {}; }
 

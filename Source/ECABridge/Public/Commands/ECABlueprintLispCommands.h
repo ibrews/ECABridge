@@ -27,6 +27,7 @@ public:
 	virtual FString GetName() const override { return TEXT("parse_blueprint_lisp"); }
 	virtual FString GetDescription() const override { return TEXT("Parse and validate BlueprintLisp code. Returns the AST or parse errors."); }
 	virtual FString GetCategory() const override { return TEXT("BlueprintLisp"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -51,6 +52,7 @@ public:
 	virtual FString GetName() const override { return TEXT("blueprint_to_lisp"); }
 	virtual FString GetDescription() const override { return TEXT("PREFERRED: Convert a Blueprint graph to BlueprintLisp code for easy reading and AI manipulation."); }
 	virtual FString GetCategory() const override { return TEXT("BlueprintLisp"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -102,6 +104,7 @@ public:
 	virtual FString GetName() const override { return TEXT("blueprint_lisp_help"); }
 	virtual FString GetDescription() const override { return TEXT("Get BlueprintLisp syntax documentation and examples."); }
 	virtual FString GetCategory() const override { return TEXT("BlueprintLisp"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

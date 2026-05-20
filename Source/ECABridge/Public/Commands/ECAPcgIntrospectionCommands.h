@@ -14,6 +14,7 @@ public:
 	virtual FString GetName() const override { return TEXT("list_pcg_node_types"); }
 	virtual FString GetDescription() const override { return TEXT("Return every concrete UPCGSettings subclass (settings_class names) usable by add_pcg_node. Optional name_filter substring-matches on the class name."); }
 	virtual FString GetCategory() const override { return TEXT("PCG"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -42,6 +43,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_pcg_node_pins"); }
 	virtual FString GetDescription() const override { return TEXT("Return the default input and output pins of a UPCGSettings subclass (the pin shape a freshly-added node will have). Use the pin labels with connect_pcg_nodes."); }
 	virtual FString GetCategory() const override { return TEXT("PCG"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

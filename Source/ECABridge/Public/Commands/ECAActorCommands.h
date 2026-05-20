@@ -13,6 +13,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_actors_in_level"); }
 	virtual FString GetDescription() const override { return TEXT("Get all actors in the current level with optional class filtering"); }
 	virtual FString GetCategory() const override { return TEXT("Actor"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -111,6 +112,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_actor_properties"); }
 	virtual FString GetDescription() const override { return TEXT("Get properties of an actor"); }
 	virtual FString GetCategory() const override { return TEXT("Actor"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -167,6 +169,7 @@ public:
 	virtual FString GetName() const override { return TEXT("find_actors"); }
 	virtual FString GetDescription() const override { return TEXT("Find actors by name pattern, class, tag, or location"); }
 	virtual FString GetCategory() const override { return TEXT("Actor"); }
+	virtual bool IsMutating() const override { return false; }
 	
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

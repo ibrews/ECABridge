@@ -17,6 +17,7 @@ public:
 	virtual FString GetName() const override { return TEXT("check_out_asset"); }
 	virtual FString GetDescription() const override { return TEXT("Check out one or more assets for edit through the active source control provider. Pass asset_path (string) or asset_paths (string array). For Perforce this issues 'p4 edit'; for Git/no-op providers it succeeds without changing state."); }
 	virtual FString GetCategory() const override { return TEXT("SourceControl"); }
+	// Note: mutates source-control state (issues 'p4 edit'), so left as IsMutating()=true.
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{

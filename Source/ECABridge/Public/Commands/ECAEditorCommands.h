@@ -59,6 +59,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_selected_actors"); }
 	virtual FString GetDescription() const override { return TEXT("Get the currently selected actors"); }
 	virtual FString GetCategory() const override { return TEXT("Editor"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
 	{
@@ -149,6 +150,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_level_info"); }
 	virtual FString GetDescription() const override { return TEXT("Get information about the current level"); }
 	virtual FString GetCategory() const override { return TEXT("Editor"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TSharedPtr<FJsonObject> GetOutputSchema() const override
 	{
@@ -278,6 +280,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_play_state"); }
 	virtual FString GetDescription() const override { return TEXT("Get the current Play in Editor state"); }
 	virtual FString GetCategory() const override { return TEXT("Editor"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
@@ -291,6 +294,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_project_overview"); }
 	virtual FString GetDescription() const override { return TEXT("Get project overview: content folder tree with asset counts by type and class, total assets. Essential for understanding an unfamiliar project."); }
 	virtual FString GetCategory() const override { return TEXT("Editor"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
@@ -313,6 +317,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_world_settings"); }
 	virtual FString GetDescription() const override { return TEXT("Get world settings for the current level: game mode, default pawn class, gravity, kill Z, world bounds, streaming distances, and other level-wide configuration."); }
 	virtual FString GetCategory() const override { return TEXT("Editor"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };

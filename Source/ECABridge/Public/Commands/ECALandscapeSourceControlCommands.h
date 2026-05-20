@@ -13,6 +13,7 @@ public:
 	virtual FString GetName() const override { return TEXT("dump_landscape"); }
 	virtual FString GetDescription() const override { return TEXT("Serialize landscape actors in the current level: layer names, landscape material, component counts, landscape size, heightmap resolution. One call to understand all terrain in a level."); }
 	virtual FString GetCategory() const override { return TEXT("Landscape"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual FECACommandResult Execute(const TSharedPtr<FJsonObject>& Params) override;
 };
@@ -26,6 +27,7 @@ public:
 	virtual FString GetName() const override { return TEXT("get_source_control_status"); }
 	virtual FString GetDescription() const override { return TEXT("Get source control status: provider (Perforce/Git/etc), which files are checked out, modified, added, or conflicted. Essential for team workflows."); }
 	virtual FString GetCategory() const override { return TEXT("SourceControl"); }
+	virtual bool IsMutating() const override { return false; }
 
 	virtual TArray<FECACommandParam> GetParameters() const override
 	{
